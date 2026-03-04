@@ -64,8 +64,8 @@ class People(cvb.BasePeople):
                 self[key] = np.arange(self.pars['pop_size'], dtype=cvd.default_int)
             elif key in ['n_infections', 'n_breakthroughs']:
                 self[key] = np.zeros(self.pars['pop_size'], dtype=cvd.default_int)
-            elif key == 'role':
-                self[key] = np.full(self.pars['pop_size'], -1, dtype=cvd.default_int)
+            elif key == 'role':#新添加people的属性
+                self[key] = np.full(self.pars['pop_size'], -1, dtype=cvd.default_int)    
             else:
                 self[key] = np.full(self.pars['pop_size'], np.nan, dtype=cvd.default_float)
 
@@ -772,3 +772,4 @@ class People(cvb.BasePeople):
             else:
                 print(f'Nothing happened to {uid} during the simulation.')
         return
+

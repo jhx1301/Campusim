@@ -17,8 +17,9 @@ from . import people as cvppl
 
 # Specify all externally visible functions this file defines
 __all__ = ['make_people', 'make_randpop', 'make_random_contacts',
-           'make_microstructured_contacts', 'make_campus_contacts','make_hybrid_contacts',
-           'make_synthpop']
+           'make_microstructured_contacts', 'make_hybrid_contacts',
+           'make_campus_contacts', 'CampusClassroomLayer', 'make_synthpop']
+
 
 
 def make_people(sim, popdict=None, die=True, reset=False, recreate=False, verbose=None, **kwargs):
@@ -77,7 +78,7 @@ def make_people(sim, popdict=None, die=True, reset=False, recreate=False, verbos
     # Main use case: no popdict is supplied, so create one
     else:
         if popdict is None:
-            if pop_type in ['random', 'hybrid']:
+            if pop_type in ['random', 'hybrid', 'campus']:
                 popdict = make_randpop(sim, microstructure=pop_type, **kwargs) # Main use case: create a random or hybrid population
             else: # pragma: no cover
                 errormsg = f'Population type "{pop_type}" not found; choices are random, hybrid, or synthpops'
@@ -93,7 +94,28 @@ def make_people(sim, popdict=None, die=True, reset=False, recreate=False, verbos
         people = popdict
         people.set_pars(sim.pars)
     else:
-        people = cvppl.People(sim.pars, uid=popdict['uid'], age=popdict['age'], sex=popdict['sex'], contacts=popdict['contacts']) # List for storing the people
+        if 'role' not in popdict:
+            popdict['role'] = np.full(sim['pop_size'], -1, dtype=cvd.default_int)
+
+        people = cvppl.People(
+            sim.pars,
+            uid=popdict['uid'],
+            age=popdict['age'],
+            sex=popdict['sex'],
+            role=popdict['role'],
+            contacts=popdict['contacts'],
+        )
+
+    # Attach campus classroom dynamic layer and persistent class groups
+    if pop_type == 'campus' and 'class_groups' in popdict:
+        people.class_groups = popdict['class_groups']
+        people.contacts['cl'] = CampusClassroomLayer(
+            people.contacts['cl'],
+            class_groups=people.class_groups,
+            k_ts=sim.pars.get('campus_k_ts', 6.0),
+            k_ss=sim.pars.get('campus_k_ss', 10.0),
+            stability=sim.pars.get('campus_cl_stability', 0.4),
+        )
 
     sc.printv(f'Created {pop_size} people, average age {people.age.mean():0.2f} years', 2, verbose)
 
@@ -208,17 +230,35 @@ def make_randpop(pars, use_age_data=True, use_household_data=True, sex_ratio=0.5
     popdict['uid'] = uids
     popdict['age'] = ages
     popdict['sex'] = sexes
+    popdict['role'] = np.full(pop_size, -1, dtype=cvd.default_int)
 
-    # Actually create the contacts
+
     if microstructure == 'random':
         contacts = dict()
         for lkey,n in pars['contacts'].items():
             contacts[lkey] = make_random_contacts(pop_size, n, **kwargs)
     elif microstructure == 'hybrid':
         contacts = make_hybrid_contacts(pop_size, ages, pars['contacts'], **kwargs)
+    elif microstructure == 'campus':
+        contacts, role, class_groups = make_campus_contacts(
+            pop_size=pop_size,
+            ages=ages,
+            sexes=sexes,
+            contacts=pars['contacts'],
+            student_age=pars.get('campus_student_age', [17, 26]),
+            teacher_age=pars.get('campus_teacher_age', [26, 65]),
+            class_size_mean=pars.get('campus_class_size_mean', 40),
+            class_size_std=pars.get('campus_class_size_std', 6),
+            class_size_min=pars.get('campus_class_size_min', 30),
+            class_size_max=pars.get('campus_class_size_max', 55),
+            teachers_per_class=pars.get('campus_teachers_per_class', 3),
+        )
+        popdict['role'] = role
+        popdict['class_groups'] = class_groups
     else: # pragma: no cover
-        errormsg = f'Microstructure type "{microstructure}" not found; choices are random or hybrid'
+        errormsg = f'Microstructure type "{microstructure}" not found; choices are random, hybrid, or campus'
         raise NotImplementedError(errormsg)
+
 
     popdict['contacts']   = contacts
     popdict['layer_keys'] = list(pars['contacts'].keys())
@@ -364,26 +404,95 @@ def make_hybrid_contacts(pop_size, ages, contacts, school_ages=None, work_ages=N
     return contacts_dict
 
 
-def make_campus_contacts(pop_size, ages, sexes, contacts, role=None, class_size=40, seed=None):
+class CampusClassroomLayer(cvb.Layer):
+    """Dynamic classroom layer using fixed class groups and daily random sampling."""
+
+    def __init__(self, layer, class_groups, k_ts=6.0, k_ss=10.0, stability=0.4):
+        super().__init__(layer, label=getattr(layer, 'label', 'cl'))
+        self.class_groups = class_groups
+        self.k_ts = float(k_ts)
+        self.k_ss = float(k_ss)
+        self.stability = float(stability)
+
+    def _sample_ss_edges(self, students, n_edges):
+        if len(students) < 2 or n_edges <= 0:
+            return [], []
+        p1 = np.random.choice(students, size=n_edges, replace=True)
+        p2 = np.random.choice(students, size=n_edges, replace=True)
+        valid = p1 != p2
+        return p1[valid].tolist(), p2[valid].tolist()
+
+    def _sample_ts_edges(self, teachers, students):
+        if len(teachers) == 0 or len(students) == 0 or self.k_ts <= 0:
+            return [], []
+        p1, p2 = [], []
+        for t in teachers:
+            n_t = cvu.poisson(self.k_ts)
+            if n_t > 0:
+                s = np.random.choice(students, size=n_t, replace=True)
+                p1.extend([int(t)] * n_t)
+                p2.extend(s.tolist())
+        return p1, p2
+
+    def update(self, people):
+        old_n = len(self)
+        keep_n = int(round(self.stability * old_n)) if old_n > 0 else 0
+
+        keep_p1, keep_p2 = [], []
+        if keep_n > 0:
+            keep_inds = cvu.choose(old_n, keep_n)
+            keep_p1 = self['p1'][keep_inds].tolist()
+            keep_p2 = self['p2'][keep_inds].tolist()
+
+        new_p1, new_p2 = [], []
+        for grp in self.class_groups:
+            students = grp['students']
+            teachers = grp['teachers']
+
+            ts_p1, ts_p2 = self._sample_ts_edges(teachers, students)
+            new_p1.extend(ts_p1)
+            new_p2.extend(ts_p2)
+
+            # k_ss interpreted as average student-student degree proxy
+            n_ss = int(round(len(students) * max(self.k_ss, 0) / 2.0))
+            ss_p1, ss_p2 = self._sample_ss_edges(students, n_ss)
+            new_p1.extend(ss_p1)
+            new_p2.extend(ss_p2)
+
+        all_p1 = keep_p1 + new_p1
+        all_p2 = keep_p2 + new_p2
+
+        edge = _tidy_edgelist(all_p1, all_p2, mapping=None)
+        self['p1'] = edge['p1']
+        self['p2'] = edge['p2']
+        self['beta'] = np.ones(len(self['p1']), dtype=cvd.default_float)
+        return
+
+
+def make_campus_contacts(pop_size, ages, sexes, contacts,
+                         role=None,
+                         student_age=(17, 26),
+                         teacher_age=(26, 65),
+                         class_size_mean=40,
+                         class_size_std=6,
+                         class_size_min=30,
+                         class_size_max=55,
+                         teachers_per_class=3):
     """
     Campus layers:
     d  = dormitory (student only, sex-separated clusters)
-    cl = classroom (1 teacher + many students)
+    cl = classroom (dynamic layer; class groups are fixed)
     of = office/lab (teacher-student random bipartite)
     ta = teacher apartment (each apartment has >=1 teacher)
-    cm = community/public area (daily random if dynam_layer['cm']=1)
+    cm = public/community random (dynamic if configured)
     """
-    if seed is not None:
-        np.random.seed(seed)
-
     contacts = sc.mergedicts({'d': 6, 'cl': 25, 'of': 6, 'ta': 3, 'cm': 12}, contacts)
 
-    # role: 0=student, 1=teacher, 2=staff, -1=other
     if role is None:
         role = np.full(pop_size, -1, dtype=cvd.default_int)
         ages = np.asarray(ages)
-        stu = sc.findinds((ages >= 17) * (ages < 26))
-        tea = sc.findinds((ages >= 26) * (ages < 65))
+        stu = sc.findinds((ages >= student_age[0]) * (ages < student_age[1]))
+        tea = sc.findinds((ages >= teacher_age[0]) * (ages < teacher_age[1]))
         role[stu] = 0
         role[tea] = 1
         other = np.setdiff1d(np.arange(pop_size), np.concatenate([stu, tea]))
@@ -394,7 +503,7 @@ def make_campus_contacts(pop_size, ages, sexes, contacts, role=None, class_size=
 
     student_inds = np.where(role == 0)[0]
     teacher_inds = np.where(role == 1)[0]
-    staff_inds   = np.where(role == 2)[0]
+    staff_inds = np.where(role == 2)[0]
 
     def _merge_edges(edge_list):
         p1_all, p2_all = [], []
@@ -414,6 +523,11 @@ def make_campus_contacts(pop_size, ages, sexes, contacts, role=None, class_size=
             p2=np.concatenate(p2_all).astype(cvd.default_int),
         )
 
+    def _draw_class_size(n_remaining):
+        raw = int(round(np.random.normal(class_size_mean, class_size_std)))
+        raw = max(class_size_min, min(class_size_max, raw))
+        return min(max(raw, 1), n_remaining)
+
     contacts_dict = {}
 
     # d: dorm (students only, split by sex)
@@ -424,35 +538,41 @@ def make_campus_contacts(pop_size, ages, sexes, contacts, role=None, class_size=
             d_edges.append(make_microstructured_contacts(len(sx_inds), contacts['d'], mapping=sx_inds))
     contacts_dict['d'] = _merge_edges(d_edges)
 
-    # cl: classroom (teacher-student star per class)
-    cl_p1, cl_p2 = [], []
-    if len(student_inds) and len(teacher_inds):
-        shuffled_students = np.array(student_inds, dtype=cvd.default_int).copy()
-        np.random.shuffle(shuffled_students)
-        n_classes = int(np.ceil(len(shuffled_students) / float(class_size)))
-        class_chunks = np.array_split(shuffled_students, n_classes)
+    # Build fixed class groups (for dynamic classroom layer)
+    class_groups = []
+    if len(student_inds) > 0:
+        shuffled = np.array(student_inds, dtype=cvd.default_int).copy()
+        np.random.shuffle(shuffled)
 
-        teacher_cycle = np.resize(np.array(teacher_inds, dtype=cvd.default_int), n_classes)
+        cursor = 0
+        class_id = 0
+        while cursor < len(shuffled):
+            n_remaining = len(shuffled) - cursor
+            csize = _draw_class_size(n_remaining)
+            students = shuffled[cursor:cursor+csize]
+            cursor += csize
 
-        for ci, stu_chunk in enumerate(class_chunks):
-            if len(stu_chunk) == 0:
-                continue
-            t = int(teacher_cycle[ci])
+            n_teachers = max(1, int(cvu.poisson(max(teachers_per_class - 1, 0))) + 1)
+            if len(teacher_inds) > 0:
+                replace = len(teacher_inds) < n_teachers
+                teachers = np.random.choice(teacher_inds, size=n_teachers, replace=replace).astype(cvd.default_int)
+            else:
+                teachers = np.empty(0, dtype=cvd.default_int)
 
-            # teacher -> all students
-            cl_p1.extend([t] * len(stu_chunk))
-            cl_p2.extend(stu_chunk.tolist())
+            members = np.unique(np.concatenate((students, teachers))).astype(cvd.default_int)
+            class_groups.append(dict(
+                class_id=class_id,
+                students=np.array(students, dtype=cvd.default_int),
+                teachers=np.array(teachers, dtype=cvd.default_int),
+                members=members,
+            ))
+            class_id += 1
 
-            # optional student-student sparse edges
-            n_ss = int(round(len(stu_chunk) * max(contacts['cl'] - 1, 0) / 2.0))
-            if len(stu_chunk) > 1 and n_ss > 0:
-                a = np.random.choice(stu_chunk, size=n_ss, replace=True)
-                b = np.random.choice(stu_chunk, size=n_ss, replace=True)
-                valid = a != b
-                cl_p1.extend(a[valid].tolist())
-                cl_p2.extend(b[valid].tolist())
-
-    contacts_dict['cl'] = _tidy_edgelist(cl_p1, cl_p2, mapping=None)
+    # cl: start empty; updated daily by CampusClassroomLayer.update()
+    contacts_dict['cl'] = dict(
+        p1=np.empty(0, dtype=cvd.default_int),
+        p2=np.empty(0, dtype=cvd.default_int),
+    )
 
     # of: office/lab (teacher-student bipartite random)
     of_p1, of_p2 = [], []
@@ -465,7 +585,7 @@ def make_campus_contacts(pop_size, ages, sexes, contacts, role=None, class_size=
                 of_p2.extend(st.tolist())
     contacts_dict['of'] = _tidy_edgelist(of_p1, of_p2, mapping=None)
 
-    # ta: teacher apartments (each apartment anchored by one teacher)
+    # ta: teacher apartments
     ta_p1, ta_p2 = [], []
     apt_pool = np.concatenate([teacher_inds, staff_inds]) if len(staff_inds) else np.array(teacher_inds, dtype=cvd.default_int)
     for t in teacher_inds:
@@ -473,28 +593,23 @@ def make_campus_contacts(pop_size, ages, sexes, contacts, role=None, class_size=
         n_other = apt_size - 1
         if n_other <= 0:
             continue
-
         candidates = apt_pool[apt_pool != t]
         if len(candidates) == 0:
             continue
-
-        if len(candidates) >= n_other:
-            others = np.random.choice(candidates, size=n_other, replace=False)
-        else:
-            others = np.random.choice(candidates, size=n_other, replace=True)
-
-        group = np.concatenate([[t], others.astype(cvd.default_int)])
+        replace = len(candidates) < n_other
+        others = np.random.choice(candidates, size=n_other, replace=replace).astype(cvd.default_int)
+        group = np.concatenate([[t], others])
         for i in range(len(group)):
             for j in range(i + 1, len(group)):
                 ta_p1.append(int(group[i]))
                 ta_p2.append(int(group[j]))
-
     contacts_dict['ta'] = _tidy_edgelist(ta_p1, ta_p2, mapping=None)
 
-    # cm: public/community random
+    # cm: public/community
     contacts_dict['cm'] = make_random_contacts(pop_size, contacts['cm'])
 
-    return contacts_dict, role
+    return contacts_dict, role, class_groups
+
 
 
 def make_synthpop(sim=None, popdict=None, layer_mapping=None, community_contacts=None, **kwargs): # pragma: no cover

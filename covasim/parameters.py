@@ -55,6 +55,18 @@ def make_pars(set_prognoses=False, prog_by_age=True, version=None, **kwargs):
     pars['contacts']        = None  # The number of contacts per layer; set by reset_layer_pars() below
     pars['dynam_layer']     = None  # Which layers are dynamic; set by reset_layer_pars() below
     pars['beta_layer']      = None  # Transmissibility per layer; set by reset_layer_pars() below
+    
+    # 校园层专属键Campus population controls (used when pop_type='campus')
+    pars['campus_student_age']        = [17, 26]
+    pars['campus_teacher_age']        = [26, 65]
+    pars['campus_class_size_mean']    = 40
+    pars['campus_class_size_std']     = 6
+    pars['campus_class_size_min']     = 30
+    pars['campus_class_size_max']     = 55
+    pars['campus_teachers_per_class'] = 3
+    pars['campus_k_ts']               = 6.0   # teacher-student contacts per class per day
+    pars['campus_k_ss']               = 10.0  # student-student average degree proxy per class per day
+    pars['campus_cl_stability']       = 0.4   # fraction of yesterday classroom edges retained
 
     # Basic disease transmission parameters
     pars['beta_dist']    = dict(dist='neg_binomial', par1=1.0, par2=0.45, step=0.01) # Distribution to draw individual level transmissibility; dispersion from https://www.researchsquare.com/article/rs-29548/v1
@@ -187,6 +199,15 @@ def reset_layer_pars(pars, layer_keys=None, force=False):
         iso_factor  = dict(h=0.3, s=0.1, w=0.1, c=0.1),  # Multiply beta by this factor for people in isolation
         quar_factor = dict(h=0.6, s=0.2, w=0.2, c=0.2),  # Multiply beta by this factor for people in quarantine
     )
+    # campus 默认层，适用于校园场景，包含宿舍、教室、食堂、图书馆等层
+    layer_defaults['campus'] = dict(
+    beta_layer  = dict(d=2.0, cl=1.0, of=0.8, ta=1.6, cm=0.35),
+    contacts    = dict(d=5,   cl=25,  of=6,   ta=3,   cm=12),
+    dynam_layer = dict(d=0,   cl=1,   of=0,   ta=0,   cm=1),
+    iso_factor  = dict(d=0.3, cl=0.1, of=0.1, ta=0.2, cm=0.1),
+    quar_factor = dict(d=0.6, cl=0.2, of=0.2, ta=0.4, cm=0.2),
+    )
+
 
     # Specify defaults for SynthPops -- same as hybrid except for LTCF layer (l)
     l_pars = dict(beta_layer=1.5, contacts=10, dynam_layer=0, iso_factor=0.2, quar_factor=0.3)
@@ -198,7 +219,7 @@ def reset_layer_pars(pars, layer_keys=None, force=False):
     try:
         defaults = layer_defaults[pars['pop_type']]
     except Exception as E:
-        errormsg = f'Cannot load defaults for population type "{pars["pop_type"]}": must be hybrid, random, or synthpops'
+        errormsg = f'Cannot load defaults for population type "{pars["pop_type"]}": must be hybrid, random, campus, or synthpops'
         raise ValueError(errormsg) from E
     default_layer_keys = list(defaults['beta_layer'].keys()) # All layers should be the same, but use beta_layer for convenience
 
