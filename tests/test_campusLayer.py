@@ -1,0 +1,10 @@
+import covasim as cv
+sim = cv.Sim(pop_type='campus', pop_size=2000, n_days=2, rand_seed=1, verbose=0)
+sim.initialize()
+print("init ok", len(sim.people))
+print(type(sim.people.contacts['cl']))
+sim.step()
+print(type(sim.people.contacts['cl']), len(sim.people.contacts['cl']))
+sim = cv.Sim(pop_type='campus', pop_size=5000, n_days=30, rand_seed=1, verbose=0)
+sim.run()
+print(sim.results['cum_infections'][-1])

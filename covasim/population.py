@@ -187,6 +187,7 @@ def make_randpop(pars, use_age_data=True, use_household_data=True, sex_ratio=0.5
     '''
 
     pop_size = int(pars['pop_size']) # Number of people
+    pop_pars = pars.pars if hasattr(pars, 'pars') else pars # Support being passed either a Sim or a dict
 
     # Load age data and household demographics based on 2018 Seattle demographics by default, or country if available
     age_data = cvd.default_age_data
@@ -245,13 +246,13 @@ def make_randpop(pars, use_age_data=True, use_household_data=True, sex_ratio=0.5
             ages=ages,
             sexes=sexes,
             contacts=pars['contacts'],
-            student_age=pars.get('campus_student_age', [17, 26]),
-            teacher_age=pars.get('campus_teacher_age', [26, 65]),
-            class_size_mean=pars.get('campus_class_size_mean', 40),
-            class_size_std=pars.get('campus_class_size_std', 6),
-            class_size_min=pars.get('campus_class_size_min', 30),
-            class_size_max=pars.get('campus_class_size_max', 55),
-            teachers_per_class=pars.get('campus_teachers_per_class', 3),
+            student_age=pop_pars.get('campus_student_age', [17, 26]),
+            teacher_age=pop_pars.get('campus_teacher_age', [26, 65]),
+            class_size_mean=pop_pars.get('campus_class_size_mean', 40),
+            class_size_std=pop_pars.get('campus_class_size_std', 6),
+            class_size_min=pop_pars.get('campus_class_size_min', 30),
+            class_size_max=pop_pars.get('campus_class_size_max', 55),
+            teachers_per_class=pop_pars.get('campus_teachers_per_class', 3),
         )
         popdict['role'] = role
         popdict['class_groups'] = class_groups
@@ -408,7 +409,14 @@ class CampusClassroomLayer(cvb.Layer):
     """Dynamic classroom layer using fixed class groups and daily random sampling."""
 
     def __init__(self, layer, class_groups, k_ts=6.0, k_ss=10.0, stability=0.4):
-        super().__init__(layer, label=getattr(layer, 'label', 'cl'))
+        super().__init__(label='cl')
+        self['p1'] = np.array(layer['p1'], dtype=cvd.default_int)
+        self['p2'] = np.array(layer['p2'], dtype=cvd.default_int)
+        if 'beta' in layer:
+            self['beta'] = np.array(layer['beta'], dtype=cvd.default_float)
+        else:
+            self['beta'] = np.ones(len(self['p1']), dtype=cvd.default_float)
+
         self.class_groups = class_groups
         self.k_ts = float(k_ts)
         self.k_ss = float(k_ss)
@@ -453,18 +461,33 @@ class CampusClassroomLayer(cvb.Layer):
             new_p1.extend(ts_p1)
             new_p2.extend(ts_p2)
 
-            # k_ss interpreted as average student-student degree proxy
             n_ss = int(round(len(students) * max(self.k_ss, 0) / 2.0))
             ss_p1, ss_p2 = self._sample_ss_edges(students, n_ss)
             new_p1.extend(ss_p1)
             new_p2.extend(ss_p2)
 
-        all_p1 = keep_p1 + new_p1
-        all_p2 = keep_p2 + new_p2
+        all_p1 = np.array(keep_p1 + new_p1, dtype=cvd.default_int)
+        all_p2 = np.array(keep_p2 + new_p2, dtype=cvd.default_int)
 
-        edge = _tidy_edgelist(all_p1, all_p2, mapping=None)
-        self['p1'] = edge['p1']
-        self['p2'] = edge['p2']
+        # Undirected canonicalization + remove self-loop + dedup
+        if len(all_p1):
+            a = np.minimum(all_p1, all_p2)
+            b = np.maximum(all_p1, all_p2)
+            valid = a != b
+            a = a[valid]
+            b = b[valid]
+
+            if len(a):
+                pairs = np.column_stack((a, b))
+                uniq_pairs = np.unique(pairs, axis=0)
+                all_p1 = uniq_pairs[:, 0].astype(cvd.default_int)
+                all_p2 = uniq_pairs[:, 1].astype(cvd.default_int)
+            else:
+                all_p1 = np.empty(0, dtype=cvd.default_int)
+                all_p2 = np.empty(0, dtype=cvd.default_int)
+
+        self['p1'] = all_p1
+        self['p2'] = all_p2
         self['beta'] = np.ones(len(self['p1']), dtype=cvd.default_float)
         return
 
