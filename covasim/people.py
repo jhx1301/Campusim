@@ -66,6 +66,8 @@ class People(cvb.BasePeople):
                 self[key] = np.zeros(self.pars['pop_size'], dtype=cvd.default_int)
             elif key == 'role':#新添加people的属性
                 self[key] = np.full(self.pars['pop_size'], -1, dtype=cvd.default_int)    
+            elif key == 'student_level':
+                self[key] = np.full(self.pars['pop_size'], 2, dtype=cvd.default_int)   # dedfault: non-student
             else:
                 self[key] = np.full(self.pars['pop_size'], np.nan, dtype=cvd.default_float)
 

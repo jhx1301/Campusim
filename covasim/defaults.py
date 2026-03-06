@@ -44,7 +44,8 @@ class PeopleMeta(sc.prettyobj):
             'uid',              # Int
             'age',              # Float
             'sex',              # Float
-            'role',             # Int: 0=student, 1=teacher, 2=staff, -1=other
+            'role',             # Int: 0=student, 1=teacher, 2=staff
+            'student_level',    # Int: 0=UG, 1=GR, 2=non-student
             'symp_prob',        # Float
             'severe_prob',      # Float
             'crit_prob',        # Float
@@ -54,6 +55,7 @@ class PeopleMeta(sc.prettyobj):
             'n_infections',     # Int
             'n_breakthroughs',  # Int
         ]
+
 
         # Set the states that a person can be in: these are all booleans per person -- used in people.py
         self.states = [

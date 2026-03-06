@@ -56,17 +56,39 @@ def make_pars(set_prognoses=False, prog_by_age=True, version=None, **kwargs):
     pars['dynam_layer']     = None  # Which layers are dynamic; set by reset_layer_pars() below
     pars['beta_layer']      = None  # Transmissibility per layer; set by reset_layer_pars() below
     
-    # 校园层专属键Campus population controls (used when pop_type='campus')
-    pars['campus_student_age']        = [17, 26]
-    pars['campus_teacher_age']        = [26, 65]
+    # Campus population controls (used when pop_type='campus')
+    pars['campus_age_data'] = np.array([
+        [0, 16,  0.01],
+        [17, 23, 0.55],
+        [24, 30, 0.24],
+        [31, 60, 0.19],
+        [61, 99, 0.01],
+    ], dtype=cvd.default_float)
+
+    # Disjoint windows are required
+    pars['campus_undergrad_age_window'] = [17, 24]   # [min, max)
+    pars['campus_grad_age_window']      = [24, 31]
+    pars['campus_worker_age_window']    = [31, 66]
+
+    pars['campus_teacher_ratio'] = 0.08
+    pars['campus_staff_ratio']   = 0.12   # teacher+staff <= 1
+
+    pars['campus_p_ug_in_lab']      = 0.10
+    pars['campus_p_grad_in_class']  = 0.35
+
     pars['campus_class_size_mean']    = 40
     pars['campus_class_size_std']     = 6
     pars['campus_class_size_min']     = 30
     pars['campus_class_size_max']     = 55
-    pars['campus_teachers_per_class'] = 3
-    pars['campus_k_ts']               = 6.0   # teacher-student contacts per class per day
-    pars['campus_k_ss']               = 10.0  # student-student average degree proxy per class per day
-    pars['campus_cl_stability']       = 0.4   # fraction of yesterday classroom edges retained
+    pars['campus_teachers_per_class'] = 1
+
+    pars['campus_k_ts']         = 6.0
+    pars['campus_k_ss']         = 10.0
+    pars['campus_cl_stability'] = 0.4
+
+    pars['campus_k_ls']           = 4.0
+    pars['campus_lab_stability']  = 0.3
+
 
     # Basic disease transmission parameters
     pars['beta_dist']    = dict(dist='neg_binomial', par1=1.0, par2=0.45, step=0.01) # Distribution to draw individual level transmissibility; dispersion from https://www.researchsquare.com/article/rs-29548/v1
@@ -199,13 +221,14 @@ def reset_layer_pars(pars, layer_keys=None, force=False):
         iso_factor  = dict(h=0.3, s=0.1, w=0.1, c=0.1),  # Multiply beta by this factor for people in isolation
         quar_factor = dict(h=0.6, s=0.2, w=0.2, c=0.2),  # Multiply beta by this factor for people in quarantine
     )
-    # campus 默认层，适用于校园场景，包含宿舍、教室、食堂、图书馆等层
+
+    # Specify defaults for campus
     layer_defaults['campus'] = dict(
-    beta_layer  = dict(d=2.0, cl=1.0, of=0.8, ta=1.6, cm=0.35),
-    contacts    = dict(d=5,   cl=25,  of=6,   ta=3,   cm=12),
-    dynam_layer = dict(d=0,   cl=1,   of=0,   ta=0,   cm=1),
-    iso_factor  = dict(d=0.3, cl=0.1, of=0.1, ta=0.2, cm=0.1),
-    quar_factor = dict(d=0.6, cl=0.2, of=0.2, ta=0.4, cm=0.2),
+        beta_layer  = dict(d=2.0, clu=1.0, clg=1.0, of=0.8, ta=1.2, cm=0.35),
+        contacts    = dict(d=5,   clu=25,  clg=12,  of=6,   ta=3,   cm=12),
+        dynam_layer = dict(d=0,   clu=1,   clg=1,   of=1,   ta=0,   cm=1),
+        iso_factor  = dict(d=0.3, clu=0.1, clg=0.1, of=0.1, ta=0.2, cm=0.1),
+        quar_factor = dict(d=0.6, clu=0.2, clg=0.2, of=0.2, ta=0.4, cm=0.2),
     )
 
 
