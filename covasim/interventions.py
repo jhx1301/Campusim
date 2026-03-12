@@ -203,6 +203,8 @@ def InterventionDict(which, pars):
         test_num        = test_num,
         test_prob       = test_prob,
         contact_tracing = contact_tracing,
+        campus_periodic_screening = campus_periodic_screening,
+        campus_online_teaching    = campus_online_teaching,
         )
     try:
         IntervClass = mapping[which]
@@ -1144,6 +1146,415 @@ class contact_tracing(Intervention):
             sim.people.schedule_quarantine(contact_inds, start_date=sim.t + trace_time, period=self.quar_period - trace_time)  # Schedule quarantine for the notified people to start on the date they will be notified
         return
 
+
+#%% Campus interventions
+
+__all__ += ['campus_periodic_screening', 'campus_online_teaching']
+
+class campus_periodic_screening(Intervention):
+    '''
+    Campus-specific periodic asymptomatic screening.
+
+    This intervention schedules asymptomatic screening by organizational groups
+    rather than by contact layer directly. Supported group types are:
+
+        - teacher
+        - lab
+        - course
+        - dorm
+        - id_bucket
+
+    Different group types may use different screening cycles. A person may belong
+    to multiple groups, but can be tested at most once per day.
+
+    Args:
+        group_cycles (dict): mapping from group type to cycle length in days
+        daily_capacity (int/arr/dataframe): maximum tests per day
+        start_day (int/date): intervention start day
+        end_day (int/date): intervention end day
+        id_bucket_count (int): number of fallback ID buckets
+        exclude_recent_days (int): skip people tested within this many days
+        subtarget (dict): optional priority weighting, same structure as test_num()
+        sensitivity (float): test sensitivity
+        loss_prob (float): loss-to-follow-up probability
+        test_delay (int): test result delay
+        kwargs (dict): passed to Intervention()
+    '''
+
+    def __init__(self, group_cycles, daily_capacity, start_day=0, end_day=None,
+                 id_bucket_count=7, exclude_recent_days=0, subtarget=None,
+                 sensitivity=1.0, loss_prob=0.0, test_delay=0, **kwargs):
+        super().__init__(**kwargs)
+        self.group_cycles = sc.dcp(group_cycles)
+        self.daily_capacity = sc.dcp(daily_capacity)
+        self.start_day = start_day
+        self.end_day = end_day
+        self.id_bucket_count = int(id_bucket_count)
+        self.exclude_recent_days = int(exclude_recent_days)
+        self.subtarget = subtarget
+        self.sensitivity = sensitivity
+        self.loss_prob = loss_prob
+        self.test_delay = int(test_delay)
+
+        self.group_members = None
+        self.group_priority = dict(teacher=0, lab=1, dorm=2, course=3, id_bucket=4)
+        self.last_screen_day = None
+        return
+
+
+    def initialize(self, sim):
+        super().initialize(sim)
+
+        if sim['pop_type'] != 'campus':
+            errormsg = 'cv.campus_periodic_screening() requires pop_type="campus".'
+            raise RuntimeError(errormsg)
+
+        self.start_day = preprocess_day(self.start_day, sim)
+        self.end_day = preprocess_day(self.end_day, sim) if self.end_day is not None else None
+        self.days = [self.start_day, self.end_day]
+
+        self.daily_capacity = process_daily_data(self.daily_capacity, sim, self.start_day, as_int=True)
+        self._validate_group_cycles()
+        self.group_members = self._build_groups(sim)
+        self.last_screen_day = np.full(sim.n, -10**9, dtype=cvd.default_int)
+
+        return
+
+
+    def finalize(self, sim):
+        super().finalize(sim)
+        self.group_members = None
+        self.last_screen_day = None
+        self.subtarget = None
+        return
+
+
+    def apply(self, sim):
+        t = sim.t
+        start_day = get_day(self.start_day, self, sim)
+        end_day = get_day(self.end_day, self, sim)
+
+        if t < start_day:
+            return
+        elif end_day is not None and t > end_day:
+            return
+
+        rel_t = t - start_day
+        if rel_t >= len(self.daily_capacity):
+            return
+
+        capacity = sc.randround(self.daily_capacity[rel_t] / sim.rescale_vec[t])
+        if not (capacity and pl.isfinite(capacity)):
+            return
+
+        candidates, priorities = self._collect_due_candidates(sim, t, start_day)
+        if len(candidates) == 0:
+            return np.array([], dtype=cvd.default_int)
+
+        candidates = self._filter_eligible(sim, candidates, t)
+        if len(candidates) == 0:
+            return np.array([], dtype=cvd.default_int)
+
+        ranked = self._rank_candidates(sim, candidates, priorities, t)
+        test_inds = ranked[:min(capacity, len(ranked))]
+        if len(test_inds) == 0:
+            return test_inds
+
+        sim.people.test(
+            test_inds,
+            test_sensitivity=self.sensitivity,
+            loss_prob=self.loss_prob,
+            test_delay=self.test_delay,
+        )
+        self.last_screen_day[test_inds] = t
+        sim.results['new_tests'][t] += len(test_inds) * sim['pop_scale'] / sim.rescale_vec[t]
+
+        return test_inds
+
+
+    def _validate_group_cycles(self):
+        valid = {'teacher', 'lab', 'course', 'dorm', 'id_bucket'}
+        unknown = set(self.group_cycles.keys()) - valid
+        if unknown:
+            errormsg = f'Unknown group cycle keys: {sc.strjoin(sorted(unknown))}'
+            raise ValueError(errormsg)
+
+        for key, val in self.group_cycles.items():
+            if not sc.isnumber(val) or int(val) <= 0:
+                raise ValueError(f'Cycle for group "{key}" must be a positive integer, not {val}')
+
+        if self.id_bucket_count <= 0:
+            raise ValueError(f'id_bucket_count must be > 0, not {self.id_bucket_count}')
+
+        return
+
+
+    def _build_groups(self, sim):
+        groups = dict(teacher={}, lab={}, course={}, dorm={}, id_bucket={})
+
+        role = sim.people.role
+
+        teacher_inds = cvu.true(role == 1)
+        if len(teacher_inds):
+            groups['teacher']['teacher_all'] = np.array(teacher_inds, dtype=cvd.default_int)
+
+        for i, grp in enumerate(getattr(sim.people, 'lab_groups', [])):
+            members = np.unique(np.concatenate([grp['teachers'], grp['students']])).astype(cvd.default_int)
+            if len(members):
+                groups['lab'][f'lab_{i}'] = members
+
+        course_groups = []
+        course_groups.extend(getattr(sim.people, 'class_groups_ug', []))
+        course_groups.extend(getattr(sim.people, 'class_groups_gr', []))
+        for i, grp in enumerate(course_groups):
+            members = np.unique(np.concatenate([grp['teachers'], grp['students']])).astype(cvd.default_int)
+            if len(members):
+                groups['course'][f'course_{i}'] = members
+
+        dorm_groups = self._build_dorm_groups(sim)
+        for i, members in enumerate(dorm_groups):
+            if len(members):
+                groups['dorm'][f'dorm_{i}'] = members
+
+        student_inds = cvu.true(role == 0)
+        if len(student_inds):
+            bucket_ids = student_inds % self.id_bucket_count
+            for bid in range(self.id_bucket_count):
+                members = student_inds[bucket_ids == bid]
+                if len(members):
+                    groups['id_bucket'][f'bucket_{bid}'] = members.astype(cvd.default_int)
+
+        return groups
+
+
+    def _build_dorm_groups(self, sim):
+        layer = sim.people.contacts['d']
+        role = sim.people.role
+        student_inds = set(cvu.true(role == 0).tolist())
+
+        if len(layer) == 0:
+            return [np.array([ind], dtype=cvd.default_int) for ind in sorted(student_inds)]
+
+        pairs = np.column_stack((layer['p1'], layer['p2']))
+        adjacency = {}
+
+        for p1, p2 in pairs:
+            p1 = int(p1)
+            p2 = int(p2)
+            adjacency.setdefault(p1, set()).add(p2)
+            adjacency.setdefault(p2, set()).add(p1)
+
+        visited = set()
+        components = []
+
+        for node in adjacency.keys():
+            if node in visited:
+                continue
+            stack = [node]
+            comp = []
+            visited.add(node)
+            while stack:
+                cur = stack.pop()
+                comp.append(cur)
+                for nei in adjacency[cur]:
+                    if nei not in visited:
+                        visited.add(nei)
+                        stack.append(nei)
+            components.append(np.array(sorted(comp), dtype=cvd.default_int))
+
+        assigned = set()
+        for comp in components:
+            assigned.update(comp.tolist())
+
+        for ind in sorted(student_inds - assigned):
+            components.append(np.array([ind], dtype=cvd.default_int))
+
+        return components
+
+
+    def _collect_due_candidates(self, sim, t, start_day):
+        merged_priority = {}
+        day_offset = t - start_day
+
+        for gtype, cycle in self.group_cycles.items():
+            cycle = int(cycle)
+            group_items = list(self.group_members[gtype].items())
+
+            for gind, (_, members) in enumerate(group_items):
+                phase = gind % cycle
+                if (day_offset % cycle) != phase:
+                    continue
+
+                prio = self.group_priority[gtype]
+                for ind in members:
+                    ind = int(ind)
+                    if ind not in merged_priority:
+                        merged_priority[ind] = prio
+                    else:
+                        merged_priority[ind] = min(merged_priority[ind], prio)
+
+        if not merged_priority:
+            return np.array([], dtype=cvd.default_int), {}
+
+        inds = np.fromiter(merged_priority.keys(), dtype=cvd.default_int)
+        return inds, merged_priority
+
+
+    def _filter_eligible(self, sim, candidates, t):
+        eligible = candidates[~sim.people.dead[candidates]]
+        eligible = eligible[~sim.people.diagnosed[eligible]]
+        eligible = eligible[~sim.people.symptomatic[eligible]]
+
+        if self.exclude_recent_days > 0:
+            recent = (t - self.last_screen_day[eligible]) < self.exclude_recent_days
+            eligible = eligible[~recent]
+
+        return eligible
+
+
+    def _rank_candidates(self, sim, candidates, priorities, t):
+        overdue = t - self.last_screen_day[candidates]
+        prio = np.array([priorities[int(ind)] for ind in candidates], dtype=cvd.default_int)
+        bonus = np.zeros(len(candidates), dtype=cvd.default_float)
+
+        if self.subtarget is not None:
+            subtarget_inds, subtarget_vals = get_subtargets(self.subtarget, sim)
+            subtarget_inds = np.array(subtarget_inds, dtype=cvd.default_int)
+
+            if sc.isiterable(subtarget_vals):
+                subtarget_vals = np.array(subtarget_vals, dtype=cvd.default_float)
+            else:
+                subtarget_vals = np.full(len(subtarget_inds), float(subtarget_vals), dtype=cvd.default_float)
+
+            subtarget_map = {int(ind): val for ind, val in zip(subtarget_inds, subtarget_vals)}
+            for i, ind in enumerate(candidates):
+                bonus[i] = subtarget_map.get(int(ind), 0.0)
+
+        noise = np.random.random(len(candidates))
+        order = np.lexsort((-noise, -overdue, -bonus, prio))
+        return candidates[order]
+
+
+class campus_online_teaching(Intervention):
+    '''
+    Campus-specific online teaching intervention.
+
+    This intervention closes classroom transmission and applies linked changes
+    to dormitory, community, lab, and staff-contact layers by internally
+    composing existing beta-change interventions.
+
+    Note: in the campus population, clu/clg/of/cm are dynamic layers, so
+    multi-day shutdowns should be represented via change_beta(..., changes=0)
+    rather than one-time clip_edges().
+
+    Args:
+        start_day (int/date): intervention start day
+        end_day (int/date): intervention end day
+        close_layers (list): classroom layers to close, default ['clu', 'clg']
+        dorm_change (float): beta multiplier for dormitory layer during online teaching
+        community_change (float): beta multiplier for campus community layer
+        lab_mode (str): one of 'keep', 'reduce', 'close'
+        lab_change (float): beta multiplier when lab_mode='reduce'
+        office_mode (str): one of 'keep', 'reduce', 'remote'
+        office_change (float): beta multiplier when office_mode='reduce' or 'remote'
+        kwargs (dict): passed to Intervention()
+    '''
+
+    def __init__(self, start_day, end_day=None, close_layers=None,
+                 dorm_change=1.15, community_change=0.7,
+                 lab_mode='reduce', lab_change=0.5,
+                 office_mode='keep', office_change=0.7, **kwargs):
+        super().__init__(**kwargs)
+        self.start_day = start_day
+        self.end_day = end_day
+        self.close_layers = ['clu', 'clg'] if close_layers is None else sc.tolist(close_layers)
+        self.dorm_change = dorm_change
+        self.community_change = community_change
+        self.lab_mode = lab_mode
+        self.lab_change = lab_change
+        self.office_mode = office_mode
+        self.office_change = office_change
+        self.sub_intervs = []
+        return
+
+
+    def initialize(self, sim):
+        super().initialize(sim)
+
+        self.start_day = preprocess_day(self.start_day, sim)
+        self.end_day = preprocess_day(self.end_day, sim) if self.end_day is not None else None
+        self.days = [self.start_day, self.end_day]
+
+        if self.lab_mode not in ['keep', 'reduce', 'close']:
+            raise ValueError(f'lab_mode must be keep/reduce/close, not {self.lab_mode}')
+        if self.office_mode not in ['keep', 'reduce', 'remote']:
+            raise ValueError(f'office_mode must be keep/reduce/remote, not {self.office_mode}')
+
+        days = [self.start_day] if self.end_day is None else [self.start_day, self.end_day]
+
+        self.sub_intervs = []
+
+        # Close classroom transmission by setting beta to zero on dynamic classroom layers
+        if len(self.close_layers):
+            close_changes = [0.0] if self.end_day is None else [0.0, 1.0]
+            self.sub_intervs.append(
+                change_beta(days=days, changes=close_changes, layers=self.close_layers, label='campus_close_classes')
+            )
+
+        # Dormitory compensation
+        dorm_changes = [self.dorm_change] if self.end_day is None else [self.dorm_change, 1.0]
+        self.sub_intervs.append(
+            change_beta(days=days, changes=dorm_changes, layers='d', label='campus_dorm_shift')
+        )
+
+        # Campus public contact reduction
+        cm_changes = [self.community_change] if self.end_day is None else [self.community_change, 1.0]
+        self.sub_intervs.append(
+            change_beta(days=days, changes=cm_changes, layers='cm', label='campus_community_shift')
+        )
+
+        # Lab / office policy
+        if self.lab_mode == 'reduce':
+            lab_changes = [self.lab_change] if self.end_day is None else [self.lab_change, 1.0]
+            self.sub_intervs.append(
+                change_beta(days=days, changes=lab_changes, layers='of', label='campus_lab_reduce')
+            )
+        elif self.lab_mode == 'close':
+            lab_changes = [0.0] if self.end_day is None else [0.0, 1.0]
+            self.sub_intervs.append(
+                change_beta(days=days, changes=lab_changes, layers='of', label='campus_lab_close')
+            )
+
+        if self.office_mode == 'reduce':
+            office_changes = [self.office_change] if self.end_day is None else [self.office_change, 1.0]
+            self.sub_intervs.append(
+                change_beta(days=days, changes=office_changes, layers='ta', label='campus_office_reduce')
+            )
+        elif self.office_mode == 'remote':
+            office_changes = [0.0] if self.end_day is None else [0.0, 1.0]
+            self.sub_intervs.append(
+                change_beta(days=days, changes=office_changes, layers='ta', label='campus_office_remote')
+            )
+
+        for interv in self.sub_intervs:
+            interv.initialize(sim)
+
+        return
+
+
+    def apply(self, sim):
+        for interv in self.sub_intervs:
+            interv.apply(sim)
+        return
+
+
+    def finalize(self, sim):
+        super().finalize(sim)
+        for interv in self.sub_intervs:
+            if not interv.finalized:
+                interv.finalize(sim)
+        self.sub_intervs = []
+        return
 
 
 #%% Treatment and prevention interventions
