@@ -5,3 +5,4 @@ scipy<1.16.0
 statsmodels
 matplotlib
 sciris>=2.0.4
+openai>=1.0.0

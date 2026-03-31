@@ -8,11 +8,13 @@ import pandas as pd
 import pylab as pl
 import sciris as sc
 import inspect
+import json
 import datetime as dt
 from . import misc as cvm
 from . import utils as cvu
 from . import base as cvb
 from . import defaults as cvd
+from . import llm_policy as cvlp
 from . import parameters as cvpar
 from . import immunity as cvi
 
@@ -920,6 +922,17 @@ class test_prob(Intervention):
         return
 
 
+    def set_runtime_profile(self, profile):
+        '''Update testing probabilities without recreating the intervention.'''
+        self.symp_prob = profile['symp_prob']
+        self.asymp_prob = profile.get('asymp_prob', 0.0)
+        self.symp_quar_prob = profile.get('symp_quar_prob', self.symp_prob)
+        self.asymp_quar_prob = profile.get('asymp_quar_prob', self.asymp_prob)
+        if 'subtarget' in profile:
+            self.subtarget = profile['subtarget']
+        return
+
+
     def apply(self, sim):
         ''' Perform testing '''
 
@@ -1043,6 +1056,24 @@ class contact_tracing(Intervention):
         return
 
 
+    def set_runtime_profile(self, profile, sim=None):
+        '''Update tracing parameters during runtime.'''
+        trace_probs = profile['trace_probs']
+        trace_time = profile['trace_time']
+        if sim is not None:
+            layer_keys = sim.people.layer_keys()
+            if sc.isnumber(trace_probs):
+                trace_probs = {k: trace_probs for k in layer_keys}
+            if sc.isnumber(trace_time):
+                trace_time = {k: trace_time for k in layer_keys}
+        self.trace_probs = sc.dcp(trace_probs)
+        self.trace_time = sc.dcp(trace_time)
+        self.capacity = profile.get('capacity', self.capacity)
+        if 'quar_period' in profile:
+            self.quar_period = profile['quar_period']
+        return
+
+
     def apply(self, sim):
         '''
         Trace and notify contacts
@@ -1149,7 +1180,7 @@ class contact_tracing(Intervention):
 
 #%% Campus interventions
 
-__all__ += ['campus_periodic_screening', 'campus_online_teaching']
+__all__ += ['campus_periodic_screening', 'campus_online_teaching', 'campus_policy_agent']
 
 class campus_periodic_screening(Intervention):
     '''
@@ -1226,6 +1257,18 @@ class campus_periodic_screening(Intervention):
         self.group_members = None
         self.last_screen_day = None
         self.subtarget = None
+        return
+
+
+    def set_runtime_profile(self, profile, sim):
+        '''Update screening parameters during runtime.'''
+        self.group_cycles = sc.dcp(profile['group_cycles'])
+        self.daily_capacity = process_daily_data(profile['daily_capacity'], sim, self.start_day, as_int=True)
+        self.exclude_recent_days = int(profile.get('exclude_recent_days', self.exclude_recent_days))
+        self.subtarget = profile.get('subtarget')
+        if 'id_bucket_count' in profile:
+            self.id_bucket_count = int(profile['id_bucket_count'])
+        self._validate_group_cycles()
         return
 
 
@@ -1555,6 +1598,334 @@ class campus_online_teaching(Intervention):
                 interv.finalize(sim)
         self.sub_intervs = []
         return
+
+
+class campus_policy_agent(Intervention):
+    '''
+    Weekly campus policy orchestrator driven by an external LLM.
+
+    This intervention:
+        - extracts aggregate state every decision interval
+        - requests a policy ID from a real Qwen API client
+        - enforces strict +-1 weekly policy transitions
+        - falls back safely on failures
+        - rewrites campus beta layers from baseline each day
+        - updates existing testing/screening/tracing interventions in place
+    '''
+
+    def __init__(self, start_day=0, end_day=None, decision_interval_days=7, state_window_days=7,
+                 initial_policy='P1_guarded', fallback_policy=None, policy_catalog=None, log_path=None,
+                 api_key=None, base_url=None, model=cvlp.DEFAULT_QWEN_MODEL,
+                 temperature=cvlp.DEFAULT_TEMPERATURE, max_tokens=cvlp.DEFAULT_MAX_TOKENS,
+                 client=None, decision_fn=None, **kwargs):
+        super().__init__(**kwargs)
+        self.start_day = start_day
+        self.end_day = end_day
+        self.decision_interval_days = int(decision_interval_days)
+        self.state_window_days = int(state_window_days)
+        self.initial_policy = initial_policy
+        self.fallback_policy = fallback_policy or initial_policy
+        self.policy_catalog = sc.dcp(policy_catalog) if policy_catalog is not None else cvlp.make_default_policy_catalog()
+        self.log_path = log_path
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.client = client
+        self.decision_fn = decision_fn
+
+        self.campus_layers = sc.dcp(cvlp.CAMPUS_LAYER_KEYS)
+        self.baseline_beta_layer = {}
+        self.current_policy = None
+        self.current_policy_start_day = None
+        self.last_decision_day = None
+        self.last_decision = None
+        self.current_target_beta_layer = {}
+        self.decision_history = []
+        self.policy_trace = []
+        self.sub_interventions = []
+        self.testing_intervention = None
+        self.screening_intervention = None
+        self.tracing_intervention = None
+        return
+
+
+    def initialize(self, sim):
+        super().initialize(sim)
+
+        if sim['pop_type'] != 'campus':
+            raise RuntimeError('cv.campus_policy_agent() requires pop_type="campus".')
+        if self.decision_interval_days <= 0:
+            raise ValueError('decision_interval_days must be positive.')
+        if self.state_window_days <= 0:
+            raise ValueError('state_window_days must be positive.')
+        if self.initial_policy not in self.policy_catalog:
+            raise ValueError(f'Unknown initial policy: {self.initial_policy}')
+        if self.fallback_policy not in self.policy_catalog:
+            raise ValueError(f'Unknown fallback policy: {self.fallback_policy}')
+
+        self.start_day = preprocess_day(self.start_day, sim)
+        self.end_day = preprocess_day(self.end_day, sim) if self.end_day is not None else None
+        self.days = [self.start_day, self.end_day]
+
+        missing_layers = [layer for layer in self.campus_layers if layer not in sim['beta_layer']]
+        if missing_layers:
+            raise ValueError(f'Campus policy agent requires beta_layer keys: {missing_layers}')
+
+        self.baseline_beta_layer = {layer: float(sim['beta_layer'][layer]) for layer in self.campus_layers}
+        self.current_policy = self.initial_policy
+        self.current_policy_start_day = self.start_day
+        self.last_decision_day = None
+        self.last_decision = None
+        self.decision_history = []
+        self.policy_trace = []
+
+        if self.client is None and self.decision_fn is None:
+            self.client = cvlp.QwenPolicyClient(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+
+        testing_profile = self._get_testing_profile(self.current_policy)
+        screening_profile = self._get_screening_profile(self.current_policy, sim)
+        tracing_profile = self._get_tracing_profile(self.current_policy)
+
+        self.testing_intervention = test_prob(
+            start_day=self.start_day,
+            end_day=self.end_day,
+            label='campus_policy_symptomatic_testing',
+            **testing_profile,
+        )
+        self.screening_intervention = campus_periodic_screening(
+            start_day=self.start_day,
+            end_day=self.end_day,
+            group_cycles=screening_profile['group_cycles'],
+            daily_capacity=screening_profile['daily_capacity'],
+            exclude_recent_days=screening_profile['exclude_recent_days'],
+            subtarget=screening_profile.get('subtarget'),
+            label='campus_policy_screening',
+        )
+        self.tracing_intervention = contact_tracing(
+            start_day=self.start_day,
+            end_day=self.end_day,
+            trace_probs=tracing_profile['trace_probs'],
+            trace_time=tracing_profile['trace_time'],
+            capacity=tracing_profile.get('capacity'),
+            label='campus_policy_tracing',
+        )
+        self.sub_interventions = [
+            self.testing_intervention,
+            self.screening_intervention,
+            self.tracing_intervention,
+        ]
+        for interv in self.sub_interventions:
+            interv.initialize(sim)
+
+        return
+
+
+    def apply(self, sim):
+        t = sim.t
+        start_day = get_day(self.start_day, self, sim)
+        end_day = get_day(self.end_day, self, sim)
+
+        if t < start_day:
+            return
+        elif end_day is not None and t > end_day:
+            return
+
+        if self._should_decide(t, start_day):
+            self._run_decision_cycle(sim)
+
+        self._apply_current_policy(sim)
+
+        for interv in self.sub_interventions:
+            interv.apply(sim)
+
+        self._record_policy_trace(sim)
+        return
+
+
+    def finalize(self, sim):
+        super().finalize(sim)
+        for interv in self.sub_interventions:
+            if interv is not None and not interv.finalized:
+                interv.finalize(sim)
+        self.sub_interventions = []
+        return
+
+
+    def _should_decide(self, t, start_day):
+        if self.last_decision_day is None:
+            return t >= start_day
+        return (t - self.last_decision_day) >= self.decision_interval_days
+
+
+    def _run_decision_cycle(self, sim):
+        state = cvlp.extract_campus_policy_state(sim, agent=self, decision_day=sim.t, window=self.state_window_days)
+        fallback_policy = self.current_policy or self.fallback_policy or self.initial_policy
+        system_prompt = cvlp.build_system_prompt()
+        user_payload = cvlp.build_user_payload(state, self.policy_catalog)
+        record = {
+            'decision_day': sim.t,
+            'decision_date': sim.date(sim.t),
+            'current_policy_before': self.current_policy,
+            'fallback_used': False,
+            'fallback_reason': None,
+            'model_policy_proposed': None,
+            'applied_policy': fallback_policy,
+            'risk_level': None,
+            'reason': None,
+            'raw_response_text': None,
+            'error_type': None,
+            'error_message': None,
+            'usage': {},
+            'state_snapshot': state,
+            'restriction_profile_applied': None,
+            'model_name': self.model,
+            'base_url': self.base_url or getattr(self.client, 'base_url', None),
+            'temperature': self.temperature,
+            'max_tokens': self.max_tokens,
+            'system_prompt': system_prompt,
+            'system_prompt_sha256': cvlp.hash_text(system_prompt),
+            'user_payload': user_payload,
+        }
+
+        try:
+            response = self._request_decision(state)
+            decision = response['decision']
+            proposed_policy = decision['policy_id']
+            applied_policy = cvlp.apply_policy_transition_constraint(proposed_policy, self.current_policy, self.policy_catalog)
+
+            record.update({
+                'model_policy_proposed': proposed_policy,
+                'applied_policy': applied_policy,
+                'risk_level': decision['risk_level'],
+                'reason': decision['reason'],
+                'raw_response_text': response.get('raw_response_text'),
+                'usage': response.get('usage', {}),
+                'model_name': response.get('model_name', record['model_name']),
+                'base_url': response.get('base_url', record['base_url']),
+                'temperature': response.get('temperature', record['temperature']),
+                'max_tokens': response.get('max_tokens', record['max_tokens']),
+                'system_prompt': response.get('system_prompt'),
+                'system_prompt_sha256': response.get('system_prompt_sha256'),
+                'user_payload': response.get('user_payload'),
+                'finish_reason': response.get('finish_reason'),
+            })
+            self._set_policy(applied_policy, sim.t)
+        except Exception as exc:
+            record.update({
+                'fallback_used': True,
+                'fallback_reason': 'decision_error',
+                'error_type': type(exc).__name__,
+                'error_message': str(exc),
+            })
+            self._set_policy(fallback_policy, sim.t)
+
+        record['restriction_profile_applied'] = sc.dcp(self.policy_catalog[self.current_policy]['restriction_profile'])
+        self.last_decision_day = sim.t
+        self.last_decision = sc.dcp(record)
+        self.decision_history.append(sc.dcp(record))
+        cvlp.append_jsonl_record(self.log_path, record)
+        return
+
+
+    def _request_decision(self, state):
+        system_prompt = cvlp.build_system_prompt()
+        user_payload = cvlp.build_user_payload(state, self.policy_catalog)
+
+        if self.decision_fn is not None:
+            raw_response = self.decision_fn(state, self.policy_catalog)
+            if isinstance(raw_response, dict) and 'decision' in raw_response:
+                response = sc.dcp(raw_response)
+                response['decision'] = cvlp.parse_policy_response(json.dumps(response['decision'], ensure_ascii=False))
+            elif isinstance(raw_response, dict):
+                response = {
+                    'decision': cvlp.parse_policy_response(json.dumps(raw_response, ensure_ascii=False)),
+                    'raw_response_text': json.dumps(raw_response, ensure_ascii=False),
+                }
+            else:
+                response = {
+                    'decision': cvlp.parse_policy_response(raw_response),
+                    'raw_response_text': raw_response,
+                }
+            response.setdefault('usage', {})
+            response.setdefault('system_prompt', system_prompt)
+            response.setdefault('system_prompt_sha256', cvlp.hash_text(system_prompt))
+            response.setdefault('user_payload', user_payload)
+            response.setdefault('model_name', self.model)
+            response.setdefault('base_url', self.base_url)
+            response.setdefault('temperature', self.temperature)
+            response.setdefault('max_tokens', self.max_tokens)
+            response.setdefault('finish_reason', 'stop')
+            return response
+
+        response = self.client.decide_policy(state, self.policy_catalog)
+        response.setdefault('system_prompt', system_prompt)
+        response.setdefault('user_payload', user_payload)
+        return response
+
+
+    def _set_policy(self, policy_id, day):
+        if policy_id != self.current_policy:
+            self.current_policy = policy_id
+            self.current_policy_start_day = day
+        elif self.current_policy_start_day is None:
+            self.current_policy_start_day = day
+        return
+
+
+    def _apply_current_policy(self, sim):
+        restriction_profile = self.policy_catalog[self.current_policy]['restriction_profile']
+        applied_beta_layer = {}
+        for layer in self.campus_layers:
+            multiplier = restriction_profile[layer]
+            applied_value = self.baseline_beta_layer[layer] * multiplier
+            sim['beta_layer'][layer] = applied_value
+            applied_beta_layer[layer] = applied_value
+        self.current_target_beta_layer = applied_beta_layer
+
+        self.testing_intervention.set_runtime_profile(self._get_testing_profile(self.current_policy))
+        self.screening_intervention.set_runtime_profile(self._get_screening_profile(self.current_policy, sim), sim)
+        self.tracing_intervention.set_runtime_profile(self._get_tracing_profile(self.current_policy), sim=sim)
+        return
+
+
+    def _record_policy_trace(self, sim):
+        self.policy_trace.append({
+            'day': sim.t,
+            'date': sim.date(sim.t),
+            'policy_id': self.current_policy,
+            'policy_duration_days': max(1, sim.t - self.current_policy_start_day + 1),
+            'online_teaching_active': self.policy_catalog[self.current_policy]['online_teaching_active'],
+            'restriction_intensity': self.policy_catalog[self.current_policy]['restriction_intensity'],
+            'restriction_profile': sc.dcp(self.policy_catalog[self.current_policy]['restriction_profile']),
+            'effective_beta_layer': sc.dcp(self.current_target_beta_layer),
+        })
+        return
+
+
+    def _get_testing_profile(self, policy_id):
+        return sc.dcp(self.policy_catalog[policy_id]['testing_profile'])
+
+
+    def _get_screening_profile(self, policy_id, sim):
+        profile = sc.dcp(self.policy_catalog[policy_id]['screening_profile'])
+        ratio = float(profile.pop('daily_capacity_ratio'))
+        capacity = int(np.round(sim['pop_size'] * ratio))
+        if ratio > 0:
+            capacity = max(1, capacity)
+        profile['daily_capacity'] = capacity
+        return profile
+
+
+    def _get_tracing_profile(self, policy_id):
+        return sc.dcp(self.policy_catalog[policy_id]['tracing_profile'])
 
 
 #%% Treatment and prevention interventions

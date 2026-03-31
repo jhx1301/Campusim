@@ -37,7 +37,7 @@ def make_pars(set_prognoses=False, prog_by_age=True, version=None, **kwargs):
     pars['location']     = None     # What location to load data from -- default Seattle
 
     # Simulation parameters
-    pars['start_day']  = '2020-03-01' # Start day of the simulation
+    pars['start_day']  = '2026-03-01' # Start day of the simulation
     pars['end_day']    = None         # End day of the simulation
     pars['n_days']     = 60           # Number of days to run, if end_day isn't specified
     pars['rand_seed']  = 1            # Random seed, if None, don't reset
