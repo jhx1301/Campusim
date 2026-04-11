@@ -1,5 +1,5 @@
 '''
-Simple script for running Covasim
+Simple script
 '''
 
 import sciris as sc
