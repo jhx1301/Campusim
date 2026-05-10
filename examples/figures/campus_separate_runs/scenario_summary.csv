@@ -1,7 +1,0 @@
-﻿scenario,cum_infections,cum_diagnoses,cum_tests,peak_new_infections,peak_quarantined,final_r_eff,figure_path
-baseline,5314.0,0.0,0.0,216.0,0.0,0.24427104276769301,D:\项目\毕业设计\covasim-main\examples\figures\campus_separate_runs\baseline.png
-symptomatic_testing_only,4753.0,1518.0,1518.0,178.0,0.0,0.27185146497643514,D:\项目\毕业设计\covasim-main\examples\figures\campus_separate_runs\symptomatic_testing_only.png
-periodic_screening_only,4609.0,1886.0,39600.0,150.0,0.0,0.41507632233375724,D:\项目\毕业设计\covasim-main\examples\figures\campus_separate_runs\periodic_screening_only.png
-contact_tracing_only,5314.0,0.0,0.0,216.0,0.0,0.24427104276769301,D:\项目\毕业设计\covasim-main\examples\figures\campus_separate_runs\contact_tracing_only.png
-online_teaching_only,4265.0,0.0,0.0,115.0,0.0,0.6205087186988264,D:\项目\毕业设计\covasim-main\examples\figures\campus_separate_runs\online_teaching_only.png
-all_four_interventions,357.0,192.0,39710.0,14.0,738.0,1.5869678150523794,D:\项目\毕业设计\covasim-main\examples\figures\campus_separate_runs\all_four_interventions.png

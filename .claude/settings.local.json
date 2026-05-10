@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:web.archive.org)",
+      "Bash(python -m pip install optuna -q)",
+      "Bash(D:/programfile/miniconda3/envs/simulation/python.exe *)",
+      "Bash(where python *)",
+      "Read(//usr/**)",
+      "Bash(D:/programfile/miniconda3/envs/simulation/python *)",
+      "Bash(D:\\\\programfile\\\\miniconda3\\\\envs\\\\simulation\\\\python.exe *)"
+    ]
+  }
+}

@@ -1614,7 +1614,10 @@ class campus_policy_agent(Intervention):
     '''
 
     def __init__(self, start_day=0, end_day=None, decision_interval_days=7, state_window_days=7,
-                 initial_policy='P1_guarded', fallback_policy=None, policy_catalog=None, log_path=None,
+                 initial_policy='P0_normal', fallback_policy=None, policy_catalog=None, log_path=None,
+                 memory_weeks=4, use_theory_prompt=True, ensemble_size=1,
+                 min_policy_hold_intervals=2, enable_burden_guardrail=True,
+                 defer_first_decision_until_interval=False,
                  api_key=None, base_url=None, model=cvlp.DEFAULT_QWEN_MODEL,
                  temperature=cvlp.DEFAULT_TEMPERATURE, max_tokens=cvlp.DEFAULT_MAX_TOKENS,
                  client=None, decision_fn=None, **kwargs):
@@ -1627,6 +1630,12 @@ class campus_policy_agent(Intervention):
         self.fallback_policy = fallback_policy or initial_policy
         self.policy_catalog = sc.dcp(policy_catalog) if policy_catalog is not None else cvlp.make_default_policy_catalog()
         self.log_path = log_path
+        self.memory_weeks = int(memory_weeks)
+        self.use_theory_prompt = bool(use_theory_prompt)
+        self.ensemble_size = int(ensemble_size)
+        self.min_policy_hold_intervals = int(min_policy_hold_intervals)
+        self.enable_burden_guardrail = bool(enable_burden_guardrail)
+        self.defer_first_decision_until_interval = bool(defer_first_decision_until_interval)
         self.api_key = api_key
         self.base_url = base_url
         self.model = model
@@ -1660,6 +1669,12 @@ class campus_policy_agent(Intervention):
             raise ValueError('decision_interval_days must be positive.')
         if self.state_window_days <= 0:
             raise ValueError('state_window_days must be positive.')
+        if self.memory_weeks < 0:
+            raise ValueError('memory_weeks must be >= 0.')
+        if self.ensemble_size <= 0:
+            raise ValueError('ensemble_size must be positive.')
+        if self.min_policy_hold_intervals < 0:
+            raise ValueError('min_policy_hold_intervals must be >= 0.')
         if self.initial_policy not in self.policy_catalog:
             raise ValueError(f'Unknown initial policy: {self.initial_policy}')
         if self.fallback_policy not in self.policy_catalog:
@@ -1761,6 +1776,8 @@ class campus_policy_agent(Intervention):
 
     def _should_decide(self, t, start_day):
         if self.last_decision_day is None:
+            if self.defer_first_decision_until_interval:
+                return t >= (start_day + self.decision_interval_days)
             return t >= start_day
         return (t - self.last_decision_day) >= self.decision_interval_days
 
@@ -1768,7 +1785,7 @@ class campus_policy_agent(Intervention):
     def _run_decision_cycle(self, sim):
         state = cvlp.extract_campus_policy_state(sim, agent=self, decision_day=sim.t, window=self.state_window_days)
         fallback_policy = self.current_policy or self.fallback_policy or self.initial_policy
-        system_prompt = cvlp.build_system_prompt()
+        system_prompt = cvlp.build_system_prompt(use_theory_prompt=self.use_theory_prompt)
         user_payload = cvlp.build_user_payload(state, self.policy_catalog)
         record = {
             'decision_day': sim.t,
@@ -1785,7 +1802,11 @@ class campus_policy_agent(Intervention):
             'error_message': None,
             'usage': {},
             'state_snapshot': state,
+            'memory_snapshot': sc.dcp(state.get('recent_policy_memory', [])),
             'restriction_profile_applied': None,
+            'ensemble_votes': [],
+            'guardrail_adjusted': False,
+            'guardrail_reason': None,
             'model_name': self.model,
             'base_url': self.base_url or getattr(self.client, 'base_url', None),
             'temperature': self.temperature,
@@ -1799,7 +1820,8 @@ class campus_policy_agent(Intervention):
             response = self._request_decision(state)
             decision = response['decision']
             proposed_policy = decision['policy_id']
-            applied_policy = cvlp.apply_policy_transition_constraint(proposed_policy, self.current_policy, self.policy_catalog)
+            constrained_policy = cvlp.apply_policy_transition_constraint(proposed_policy, self.current_policy, self.policy_catalog)
+            applied_policy, guardrail_reason = self._apply_policy_guardrails(constrained_policy, state, decision)
 
             record.update({
                 'model_policy_proposed': proposed_policy,
@@ -1808,6 +1830,9 @@ class campus_policy_agent(Intervention):
                 'reason': decision['reason'],
                 'raw_response_text': response.get('raw_response_text'),
                 'usage': response.get('usage', {}),
+                'ensemble_votes': sc.dcp(response.get('ensemble_votes', [])),
+                'guardrail_adjusted': bool(guardrail_reason),
+                'guardrail_reason': guardrail_reason,
                 'model_name': response.get('model_name', record['model_name']),
                 'base_url': response.get('base_url', record['base_url']),
                 'temperature': response.get('temperature', record['temperature']),
@@ -1836,9 +1861,45 @@ class campus_policy_agent(Intervention):
 
 
     def _request_decision(self, state):
-        system_prompt = cvlp.build_system_prompt()
+        system_prompt = cvlp.build_system_prompt(use_theory_prompt=self.use_theory_prompt)
         user_payload = cvlp.build_user_payload(state, self.policy_catalog)
+        if self.ensemble_size == 1:
+            response = self._request_single_decision(state, system_prompt, user_payload)
+            response.setdefault('ensemble_votes', [self._format_ensemble_vote(response['decision'], 0)])
+            return response
 
+        responses = []
+        vote_records = []
+        for member_index in range(self.ensemble_size):
+            member_state = sc.dcp(state)
+            member_state['ensemble_context'] = {
+                'member_index': member_index,
+                'ensemble_size': self.ensemble_size,
+            }
+            try:
+                response = self._request_single_decision(member_state, system_prompt, user_payload)
+                responses.append(response)
+                vote_records.append(self._format_ensemble_vote(response['decision'], member_index))
+            except Exception as exc:
+                vote_records.append({
+                    'member_index': int(member_index),
+                    'policy_id': None,
+                    'risk_level': None,
+                    'reason': None,
+                    'error_type': type(exc).__name__,
+                    'error_message': str(exc),
+                })
+
+        if not responses:
+            raise cvlp.PolicyDecisionError('All ensemble members failed to produce a valid policy decision.')
+
+        selected_index = self._select_ensemble_response(responses)
+        selected = sc.dcp(responses[selected_index])
+        selected['ensemble_votes'] = vote_records
+        return selected
+
+
+    def _request_single_decision(self, state, system_prompt, user_payload):
         if self.decision_fn is not None:
             raw_response = self.decision_fn(state, self.policy_catalog)
             if isinstance(raw_response, dict) and 'decision' in raw_response:
@@ -1865,10 +1926,132 @@ class campus_policy_agent(Intervention):
             response.setdefault('finish_reason', 'stop')
             return response
 
-        response = self.client.decide_policy(state, self.policy_catalog)
+        response = self.client.decide_policy(state, self.policy_catalog, use_theory_prompt=self.use_theory_prompt)
         response.setdefault('system_prompt', system_prompt)
         response.setdefault('user_payload', user_payload)
         return response
+
+
+    def _select_ensemble_response(self, responses):
+        vote_counts = {}
+        for idx, response in enumerate(responses):
+            policy_id = response['decision']['policy_id']
+            vote_counts.setdefault(policy_id, []).append(idx)
+
+        sorted_votes = sorted(
+            vote_counts.items(),
+            key=lambda item: (len(item[1]), cvlp.get_policy_rank(item[0], self.policy_catalog)),
+            reverse=True,
+        )
+        winner_policy, winner_indices = sorted_votes[0]
+        candidate_indices = vote_counts[winner_policy]
+        best_index = candidate_indices[0]
+        for idx in candidate_indices[1:]:
+            current_risk = cvlp.RISK_LEVELS.index(responses[best_index]['decision']['risk_level'])
+            challenger_risk = cvlp.RISK_LEVELS.index(responses[idx]['decision']['risk_level'])
+            if challenger_risk > current_risk:
+                best_index = idx
+        return best_index
+
+
+    def _format_ensemble_vote(self, decision, member_index):
+        return {
+            'member_index': int(member_index),
+            'policy_id': decision.get('policy_id'),
+            'risk_level': decision.get('risk_level'),
+            'reason': decision.get('reason'),
+        }
+
+
+    def _apply_policy_guardrails(self, proposed_policy, state, decision):
+        current_policy = self.current_policy or proposed_policy
+        current_rank = cvlp.get_policy_rank(current_policy, self.policy_catalog)
+        proposed_rank = cvlp.get_policy_rank(proposed_policy, self.policy_catalog)
+        risk_level = decision.get('risk_level')
+
+        if (
+            self.min_policy_hold_intervals > 0
+            and risk_level != 'critical'
+            and self._would_reverse_recent_direction(proposed_rank)
+        ):
+            hold_days = self.min_policy_hold_intervals * self.decision_interval_days
+            days_held = max(0, int(state.get('current_policy_duration_days', 0)))
+            if days_held < hold_days:
+                return current_policy, 'min_hold_reversal_block'
+
+        if (
+            self.enable_burden_guardrail
+            and proposed_rank > current_rank
+            and risk_level != 'critical'
+            and self._is_high_burden_without_worsening(state)
+        ):
+            return current_policy, 'burden_guardrail_block'
+
+        if (
+            self.enable_burden_guardrail
+            and proposed_rank > current_rank
+            and self._is_low_prevalence_online_escalation(proposed_policy, state)
+        ):
+            max_non_online_rank = cvlp.get_policy_rank('P2_moderate', self.policy_catalog)
+            if current_rank >= max_non_online_rank:
+                capped_policy = current_policy
+            else:
+                capped_policy = cvlp.get_policy_by_rank(min(current_rank + 1, max_non_online_rank), self.policy_catalog)
+            return capped_policy or current_policy, 'low_prevalence_online_guardrail_block'
+
+        return proposed_policy, None
+
+
+    def _would_reverse_recent_direction(self, proposed_rank):
+        current_policy = self.current_policy
+        if current_policy is None:
+            return False
+        current_rank = cvlp.get_policy_rank(current_policy, self.policy_catalog)
+        current_delta = proposed_rank - current_rank
+        if current_delta == 0:
+            return False
+        for record in reversed(self.decision_history):
+            previous_policy = record.get('current_policy_before')
+            applied_policy = record.get('applied_policy')
+            if previous_policy not in self.policy_catalog or applied_policy not in self.policy_catalog:
+                continue
+            previous_delta = cvlp.get_policy_rank(applied_policy, self.policy_catalog) - cvlp.get_policy_rank(previous_policy, self.policy_catalog)
+            if previous_delta == 0:
+                continue
+            return previous_delta * current_delta < 0
+        return False
+
+
+    def _is_high_burden_without_worsening(self, state):
+        burden = state.get('intervention_burden_last_7d', {}) if isinstance(state.get('intervention_burden_last_7d'), dict) else {}
+        summary = state.get('past_7d_summary', {}) if isinstance(state.get('past_7d_summary'), dict) else {}
+        effect_summary = state.get('policy_effect_summary', {}) if isinstance(state.get('policy_effect_summary'), dict) else {}
+        high_quarantine = float(burden.get('mean_quarantined_per_1000', 0.0)) >= 20.0
+        high_testing = float(burden.get('tests_per_1000', 0.0)) >= 80.0
+        high_teaching_disruption = int(burden.get('teaching_restriction_intensity', 0)) >= 3
+        worsening = (
+            summary.get('estimated_risk_trend') == 'worsening'
+            or summary.get('new_infections_trend') == 'up'
+            or float(summary.get('r_eff_current', 0.0)) > 1.1
+            or effect_summary.get('dominant_effect_trend') == 'worsening'
+        )
+        return bool((high_quarantine or high_testing or high_teaching_disruption) and not worsening)
+
+
+    def _is_low_prevalence_online_escalation(self, proposed_policy, state):
+        profile = self.policy_catalog.get(proposed_policy, {})
+        if not bool(profile.get('online_teaching_active', False)):
+            return False
+        summary = state.get('past_7d_summary', {}) if isinstance(state.get('past_7d_summary'), dict) else {}
+        infections_per_1000 = float(state.get('new_infections_per_1000_last_7d', 0.0))
+        new_infections_sum = float(summary.get('new_infections_sum', 0.0))
+        r_eff = float(summary.get('r_eff_current', 0.0))
+        growth_ratio = float(state.get('growth_ratio_7d_vs_prev_7d', 0.0))
+        return (
+            infections_per_1000 < 10.0
+            and new_infections_sum < 500.0
+            and not (r_eff > 1.25 and growth_ratio >= 1.5)
+        )
 
 
     def _set_policy(self, policy_id, day):

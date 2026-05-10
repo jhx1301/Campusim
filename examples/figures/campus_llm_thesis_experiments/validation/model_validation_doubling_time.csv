@@ -1,0 +1,4 @@
+﻿scenario,strategy,seed,doubling_time,growth_rate,fit_intercept,fit_days,fit_start_day,fit_end_day
+medium,baseline_no_policy,1,4.7119707738381305,0.14710345497226907,1.41416506955155,31,14,44
+medium,baseline_no_policy,2,8.041097963879812,0.08620056411121042,-0.07228816871850216,23,34,56
+medium,baseline_no_policy,3,5.271285026245115,0.1314949157764845,0.15472904784429667,32,25,56

@@ -1,16 +1,14 @@
-"""Compare campus LLM policy simulation against a no-policy baseline.
+"""Benchmark campus policy strategies across transmission scenarios.
 
-This example runs two campus simulations with the same base parameters:
-1) baseline: no interventions
-2) llm_policy: weekly campus policy decisions via the real DashScope Qwen API
+This script compares:
+1) baseline_no_policy
+2) baseline_threshold
+3) baseline_single_agent_nomemory
+4) llm_single_memory
+5) llm_ensemble_memory
 
-It saves:
-- a side-by-side comparison figure
-- a CSV file with daily metrics
-- a JSON file with final summary metrics
-
-Run:
-    conda run -n simulation python examples/t15_campus_llm_policy_vs_baseline.py
+By default it can run fully offline with surrogate policy decisions.
+Set ``--use-api`` and ``DASHSCOPE_API_KEY`` to use the real Qwen client.
 """
 
 from __future__ import annotations
@@ -25,181 +23,250 @@ os.environ.setdefault("COVASIM_VERBOSE", "0")
 
 import covasim as cv
 import covasim.llm_policy as cvlp
+import numpy as np
 import pandas as pd
 import pylab as pl
 
 
-DEFAULT_LOG_PATH = Path(__file__).with_name("campus_llm_policy_vs_baseline_decisions.jsonl")
 DEFAULT_OUTDIR = Path(__file__).resolve().parent / "figures" / "campus_llm_policy_vs_baseline"
+SCENARIOS = {
+    "low": dict(beta_scale=0.90, pop_infected=18),
+    "medium": dict(beta_scale=1.00, pop_infected=30),
+    "high": dict(beta_scale=1.12, pop_infected=45),
+}
+STRATEGIES = [
+    "baseline_no_policy",
+    "baseline_threshold",
+    "baseline_single_agent_nomemory",
+    "llm_single_memory",
+    "llm_ensemble_memory",
+]
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Compare campus LLM policy simulation with a no-policy baseline.")
-    parser.add_argument("--pop-size", type=int, default=5000, help="Campus population size.")
-    parser.add_argument("--pop-infected", type=int, default=30, help="Initial infected population.")
-    parser.add_argument("--n-days", type=int, default=42, help="Simulation length in days.")
-    parser.add_argument("--rand-seed", type=int, default=1, help="Random seed.")
+    parser = argparse.ArgumentParser(description="Benchmark campus LLM policy strategies.")
+    parser.add_argument("--pop-size", type=int, default=4000, help="Campus population size.")
+    parser.add_argument("--n-days", type=int, default=56, help="Simulation length in days.")
+    parser.add_argument("--seeds", type=int, default=20, help="Number of random seeds per scenario.")
+    parser.add_argument("--scenario", choices=["all", *SCENARIOS.keys()], default="all", help="Transmission scenario.")
     parser.add_argument("--model", default=cvlp.DEFAULT_QWEN_MODEL, help=f"Model name, default: {cvlp.DEFAULT_QWEN_MODEL}")
     parser.add_argument("--base-url", default=os.getenv("DASHSCOPE_BASE_URL", cvlp.DEFAULT_DASHSCOPE_BASE_URL), help="DashScope compatible base URL.")
-    parser.add_argument("--temperature", type=float, default=cvlp.DEFAULT_TEMPERATURE, help="Sampling temperature.")
+    parser.add_argument("--temperature", type=float, default=0.2, help="Sampling temperature.")
     parser.add_argument("--max-tokens", type=int, default=cvlp.DEFAULT_MAX_TOKENS, help="Max completion tokens.")
-    parser.add_argument("--log-path", default=str(DEFAULT_LOG_PATH), help=f"JSONL log path, default: {DEFAULT_LOG_PATH}")
+    parser.add_argument("--log-path", default=None, help="Optional JSONL log path prefix. Disabled by default.")
     parser.add_argument("--outdir", default=str(DEFAULT_OUTDIR), help=f"Output directory, default: {DEFAULT_OUTDIR}")
+    parser.add_argument("--use-api", action="store_true", help="Use the real DashScope Qwen client for LLM strategies.")
     return parser.parse_args()
 
 
-def make_common_pars(args: argparse.Namespace) -> dict:
+def make_common_pars(args: argparse.Namespace, scenario_name: str, seed: int) -> dict:
+    scenario = SCENARIOS[scenario_name]
     return dict(
         pop_type="campus",
         pop_size=args.pop_size,
-        pop_infected=args.pop_infected,
+        pop_infected=scenario["pop_infected"],
         n_days=args.n_days,
-        rand_seed=args.rand_seed,
+        rand_seed=seed,
+        beta=0.016 * scenario["beta_scale"],
     )
 
 
-def summarize_final_metrics(sim: cv.Sim) -> dict[str, float]:
-    return {
-        "cum_infections": float(sim.results["cum_infections"][-1]),
-        "cum_diagnoses": float(sim.results["cum_diagnoses"][-1]),
-        "cum_tests": float(sim.results["cum_tests"][-1]),
-        "peak_new_infections": float(sim.results["new_infections"].values.max()),
-        "peak_quarantined": float(sim.results["n_quarantined"].values.max()),
-        "r_eff_final": float(sim.results["r_eff"][-1]),
-    }
+def make_threshold_decision_fn():
+    def decision_fn(state, policy_catalog):
+        summary = state.get("past_7d_summary", {})
+        burden = state.get("intervention_burden_last_7d", {})
+        infections = float(summary.get("new_infections_sum", 0.0))
+        r_eff = float(summary.get("r_eff_current", 0.0))
+        quarantined = float(burden.get("mean_quarantined_per_1000", 0.0))
+        if infections >= 70 or r_eff >= 1.25:
+            policy_id, risk_level = "P4_emergency", "critical"
+        elif infections >= 40 or r_eff >= 1.10:
+            policy_id, risk_level = "P3_strong", "high"
+        elif infections >= 18 or r_eff >= 1.00:
+            policy_id, risk_level = "P2_moderate", "medium"
+        elif quarantined >= 18:
+            policy_id, risk_level = "P1_guarded", "medium"
+        else:
+            policy_id, risk_level = "P1_guarded", "low"
+        return {"policy_id": policy_id, "risk_level": risk_level, "reason": "阈值策略输出"}
+
+    return decision_fn
 
 
-def make_policy_agent(args: argparse.Namespace):
-    api_key = os.getenv("DASHSCOPE_API_KEY")
-    if not api_key:
-        print("ERROR: environment variable DASHSCOPE_API_KEY is not set.", file=sys.stderr)
-        raise SystemExit(1)
+def make_surrogate_llm_decision_fn(mode: str):
+    def decision_fn(state, policy_catalog):
+        summary = state.get("past_7d_summary", {})
+        effect = state.get("policy_effect_summary", {})
+        volatility = state.get("policy_volatility_last_4w", {})
+        burden = state.get("intervention_burden_last_7d", {})
+        infections = float(summary.get("new_infections_sum", 0.0))
+        growth = float(state.get("growth_ratio_7d_vs_prev_7d", 1.0))
+        r_eff = float(summary.get("r_eff_current", 0.0))
+        current_policy = state.get("current_policy") or "P0_normal"
+        current_rank = cvlp.get_policy_rank(current_policy, policy_catalog)
 
-    return cv.campus_policy_agent(
+        target_rank = current_rank
+        if infections >= 60 or r_eff >= 1.20 or summary.get("estimated_risk_trend") == "worsening":
+            target_rank = max(target_rank, 3)
+        if infections >= 85 or (r_eff >= 1.30 and growth > 1.15):
+            target_rank = 4
+        if infections <= 12 and r_eff < 0.95:
+            target_rank = min(target_rank, 1)
+        if infections <= 6 and r_eff < 0.90 and summary.get("new_infections_trend") == "down":
+            target_rank = 0
+
+        if mode != "nomemory":
+            if effect.get("dominant_effect_trend") == "improving":
+                target_rank = min(target_rank, current_rank)
+            if effect.get("dominant_effect_trend") == "worsening":
+                target_rank = max(target_rank, current_rank + 1)
+            if volatility.get("policy_oscillation_score", 0.0) >= 2.0:
+                target_rank = max(current_rank, target_rank - 1)
+            if float(burden.get("mean_quarantined_per_1000", 0.0)) >= 20.0 and r_eff <= 1.0:
+                target_rank = min(target_rank, current_rank)
+
+        target_rank = int(np.clip(target_rank, 0, 4))
+        if target_rank >= 4:
+            risk_level = "critical"
+        elif target_rank >= 3:
+            risk_level = "high"
+        elif target_rank >= 2:
+            risk_level = "medium"
+        else:
+            risk_level = "low"
+        return {
+            "policy_id": cvlp.get_policy_by_rank(target_rank, policy_catalog),
+            "risk_level": risk_level,
+            "reason": "离线代理策略输出",
+        }
+
+    return decision_fn
+
+
+def make_policy_agent(args: argparse.Namespace, strategy_name: str, scenario_name: str, seed: int):
+    log_path = None
+    if args.log_path:
+        log_stem = Path(args.log_path)
+        log_path = log_stem.with_name(f"{log_stem.stem}_{scenario_name}_{strategy_name}_seed{seed}.jsonl")
+    common = dict(
         start_day=0,
         decision_interval_days=7,
-        initial_policy="P1_guarded",
-        api_key=api_key,
+        initial_policy="P0_normal",
         base_url=args.base_url,
         model=args.model,
         temperature=args.temperature,
         max_tokens=args.max_tokens,
-        log_path=args.log_path,
-        label="campus_llm_policy_agent",
+        log_path=str(log_path) if log_path is not None else None,
+        label=f"{strategy_name}_agent",
     )
 
+    if strategy_name == "baseline_threshold":
+        return cv.campus_policy_agent(
+            decision_fn=make_threshold_decision_fn(),
+            use_theory_prompt=False,
+            memory_weeks=0,
+            min_policy_hold_intervals=1,
+            enable_burden_guardrail=True,
+            defer_first_decision_until_interval=True,
+            **common,
+        )
 
-def run_baseline(args: argparse.Namespace) -> cv.Sim:
-    sim = cv.Sim(pars=make_common_pars(args), label="baseline_no_policy")
+    if strategy_name == "baseline_single_agent_nomemory":
+        decision_fn = None if args.use_api else make_surrogate_llm_decision_fn("nomemory")
+        return cv.campus_policy_agent(
+            decision_fn=decision_fn,
+            use_theory_prompt=False,
+            memory_weeks=0,
+            ensemble_size=1,
+            min_policy_hold_intervals=0,
+            enable_burden_guardrail=False,
+            defer_first_decision_until_interval=True,
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            **common,
+        )
+
+    if strategy_name == "llm_single_memory":
+        decision_fn = None if args.use_api else make_surrogate_llm_decision_fn("memory")
+        return cv.campus_policy_agent(
+            decision_fn=decision_fn,
+            use_theory_prompt=True,
+            memory_weeks=4,
+            ensemble_size=1,
+            min_policy_hold_intervals=2,
+            enable_burden_guardrail=True,
+            defer_first_decision_until_interval=True,
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            **common,
+        )
+
+    if strategy_name == "llm_ensemble_memory":
+        decision_fn = None if args.use_api else make_surrogate_llm_decision_fn("memory")
+        return cv.campus_policy_agent(
+            decision_fn=decision_fn,
+            use_theory_prompt=True,
+            memory_weeks=4,
+            ensemble_size=5,
+            min_policy_hold_intervals=2,
+            enable_burden_guardrail=True,
+            defer_first_decision_until_interval=True,
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            **common,
+        )
+
+    raise ValueError(f"Unsupported strategy: {strategy_name}")
+
+
+def run_strategy_once(args: argparse.Namespace, scenario_name: str, strategy_name: str, seed: int) -> cv.Sim:
+    pars = make_common_pars(args, scenario_name, seed)
+    if strategy_name == "baseline_no_policy":
+        sim = cv.Sim(pars=pars, label=strategy_name)
+    else:
+        sim = cv.Sim(pars=pars, interventions=[make_policy_agent(args, strategy_name, scenario_name, seed)], label=strategy_name)
     sim.run()
     return sim
 
 
-def run_llm_policy(args: argparse.Namespace) -> cv.Sim:
-    agent = make_policy_agent(args)
-    sim = cv.Sim(
-        pars=make_common_pars(args),
-        interventions=[agent],
-        label="llm_policy",
-    )
-    sim.run()
-    return sim
-
-
-def build_daily_dataframe(sim: cv.Sim, scenario: str) -> pd.DataFrame:
-    data = {
-        "scenario": scenario,
-        "day": sim.tvec,
-        "date": [sim.date(t) for t in sim.tvec],
-        "new_infections": sim.results["new_infections"].values,
-        "cum_infections": sim.results["cum_infections"].values,
-        "new_diagnoses": sim.results["new_diagnoses"].values,
-        "cum_diagnoses": sim.results["cum_diagnoses"].values,
-        "new_tests": sim.results["new_tests"].values,
-        "cum_tests": sim.results["cum_tests"].values,
-        "n_quarantined": sim.results["n_quarantined"].values,
-        "r_eff": sim.results["r_eff"].values,
+def summarize_final_metrics(sim: cv.Sim, strategy_name: str, scenario_name: str, seed: int) -> dict[str, float]:
+    agent = sim["interventions"][0] if sim["interventions"] else None
+    trace = getattr(agent, "policy_trace", []) if agent is not None else []
+    policy_ids = [row["policy_id"] for row in trace]
+    switch_count = sum(int(policy_ids[idx] != policy_ids[idx - 1]) for idx in range(1, len(policy_ids)))
+    teaching_days = int(sum(1 for row in trace if row.get("online_teaching_active")))
+    restriction_days = float(sum(row.get("restriction_intensity", 0) for row in trace))
+    return {
+        "scenario": scenario_name,
+        "strategy": strategy_name,
+        "seed": int(seed),
+        "cum_infections": float(sim.results["cum_infections"][-1]),
+        "cum_diagnoses": float(sim.results["cum_diagnoses"][-1]),
+        "cum_tests": float(sim.results["cum_tests"][-1]),
+        "mean_quarantined": float(np.mean(sim.results["n_quarantined"].values)),
+        "peak_quarantined": float(np.max(sim.results["n_quarantined"].values)),
+        "r_eff_final": float(sim.results["r_eff"][-1]),
+        "teaching_restriction_days": teaching_days,
+        "restriction_intensity_days": restriction_days,
+        "policy_switch_count": float(switch_count),
+        "policy_oscillation_score": cvlp.compute_policy_oscillation_score(policy_ids, getattr(agent, "policy_catalog", None)),
+        "decision_count": float(len(getattr(agent, "decision_history", []))) if agent is not None else 0.0,
     }
-    return pd.DataFrame(data)
 
 
-def build_policy_trace_dataframe(agent) -> pd.DataFrame:
-    if not getattr(agent, "policy_trace", None):
-        return pd.DataFrame(columns=["day", "date", "policy_id", "restriction_intensity", "online_teaching_active"])
+def save_summary_plot(agg_df: pd.DataFrame, outdir: Path) -> Path:
+    high_df = agg_df[agg_df["scenario"] == "high"].copy()
+    fig = pl.figure(figsize=(12, 8))
+    ax1 = fig.add_subplot(2, 1, 1)
+    ax2 = fig.add_subplot(2, 1, 2)
+    ax1.bar(high_df["strategy"], high_df["cum_infections_mean"], color="#d16d5b")
+    ax1.set_ylabel("Mean cumulative infections")
+    ax1.set_title("High-transmission scenario benchmark")
+    ax1.tick_params(axis="x", rotation=20)
+    ax1.grid(alpha=0.3, axis="y")
 
-    rows = []
-    for row in agent.policy_trace:
-        rows.append(
-            {
-                "day": row["day"],
-                "date": row["date"],
-                "policy_id": row["policy_id"],
-                "restriction_intensity": row["restriction_intensity"],
-                "online_teaching_active": row["online_teaching_active"],
-            }
-        )
-    return pd.DataFrame(rows)
+    ax2.bar(high_df["strategy"], high_df["policy_oscillation_score_mean"], color="#507dbc")
+    ax2.set_ylabel("Mean oscillation score")
+    ax2.tick_params(axis="x", rotation=20)
+    ax2.grid(alpha=0.3, axis="y")
 
-
-def save_comparison_plot(baseline_sim: cv.Sim, policy_sim: cv.Sim, outdir: Path) -> Path:
-    dates = policy_sim.datevec
-    agent = policy_sim["interventions"][0]
-    policy_trace = build_policy_trace_dataframe(agent)
-
-    fig = pl.figure(figsize=(13, 10))
-
-    ax1 = fig.add_subplot(4, 1, 1)
-    ax1.plot(dates, baseline_sim.results["new_infections"].values, lw=2, label="Baseline")
-    ax1.plot(dates, policy_sim.results["new_infections"].values, lw=2, label="LLM policy")
-    ax1.set_ylabel("New infections")
-    ax1.set_title("Campus LLM policy vs baseline")
-    ax1.grid(alpha=0.3)
-    ax1.legend()
-
-    ax2 = fig.add_subplot(4, 1, 2, sharex=ax1)
-    ax2.plot(dates, baseline_sim.results["cum_infections"].values, lw=2, label="Baseline")
-    ax2.plot(dates, policy_sim.results["cum_infections"].values, lw=2, label="LLM policy")
-    ax2.set_ylabel("Cumulative infections")
-    ax2.grid(alpha=0.3)
-    ax2.legend()
-
-    ax3 = fig.add_subplot(4, 1, 3, sharex=ax1)
-    ax3.plot(dates, baseline_sim.results["n_quarantined"].values, lw=2, label="Baseline")
-    ax3.plot(dates, policy_sim.results["n_quarantined"].values, lw=2, label="LLM policy")
-    ax3.set_ylabel("Quarantined")
-    ax3.grid(alpha=0.3)
-    ax3.legend()
-
-    ax4 = fig.add_subplot(4, 1, 4, sharex=ax1)
-    if len(policy_trace):
-        policy_days = policy_trace["day"].astype(int).values
-        policy_dates = [dates[day] for day in policy_days]
-        ax4.step(
-            policy_dates,
-            policy_trace["restriction_intensity"].values,
-            where="post",
-            lw=2,
-            color="#aa4444",
-            label="Restriction intensity",
-        )
-        for _, row in policy_trace.drop_duplicates(subset=["day"]).iterrows():
-            day = int(row["day"])
-            ax4.text(
-                dates[day],
-                row["restriction_intensity"] + 0.08,
-                row["policy_id"],
-                fontsize=8,
-                rotation=30,
-                ha="left",
-                va="bottom",
-            )
-    ax4.set_ylabel("Policy level")
-    ax4.set_xlabel("Date")
-    ax4.set_yticks([0, 1, 2, 3, 4])
-    ax4.grid(alpha=0.3)
-    ax4.legend()
-
-    fig.autofmt_xdate()
     fig.tight_layout()
     fig_path = outdir / "campus_llm_policy_vs_baseline.png"
     fig.savefig(fig_path, dpi=200, bbox_inches="tight")
@@ -209,61 +276,67 @@ def save_comparison_plot(baseline_sim: cv.Sim, policy_sim: cv.Sim, outdir: Path)
 
 def main() -> int:
     args = parse_args()
+    if args.use_api and not os.getenv("DASHSCOPE_API_KEY"):
+        print("ERROR: --use-api requires DASHSCOPE_API_KEY.", file=sys.stderr)
+        return 1
+
     outdir = Path(args.outdir).resolve()
     outdir.mkdir(parents=True, exist_ok=True)
 
-    print("=== Campus LLM Policy vs Baseline ===")
-    print(f"Population: {args.pop_size}")
-    print(f"Initial infected: {args.pop_infected}")
-    print(f"Days: {args.n_days}")
-    print(f"Model: {args.model}")
-    print(f"Base URL: {args.base_url}")
-    print(f"Decision log: {Path(args.log_path).resolve()}")
-    print(f"Output directory: {outdir}")
+    scenarios = list(SCENARIOS.keys()) if args.scenario == "all" else [args.scenario]
+    seeds = list(range(1, args.seeds + 1))
+    print("=== Campus Policy Benchmark ===")
+    print(f"Scenarios: {scenarios}")
+    print(f"Seeds per scenario: {len(seeds)}")
+    print(f"Strategies: {STRATEGIES}")
+    print(f"Using real API: {args.use_api}")
 
-    print("\nRunning baseline simulation...")
-    baseline_sim = run_baseline(args)
+    rows = []
+    for scenario_name in scenarios:
+        for strategy_name in STRATEGIES:
+            print(f"\nRunning {scenario_name} / {strategy_name} ...")
+            for seed in seeds:
+                sim = run_strategy_once(args, scenario_name, strategy_name, seed)
+                rows.append(summarize_final_metrics(sim, strategy_name, scenario_name, seed))
 
-    print("\nRunning LLM policy simulation...")
-    policy_sim = run_llm_policy(args)
-    agent = policy_sim["interventions"][0]
+    run_df = pd.DataFrame(rows)
+    evaluation = cvlp.evaluate_policy_benchmark(run_df)
+    agg_df = evaluation["aggregate_df"]
+    ranking_df = evaluation["ranking_df"]
+    plot_path = save_summary_plot(agg_df, outdir)
 
-    comparison_fig = save_comparison_plot(baseline_sim, policy_sim, outdir)
+    run_csv_path = outdir / "run_metrics.csv"
+    agg_csv_path = outdir / "summary_metrics.csv"
+    ranking_csv_path = outdir / "pareto_scores.csv"
+    summary_json_path = outdir / "summary_metrics.json"
 
-    daily_df = pd.concat(
-        [
-            build_daily_dataframe(baseline_sim, "baseline_no_policy"),
-            build_daily_dataframe(policy_sim, "llm_policy"),
-        ],
-        ignore_index=True,
-    )
-    daily_csv_path = outdir / "daily_metrics.csv"
-    daily_df.to_csv(daily_csv_path, index=False, encoding="utf-8-sig")
+    run_df.to_csv(run_csv_path, index=False, encoding="utf-8-sig")
+    agg_df.to_csv(agg_csv_path, index=False, encoding="utf-8-sig")
+    ranking_df.to_csv(ranking_csv_path, index=False, encoding="utf-8-sig")
+    with summary_json_path.open("w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "scenarios": scenarios,
+                "strategies": STRATEGIES,
+                "use_api": args.use_api,
+                "cpbu_weights": evaluation["cpbu_weights"],
+                "per_cost_weights": evaluation["per_cost_weights"],
+                "aggregate_summary": json.loads(agg_df.to_json(orient="records")),
+                "pareto_scores": json.loads(ranking_df.to_json(orient="records")),
+            },
+            handle,
+            ensure_ascii=False,
+            indent=2,
+        )
 
-    policy_trace_df = build_policy_trace_dataframe(agent)
-    policy_trace_csv_path = outdir / "policy_trace.csv"
-    policy_trace_df.to_csv(policy_trace_csv_path, index=False, encoding="utf-8-sig")
-
-    summary = {
-        "baseline_no_policy": summarize_final_metrics(baseline_sim),
-        "llm_policy": summarize_final_metrics(policy_sim),
-        "decision_count": len(agent.decision_history),
-        "final_policy": agent.policy_trace[-1] if agent.policy_trace else None,
-    }
-    summary_path = outdir / "summary_metrics.json"
-    with open(summary_path, "w", encoding="utf-8") as handle:
-        json.dump(summary, handle, ensure_ascii=False, indent=2)
-
-    print("\n=== Final Metrics ===")
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
-
+    print("\n=== Aggregate Summary ===")
+    print(agg_df.to_string(index=False))
     print("\n=== Saved artifacts ===")
-    print(comparison_fig)
-    print(daily_csv_path)
-    print(policy_trace_csv_path)
-    print(summary_path)
-    print(Path(args.log_path).resolve())
-
+    print(plot_path)
+    print(run_csv_path)
+    print(agg_csv_path)
+    print(ranking_csv_path)
+    print(summary_json_path)
     return 0
 
 

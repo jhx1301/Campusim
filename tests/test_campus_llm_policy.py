@@ -88,6 +88,28 @@ def make_sequence_decision_fn(sequence):
     return decision_fn
 
 
+def make_memory_record(day, proposed_policy, applied_policy, infections_sum, tests_sum, quarantined_mean, risk_level="medium"):
+    return {
+        "decision_day": day,
+        "decision_date": f"2026-04-{int(day) + 1:02d}",
+        "model_policy_proposed": proposed_policy,
+        "applied_policy": applied_policy,
+        "risk_level": risk_level,
+        "state_snapshot": {
+            "past_7d_summary": {
+                "new_infections_sum": infections_sum,
+                "new_infections_trend": "up" if infections_sum >= 10 else "down",
+                "r_eff_current": 1.15 if infections_sum >= 10 else 0.92,
+                "estimated_risk_trend": "worsening" if infections_sum >= 10 else "improving",
+            },
+            "intervention_burden_last_7d": {
+                "tests_sum": tests_sum,
+                "mean_quarantined": quarantined_mean,
+            },
+        },
+    }
+
+
 def test_apply_policy_transition_constraint():
     catalog = cvlp.make_default_policy_catalog()
     assert cvlp.apply_policy_transition_constraint("P4_emergency", "P1_guarded", catalog) == "P2_moderate"
@@ -105,15 +127,29 @@ def test_parse_policy_response_validation():
         json.dumps({"policy_id": "P9", "risk_level": "high", "reason": VALID_REASON}, ensure_ascii=False),
         json.dumps({"policy_id": "P2_moderate", "risk_level": "urgent", "reason": VALID_REASON}, ensure_ascii=False),
         json.dumps({"policy_id": "P2_moderate", "risk_level": "high"}, ensure_ascii=False),
-        json.dumps({"policy_id": "P2_moderate", "risk_level": "high", "reason": ""}, ensure_ascii=False),
-        json.dumps({"policy_id": "P2_moderate", "risk_level": "high", "reason": "this is english only"}, ensure_ascii=False),
-        json.dumps({"policy_id": "P2_moderate", "risk_level": "high", "reason": LONG_REASON}, ensure_ascii=False),
         json.dumps({"policy_id": "P2_moderate", "risk_level": "high", "reason": VALID_REASON, "extra": 1}, ensure_ascii=False),
     ]
 
     for raw in invalid_payloads:
         with pytest.raises(cvlp.PolicyResponseError):
             cvlp.parse_policy_response(raw)
+
+    long_payload = json.dumps({"policy_id": "P2_moderate", "risk_level": "high", "reason": LONG_REASON}, ensure_ascii=False)
+    assert len(cvlp.parse_policy_response(long_payload)["reason"]) == cvlp.DEFAULT_REASON_MAX_CHARS
+
+
+def test_build_system_prompt_and_policy_catalog_brief_include_debias_rules():
+    prompt = cvlp.build_system_prompt(use_theory_prompt=True)
+    assert "recent 7-day versus previous 7-day trends" in prompt
+    assert "P3_strong and P4_emergency have high operational and teaching costs" in prompt
+    assert "consider stepping down to P1_guarded" in prompt
+    assert "consider stepping down to P0_normal" in prompt
+
+    brief = cvlp.policy_catalog_to_brief(cvlp.make_default_policy_catalog())
+    summaries = {item["policy_id"]: item["summary"] for item in brief}
+    assert "Lowest-cost posture" in summaries["P0_normal"]
+    assert "High-cost strong-control posture" in summaries["P3_strong"]
+    assert "Highest-cost emergency posture" in summaries["P4_emergency"]
 
 
 def test_extract_campus_policy_state_schema():
@@ -122,6 +158,13 @@ def test_extract_campus_policy_state_schema():
         current_policy="P1_guarded",
         current_policy_start_day=7,
         policy_catalog=cvlp.make_default_policy_catalog(),
+        memory_weeks=4,
+        decision_history=[
+            make_memory_record(0, "P2_moderate", "P2_moderate", 24, 500, 20, risk_level="high"),
+            make_memory_record(7, "P3_strong", "P3_strong", 12, 650, 35, risk_level="high"),
+            make_memory_record(10, "P2_moderate", "P2_moderate", 8, 700, 40, risk_level="medium"),
+            make_memory_record(12, "P1_guarded", "P1_guarded", 6, 720, 38, risk_level="medium"),
+        ],
     )
     state = cvlp.extract_campus_policy_state(sim, agent=agent, decision_day=14, window=7)
 
@@ -131,9 +174,42 @@ def test_extract_campus_policy_state_schema():
     assert state["current_policy_duration_days"] == 7
     assert "past_7d_summary" in state
     assert "layer_transmission_last_7d" in state
-    assert "campus_pressure" in state
+    assert "layer_transmission_trends" in state
+    assert "recent_policy_memory" in state
+    assert len(state["recent_policy_memory"]) == 4
+    assert state["policy_effect_summary"]["memory_count"] == 4
+    assert "policy_volatility_last_4w" in state
+    assert state["intervention_burden_last_7d"]["mean_quarantined"] > 0
     assert state["past_7d_summary"]["new_infections_sum"] > 0
-    assert state["past_7d_summary"]["r_eff_current"] > 1.0
+    assert state["past_7d_summary"]["r_eff_current"] == pytest.approx(1.19)
+    assert state["layer_transmission_trends"]["dorm"] == {
+        "current_7d": 2.0,
+        "prev_7d": 0.0,
+        "delta": 2.0,
+        "ratio": 1.0,
+        "trend": "up",
+    }
+    assert state["layer_transmission_trends"]["classroom"] == {
+        "current_7d": 2.0,
+        "prev_7d": 0.0,
+        "delta": 2.0,
+        "ratio": 1.0,
+        "trend": "up",
+    }
+    assert state["recent_policy_memory"][-1]["state_summary"]["growth_ratio_7d_vs_prev_7d"] == 0.0
+    assert state["recent_policy_memory"][-1]["state_summary"]["layer_transmission_trends"] == {}
+
+
+def test_build_user_payload_keeps_new_layer_trends():
+    state = {
+        "past_7d_summary": {"new_infections_sum": 10.0, "new_infections_trend": "down"},
+        "layer_transmission_trends": {
+            "classroom": {"current_7d": 6.0, "prev_7d": 10.0, "delta": -4.0, "ratio": 0.6, "trend": "down"}
+        },
+    }
+    payload = cvlp.build_user_payload(state, cvlp.make_default_policy_catalog())
+    assert payload["state"]["layer_transmission_trends"]["classroom"]["trend"] == "down"
+    assert any(item["policy_id"] == "P3_strong" for item in payload["policy_catalog_brief"])
 
 
 def test_extract_campus_policy_state_without_infection_log():
@@ -142,8 +218,57 @@ def test_extract_campus_policy_state_without_infection_log():
     state = cvlp.extract_campus_policy_state(sim, agent=None, decision_day=14, window=7)
 
     assert "layer_transmission_last_7d" not in state
-    assert "campus_pressure" not in state
+    assert "layer_transmission_trends" not in state
     assert "past_7d_summary" in state
+    assert state["recent_policy_memory"] == []
+    assert state["policy_effect_summary"]["memory_count"] == 0
+
+
+def test_extract_campus_policy_state_memory_window_shapes_and_trends():
+    sim = DummySim()
+    catalog = cvlp.make_default_policy_catalog()
+    agent_empty = SimpleNamespace(
+        current_policy="P1_guarded",
+        current_policy_start_day=7,
+        policy_catalog=catalog,
+        memory_weeks=4,
+        decision_history=[],
+    )
+    empty_state = cvlp.extract_campus_policy_state(sim, agent=agent_empty, decision_day=14, window=7)
+    assert empty_state["recent_policy_memory"] == []
+    assert empty_state["policy_volatility_last_4w"]["policy_switch_count"] == 0
+
+    agent_one = SimpleNamespace(
+        current_policy="P1_guarded",
+        current_policy_start_day=7,
+        policy_catalog=catalog,
+        memory_weeks=4,
+        decision_history=[make_memory_record(7, "P2_moderate", "P2_moderate", 15, 600, 30, risk_level="high")],
+    )
+    one_state = cvlp.extract_campus_policy_state(sim, agent=agent_one, decision_day=14, window=7)
+    assert len(one_state["recent_policy_memory"]) == 1
+    assert one_state["policy_effect_summary"]["dominant_effect_trend"] in {"improving", "stable", "worsening"}
+    assert one_state["layer_transmission_trends"]["community"]["trend"] == "up"
+
+    agent_many = SimpleNamespace(
+        current_policy="P2_moderate",
+        current_policy_start_day=10,
+        policy_catalog=catalog,
+        memory_weeks=4,
+        decision_history=[
+            make_memory_record(0, "P1_guarded", "P1_guarded", 21, 500, 16),
+            make_memory_record(7, "P2_moderate", "P2_moderate", 18, 620, 25),
+            make_memory_record(14, "P3_strong", "P3_strong", 12, 700, 36),
+            make_memory_record(21, "P2_moderate", "P2_moderate", 8, 760, 32),
+            make_memory_record(28, "P1_guarded", "P1_guarded", 5, 730, 20),
+        ],
+    )
+    many_state = cvlp.extract_campus_policy_state(sim, agent=agent_many, decision_day=30, window=7)
+    assert len(many_state["recent_policy_memory"]) == 4
+    assert many_state["recent_policy_memory"][0]["decision_day"] == 7
+    assert many_state["policy_volatility_last_4w"]["policy_switch_count"] >= 1
+    assert many_state["policy_volatility_last_4w"]["policy_oscillation_score"] >= 0
+    assert "layer_transmission_trends" in many_state["recent_policy_memory"][-1]["state_summary"]
 
 
 def test_campus_policy_agent_absolute_rewrite_and_runtime_updates():
@@ -157,6 +282,7 @@ def test_campus_policy_agent_absolute_rewrite_and_runtime_updates():
         decision_interval_days=7,
         initial_policy="P1_guarded",
         decision_fn=make_sequence_decision_fn(sequence),
+        min_policy_hold_intervals=0,
         log_path=None,
     )
     sim = make_campus_sim(interventions=[agent], n_days=21, rand_seed=2)
@@ -182,8 +308,12 @@ def test_campus_policy_agent_absolute_rewrite_and_runtime_updates():
             expected = baseline[layer] * catalog[policy_id]["restriction_profile"][layer]
             assert trace_by_day[day]["effective_beta_layer"][layer] == pytest.approx(expected)
 
-    assert trace_by_day[7]["effective_beta_layer"]["clu"] == 0.0
-    assert trace_by_day[7]["effective_beta_layer"]["clg"] == 0.0
+    assert trace_by_day[7]["effective_beta_layer"]["clu"] == pytest.approx(
+        baseline["clu"] * catalog["P3_strong"]["restriction_profile"]["clu"]
+    )
+    assert trace_by_day[7]["effective_beta_layer"]["clg"] == pytest.approx(
+        baseline["clg"] * catalog["P3_strong"]["restriction_profile"]["clg"]
+    )
     assert trace_by_day[21]["effective_beta_layer"]["clu"] == pytest.approx(baseline["clu"])
     assert trace_by_day[21]["effective_beta_layer"]["clg"] == pytest.approx(baseline["clg"])
 
@@ -237,10 +367,139 @@ def test_campus_policy_agent_fallback_and_jsonl_log():
         assert second["model_policy_proposed"] == "P4_emergency"
         assert second["system_prompt_sha256"] == cvlp.hash_text(second["system_prompt"])
         assert "state_snapshot" in second
+        assert "memory_snapshot" in second
+        assert "ensemble_votes" in second
         assert "restriction_profile_applied" in second
     finally:
         if log_path.exists():
             log_path.unlink()
+
+
+def test_campus_policy_agent_ensemble_majority_tie_and_member_failure():
+    majority_sequence = [
+        json.dumps({"policy_id": "P1_guarded", "risk_level": "medium", "reason": VALID_REASON}, ensure_ascii=False),
+        json.dumps({"policy_id": "P2_moderate", "risk_level": "high", "reason": UPGRADE_REASON_1}, ensure_ascii=False),
+        json.dumps({"policy_id": "P2_moderate", "risk_level": "high", "reason": UPGRADE_REASON_2}, ensure_ascii=False),
+        RuntimeError("member failed"),
+        json.dumps({"policy_id": "P1_guarded", "risk_level": "medium", "reason": VALID_REASON}, ensure_ascii=False),
+        json.dumps({"policy_id": "P4_emergency", "risk_level": "critical", "reason": UPGRADE_REASON_1}, ensure_ascii=False),
+    ]
+    agent = cv.campus_policy_agent(
+        decision_interval_days=7,
+        initial_policy="P1_guarded",
+        ensemble_size=5,
+        min_policy_hold_intervals=0,
+        decision_fn=make_sequence_decision_fn(majority_sequence),
+        log_path=None,
+    )
+    sim = make_campus_sim(interventions=[agent], n_days=7, rand_seed=4)
+    sim.run()
+    agent = sim["interventions"][0]
+
+    first = agent.decision_history[0]
+    second = agent.decision_history[1]
+    assert first["applied_policy"] == "P2_moderate"
+    assert len(first["ensemble_votes"]) == 3
+    assert sum(vote.get("policy_id") == "P2_moderate" for vote in first["ensemble_votes"]) == 2
+    assert second["applied_policy"] == "P3_strong"
+    assert any(vote.get("error_type") == "RuntimeError" for vote in second["ensemble_votes"])
+
+
+def test_campus_policy_agent_min_hold_and_burden_guardrail():
+    hold_sequence = [
+        json.dumps({"policy_id": "P4_emergency", "risk_level": "high", "reason": UPGRADE_REASON_1}, ensure_ascii=False),
+        json.dumps({"policy_id": "P0_normal", "risk_level": "medium", "reason": DOWNGRADE_REASON_1}, ensure_ascii=False),
+        json.dumps({"policy_id": "P0_normal", "risk_level": "low", "reason": DOWNGRADE_REASON_2}, ensure_ascii=False),
+    ]
+    agent = cv.campus_policy_agent(
+        decision_interval_days=7,
+        initial_policy="P1_guarded",
+        decision_fn=make_sequence_decision_fn(hold_sequence),
+        log_path=None,
+    )
+    sim = make_campus_sim(interventions=[agent], n_days=14, rand_seed=5)
+    sim.run()
+    agent = sim["interventions"][0]
+
+    assert agent.decision_history[0]["applied_policy"] == "P2_moderate"
+    assert agent.decision_history[1]["applied_policy"] == "P2_moderate"
+    assert agent.decision_history[1]["guardrail_adjusted"] is True
+    assert agent.decision_history[1]["guardrail_reason"] == "min_hold_reversal_block"
+    assert agent.decision_history[2]["applied_policy"] == "P1_guarded"
+
+    guardrail_agent = cv.campus_policy_agent(initial_policy="P3_strong")
+    guardrail_agent.current_policy = "P3_strong"
+    guardrail_agent.decision_history = []
+    state = {
+        "current_policy_duration_days": 14,
+        "past_7d_summary": {
+            "estimated_risk_trend": "stable",
+            "new_infections_trend": "down",
+            "r_eff_current": 0.95,
+        },
+        "intervention_burden_last_7d": {
+            "mean_quarantined_per_1000": 25.0,
+            "tests_per_1000": 120.0,
+            "teaching_restriction_intensity": 3,
+        },
+        "policy_effect_summary": {
+            "dominant_effect_trend": "stable",
+        },
+    }
+    applied_policy, reason = guardrail_agent._apply_policy_guardrails(
+        proposed_policy="P4_emergency",
+        state=state,
+        decision={"risk_level": "high"},
+    )
+    assert applied_policy == "P3_strong"
+    assert reason == "burden_guardrail_block"
+
+    low_prevalence_agent = cv.campus_policy_agent(initial_policy="P2_moderate")
+    low_prevalence_agent.current_policy = "P2_moderate"
+    low_prevalence_state = {
+        "current_policy_duration_days": 14,
+        "new_infections_per_1000_last_7d": 6.9,
+        "growth_ratio_7d_vs_prev_7d": 2.4,
+        "past_7d_summary": {
+            "estimated_risk_trend": "worsening",
+            "new_infections_sum": 276.0,
+            "new_infections_trend": "up",
+            "r_eff_current": 0.0,
+        },
+        "intervention_burden_last_7d": {},
+        "policy_effect_summary": {
+            "dominant_effect_trend": "worsening",
+        },
+    }
+    applied_policy, reason = low_prevalence_agent._apply_policy_guardrails(
+        proposed_policy="P4_emergency",
+        state=low_prevalence_state,
+        decision={"risk_level": "critical"},
+    )
+    assert applied_policy == "P2_moderate"
+    assert reason == "low_prevalence_online_guardrail_block"
+
+
+def test_campus_policy_agent_defer_first_decision_until_interval():
+    sequence = [
+        json.dumps({"policy_id": "P4_emergency", "risk_level": "critical", "reason": UPGRADE_REASON_1}, ensure_ascii=False),
+    ]
+    agent = cv.campus_policy_agent(
+        decision_interval_days=7,
+        initial_policy="P1_guarded",
+        defer_first_decision_until_interval=True,
+        decision_fn=make_sequence_decision_fn(sequence),
+        min_policy_hold_intervals=0,
+        log_path=None,
+    )
+    sim = make_campus_sim(interventions=[agent], n_days=8, rand_seed=6)
+    sim.run()
+    agent = sim["interventions"][0]
+
+    assert len(agent.decision_history) == 1
+    assert agent.decision_history[0]["decision_day"] == 7
+    assert all(row["policy_id"] == "P1_guarded" for row in agent.policy_trace if row["day"] < 7)
+    assert agent.policy_trace[7]["policy_id"] == "P2_moderate"
 
 
 @pytest.mark.online

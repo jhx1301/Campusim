@@ -1,0 +1,9 @@
+﻿scenario,strategy,seed,cum_infections,cum_diagnoses,peak_new_infections,r_eff_final,time_to_peak,cum_tests,mean_quarantined,peak_quarantined,teaching_restriction_days,restriction_intensity_days,policy_switch_count,policy_oscillation_score,decision_count,guardrail_adjusted_count,ensemble_disagreement_rate,ensemble_unanimous_rate,ensemble_vote_entropy_mean,ensemble_vote_margin_mean,ensemble_vote_rank_span_mean,ensemble_escalation_disagreement_rate,low_prevalence_online_guardrail_block_count,P3_P4_days
+medium,fixed_P0_normal,1,409.0,59.0,35.0,1.8198129069598425,56,2334.0,59.1578947368421,407.0,0,0.0,0.0,0.0,8.0,0.0,0.0,1.0,0.0,1.0,0.0,0.0,0.0,0
+medium,fixed_P0_normal,2,5.0,1.0,1.0,0.0,5,2281.0,0.40350877192982454,2.0,0,0.0,0.0,0.0,8.0,0.0,0.0,1.0,0.0,1.0,0.0,0.0,0.0,0
+medium,fixed_P2_moderate,1,193.0,84.0,14.0,1.3920001220703124,55,10478.0,183.64912280701753,422.0,0,114.0,0.0,0.0,8.0,0.0,0.0,1.0,0.0,1.0,0.0,0.0,0.0,0
+medium,fixed_P2_moderate,2,6.0,6.0,1.0,0.0,6,10464.0,17.035087719298247,41.0,0,114.0,0.0,0.0,8.0,0.0,0.0,1.0,0.0,1.0,0.0,0.0,0.0,0
+medium,fixed_P3_strong,1,45.0,24.0,6.0,0.0,21,15743.0,97.6140350877193,263.0,0,171.0,0.0,0.0,8.0,0.0,0.0,1.0,0.0,1.0,0.0,0.0,0.0,57
+medium,fixed_P3_strong,2,4.0,3.0,1.0,0.0,5,15754.0,9.824561403508772,42.0,0,171.0,0.0,0.0,8.0,0.0,0.0,1.0,0.0,1.0,0.0,0.0,0.0,57
+medium,fixed_P4_emergency,1,9.0,6.0,2.0,0.0,10,25615.0,20.964912280701753,87.0,57,228.0,0.0,0.0,8.0,0.0,0.0,1.0,0.0,1.0,0.0,0.0,0.0,57
+medium,fixed_P4_emergency,2,4.0,4.0,1.0,0.0,5,25607.0,19.49122807017544,79.0,57,228.0,0.0,0.0,8.0,0.0,0.0,1.0,0.0,1.0,0.0,0.0,0.0,57
