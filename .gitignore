@@ -141,3 +141,13 @@ dmypy.json
 
 # Node.js and NPM
 node_modules
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Experiment output figures and data
+examples/figures/
+
+# Graduation thesis and defense documents
+*.docx
+软件架构答辩汇报稿.md

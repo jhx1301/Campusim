@@ -1,6 +1,4 @@
-'''
-Simple script
-'''
+
 
 import sciris as sc
 import covasim as cv

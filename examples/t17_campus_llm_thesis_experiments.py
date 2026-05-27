@@ -7,11 +7,7 @@ This script implements the experiment plan used in the final thesis chapter:
 2. Strategy comparison: no policy, threshold policy, and LLM-style policy.
 3. Memory ablation: single-agent decisions with and without memory.
 4. Guardrail ablation: memory policy with and without burden guardrails.
-5. Ensemble decision ablation: single-agent memory policy versus multi-agent
-   voting policy.
-6. Theory ablation: LLM policy with vs without expert knowledge rules
-   in the system prompt.
-7. Robustness: low, medium, and high transmission scenarios over multiple seeds.
+5. Robustness: low, medium, and high transmission scenarios over multiple seeds.
 
 The default ``quick`` preset is intended for smoke tests. Use ``--preset paper``
 to run the 40000-person, 84-day setup from the thesis design.
@@ -19,7 +15,6 @@ to run the 40000-person, 84-day setup from the thesis design.
 Examples:
     python examples/t17_campus_llm_thesis_experiments.py --preset quick
     python examples/t17_campus_llm_thesis_experiments.py --preset paper --experiment core
-    python examples/t17_campus_llm_thesis_experiments.py --preset paper --experiment ensemble
     python examples/t17_campus_llm_thesis_experiments.py --preset paper --use-api --experiment policy
 """
 
@@ -63,16 +58,33 @@ QUICK_SCENARIOS = {
 }
 
 CORE_STRATEGIES = ["baseline_no_policy", "baseline_threshold", "llm_single_memory"]
-ENSEMBLE_STRATEGIES = ["baseline_no_policy", "baseline_threshold", "llm_single_memory", "llm_ensemble_memory"]
+ABLATION_STRATEGIES = [
+    "ablation_no_expert_no_memory",
+    "ablation_memory_only",
+    "ablation_expert_only",
+    "ablation_expert_and_memory",
+]
 ALL_STRATEGIES = [
     "baseline_no_policy",
     "baseline_threshold",
     "baseline_single_agent_nomemory",
     "llm_single_memory",
     "llm_ensemble_memory",
+    "ablation_no_expert_no_memory",
+    "ablation_memory_only",
+    "ablation_expert_only",
+    "ablation_expert_and_memory",
 ]
-FIXED_POLICIES = ["P0_normal", "P2_moderate", "P3_strong", "P4_emergency"]
-API_STRATEGIES = {"baseline_single_agent_nomemory", "llm_single_memory", "llm_single_memory_nomem_only", "llm_ensemble_memory", "llm_single_memory_notheory"}
+FIXED_POLICIES = ["P0_normal", "P1_guarded", "P2_moderate", "P3_strong", "P4_emergency"]
+API_STRATEGIES = {
+    "baseline_single_agent_nomemory",
+    "llm_single_memory",
+    "llm_ensemble_memory",
+    "ablation_no_expert_no_memory",
+    "ablation_memory_only",
+    "ablation_expert_only",
+    "ablation_expert_and_memory",
+}
 CAMPUS_LAYERS = list(cvlp.CAMPUS_LAYER_KEYS)
 LAYER_GROUPS = {
     "dorm_d": ("d",),
@@ -85,16 +97,18 @@ STRATEGY_COLORS = {
     "baseline_no_policy": "#d6604d",
     "baseline_threshold": "#4393c3",
     "baseline_single_agent_nomemory": "#9970ab",
-    "llm_single_memory_nomem_only": "#f4a582",
     "llm_single_memory": "#1b9e77",
     "llm_ensemble_memory": "#e6ab02",
     "llm_memory_without_guardrail": "#66a61e",
     "llm_memory_with_guardrail": "#1b9e77",
-    "llm_single_memory_notheory": "#d95f02",
     "fixed_P0_normal": "#999999",
     "fixed_P2_moderate": "#80cdc1",
     "fixed_P3_strong": "#dfc27d",
     "fixed_P4_emergency": "#bf812d",
+    "ablation_no_expert_no_memory": "#d6604d",
+    "ablation_memory_only": "#4393c3",
+    "ablation_expert_only": "#9970ab",
+    "ablation_expert_and_memory": "#1b9e77",
 }
 
 
@@ -102,7 +116,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run thesis campus LLM policy experiments.")
     parser.add_argument(
         "--experiment",
-        choices=["all", "core", "validation", "policy", "memory", "guardrail", "ensemble", "theory", "robustness", "sensitivity", "weight_sensitivity"],
+        choices=["all", "core", "validation", "policy", "memory", "guardrail", "robustness", "sensitivity"],
         default="core",
         help="Experiment set to run. 'core' runs validation, policy, memory, and guardrail at modest cost.",
     )
@@ -155,18 +169,18 @@ def resolve_config(args: argparse.Namespace) -> dict:
 
 def make_common_pars(config: dict, scenario_name: str, seed: int) -> dict:
     scenario = config["scenarios"][scenario_name]
-    initial_infected = int(round(scenario["pop_infected"]))
+    pop_scale = config["pop_size"] / 40000.0
+    initial_infected = int(round(scenario["pop_infected"] * pop_scale))
     pars = dict(
         pop_type="campus",
         pop_size=int(config["pop_size"]),
         pop_infected=max(1, initial_infected),
         n_days=int(config["n_days"]),
         rand_seed=int(seed),
-        beta=0.0234 * float(scenario["beta_scale"]),
-        rescale=False,
+        beta=0.016 * float(scenario["beta_scale"]),
     )
     if scenario.get("beta_layer_scale"):
-        base_beta_layer = dict(d=3.80, clu=1.44, clg=1.44, of=1.15, ta=1.73, cm=0.195)
+        base_beta_layer = dict(d=2.0, clu=1.0, clg=1.0, of=0.8, ta=1.2, cm=0.35)
         pars["beta_layer"] = {
             layer: float(value) * float(scenario["beta_layer_scale"].get(layer, 1.0))
             for layer, value in base_beta_layer.items()
@@ -187,13 +201,12 @@ def make_threshold_decision_fn():
         infections = float(summary.get("new_infections_sum", 0.0))
         infections_per_1000 = float(state.get("new_infections_per_1000_last_7d", 0.0))
         growth = float(state.get("growth_ratio_7d_vs_prev_7d", 1.0))
-        r_eff = float(summary.get("r_eff_current", 0.0))
         quarantined = float(burden.get("mean_quarantined_per_1000", 0.0))
-        if infections_per_1000 >= 30 or infections >= 1200 or (r_eff >= 1.25 and growth >= 1.5):
+        if infections_per_1000 >= 30 or infections >= 1200 or growth >= 1.8:
             policy_id, risk_level = "P4_emergency", "critical"
-        elif infections_per_1000 >= 18 or infections >= 700 or growth >= 1.8:
+        elif infections_per_1000 >= 18 or infections >= 700 or growth >= 1.5:
             policy_id, risk_level = "P3_strong", "high"
-        elif infections_per_1000 >= 8 or infections >= 300 or growth >= 1.2 or r_eff >= 1.0:
+        elif infections_per_1000 >= 8 or infections >= 300 or growth >= 1.1:
             policy_id, risk_level = "P2_moderate", "medium"
         elif quarantined >= 18:
             policy_id, risk_level = "P1_guarded", "medium"
@@ -213,17 +226,16 @@ def make_surrogate_llm_decision_fn(mode: str):
         infections = float(summary.get("new_infections_sum", 0.0))
         infections_per_1000 = float(state.get("new_infections_per_1000_last_7d", 0.0))
         growth = float(state.get("growth_ratio_7d_vs_prev_7d", 1.0))
-        r_eff = float(summary.get("r_eff_current", 0.0))
         trend = summary.get("estimated_risk_trend", "stable")
         current_policy = state.get("current_policy") or "P0_normal"
         current_rank = cvlp.get_policy_rank(current_policy, policy_catalog)
 
         target_rank = current_rank
-        if infections_per_1000 >= 8 or infections >= 300 or trend == "worsening" or growth >= 1.2:
+        if infections_per_1000 >= 8 or infections >= 300 or trend == "worsening" or growth >= 1.1:
             target_rank = max(target_rank, 2)
-        if infections_per_1000 >= 18 or infections >= 700 or growth >= 1.8:
+        if infections_per_1000 >= 18 or infections >= 700 or growth >= 1.5:
             target_rank = max(target_rank, 3)
-        if infections_per_1000 >= 30 or infections >= 1200 or (r_eff >= 1.25 and growth >= 1.5):
+        if infections_per_1000 >= 30 or infections >= 1200 or growth >= 1.8:
             target_rank = 4
         if infections_per_1000 <= 4 and infections < 160 and summary.get("new_infections_trend") == "down":
             target_rank = min(target_rank, 1)
@@ -309,58 +321,13 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
             enable_burden_guardrail=True,
             **common,
         )
-    if strategy_name == "llm_single_memory_notheory":
-        return cv.campus_policy_agent(
-            decision_fn=None,
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
-            use_theory_prompt=False,
-            memory_weeks=4,
-            ensemble_size=1,
-            min_policy_hold_intervals=2,
-            enable_burden_guardrail=True,
-            **common,
-        )
-    if strategy_name == "llm_single_memory_nomem_only":
-        # Clean memory ablation: identical to llm_single_memory except memory_weeks=0
-        return cv.campus_policy_agent(
-            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("nomemory"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
-            use_theory_prompt=True,
-            memory_weeks=0,
-            ensemble_size=1,
-            min_policy_hold_intervals=2,
-            enable_burden_guardrail=True,
-            **common,
-        )
-    if strategy_name == "llm_single_memory_noguardrail":
-        return cv.campus_policy_agent(
-            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
-            use_theory_prompt=True,
-            memory_weeks=4,
-            ensemble_size=1,
-            min_policy_hold_intervals=2,
-            enable_burden_guardrail=False,
-            **common,
-        )
-    if strategy_name == "llm_single_memory_notheory_noguardrail":
-        return cv.campus_policy_agent(
-            decision_fn=None,
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
-            use_theory_prompt=False,
-            memory_weeks=4,
-            ensemble_size=1,
-            min_policy_hold_intervals=2,
-            enable_burden_guardrail=False,
-            **common,
-        )
     if strategy_name == "llm_ensemble_memory":
         return cv.campus_policy_agent(
             decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
             api_key=os.getenv("DASHSCOPE_API_KEY"),
             use_theory_prompt=True,
             memory_weeks=4,
-            ensemble_size=5,
+            ensemble_size=3,
             min_policy_hold_intervals=2,
             enable_burden_guardrail=True,
             **common,
@@ -376,28 +343,6 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
             enable_burden_guardrail=False,
             **common,
         )
-    if strategy_name == "llm_memory_without_guardrail_notheory":
-        return cv.campus_policy_agent(
-            decision_fn=None,
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
-            use_theory_prompt=False,
-            memory_weeks=4,
-            ensemble_size=1,
-            min_policy_hold_intervals=2,
-            enable_burden_guardrail=False,
-            **common,
-        )
-    if strategy_name == "llm_memory_with_guardrail_notheory":
-        return cv.campus_policy_agent(
-            decision_fn=None,
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
-            use_theory_prompt=False,
-            memory_weeks=4,
-            ensemble_size=1,
-            min_policy_hold_intervals=2,
-            enable_burden_guardrail=True,
-            **common,
-        )
     if strategy_name == "llm_memory_with_guardrail":
         return cv.campus_policy_agent(
             decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
@@ -407,6 +352,51 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
             ensemble_size=1,
             min_policy_hold_intervals=2,
             enable_burden_guardrail=True,
+            **common,
+        )
+    # --- 2×2 ablation: expert knowledge × memory ---
+    if strategy_name == "ablation_no_expert_no_memory":
+        return cv.campus_policy_agent(
+            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("nomemory"),
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            use_theory_prompt=False,
+            memory_weeks=0,
+            ensemble_size=1,
+            min_policy_hold_intervals=1,
+            enable_burden_guardrail=False,
+            **common,
+        )
+    if strategy_name == "ablation_memory_only":
+        return cv.campus_policy_agent(
+            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            use_theory_prompt=False,
+            memory_weeks=2,
+            ensemble_size=1,
+            min_policy_hold_intervals=1,
+            enable_burden_guardrail=False,
+            **common,
+        )
+    if strategy_name == "ablation_expert_only":
+        return cv.campus_policy_agent(
+            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("nomemory"),
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            use_theory_prompt=True,
+            memory_weeks=0,
+            ensemble_size=1,
+            min_policy_hold_intervals=1,
+            enable_burden_guardrail=False,
+            **common,
+        )
+    if strategy_name == "ablation_expert_and_memory":
+        return cv.campus_policy_agent(
+            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            use_theory_prompt=True,
+            memory_weeks=2,
+            ensemble_size=1,
+            min_policy_hold_intervals=1,
+            enable_burden_guardrail=False,
             **common,
         )
     raise ValueError(f"Unsupported strategy: {strategy_name}")
@@ -578,7 +568,6 @@ def build_decision_summary_df(sim: cv.Sim, scenario_name: str, strategy_name: st
     for record in getattr(agent, "decision_history", []):
         state = record.get("state_snapshot", {}) if isinstance(record.get("state_snapshot"), dict) else {}
         summary = state.get("past_7d_summary", {}) if isinstance(state.get("past_7d_summary"), dict) else {}
-        vote_metrics = summarize_ensemble_votes(record, agent)
         rows.append(
             {
                 "scenario": scenario_name,
@@ -594,69 +583,12 @@ def build_decision_summary_df(sim: cv.Sim, scenario_name: str, strategy_name: st
                 "fallback_used": bool(record.get("fallback_used")),
                 "guardrail_adjusted": bool(record.get("guardrail_adjusted")),
                 "guardrail_reason": record.get("guardrail_reason"),
-                **vote_metrics,
                 "new_infections_sum": float(summary.get("new_infections_sum", 0.0)),
                 "new_infections_per_1000_last_7d": float(state.get("new_infections_per_1000_last_7d", 0.0)),
                 "growth_ratio_7d_vs_prev_7d": float(state.get("growth_ratio_7d_vs_prev_7d", 0.0)),
             }
         )
     return pd.DataFrame(rows)
-
-
-def summarize_ensemble_votes(record: dict, agent) -> dict:
-    votes = record.get("ensemble_votes", [])
-    if not isinstance(votes, list):
-        votes = []
-    policy_votes = [vote.get("policy_id") for vote in votes if isinstance(vote, dict) and vote.get("policy_id") in cvlp.POLICY_IDS]
-    ensemble_size = int(getattr(agent, "ensemble_size", len(votes) or 1))
-    valid_votes = len(policy_votes)
-    selected_policy = record.get("model_policy_proposed") or record.get("applied_policy")
-    selected_rank = cvlp.get_policy_rank(selected_policy, agent.policy_catalog) if selected_policy in cvlp.POLICY_IDS else np.nan
-
-    if not policy_votes:
-        return {
-            "ensemble_size": ensemble_size,
-            "valid_vote_count": 0,
-            "unique_vote_policy_count": 0,
-            "winning_vote_count": 0,
-            "vote_margin": 0,
-            "unanimous_vote": False,
-            "disagreement_vote": False,
-            "vote_entropy": 0.0,
-            "mean_voted_policy_rank": np.nan,
-            "vote_rank_span": 0,
-            "selected_policy_rank": selected_rank,
-            "escalation_disagreement": False,
-        }
-
-    counts = {policy_id: policy_votes.count(policy_id) for policy_id in sorted(set(policy_votes))}
-    sorted_counts = sorted(counts.values(), reverse=True)
-    winning_vote_count = sorted_counts[0]
-    runner_up_count = sorted_counts[1] if len(sorted_counts) > 1 else 0
-    probs = np.asarray(list(counts.values()), dtype=float) / float(valid_votes)
-    ranks = [cvlp.get_policy_rank(policy_id, agent.policy_catalog) for policy_id in policy_votes]
-    current_policy = record.get("current_policy_before")
-    current_rank = cvlp.get_policy_rank(current_policy, agent.policy_catalog) if current_policy in cvlp.POLICY_IDS else np.nan
-    if np.isnan(current_rank):
-        escalation_disagreement = False
-    else:
-        directions = {int(np.sign(rank - current_rank)) for rank in ranks}
-        escalation_disagreement = len(directions) > 1
-
-    return {
-        "ensemble_size": ensemble_size,
-        "valid_vote_count": valid_votes,
-        "unique_vote_policy_count": len(counts),
-        "winning_vote_count": winning_vote_count,
-        "vote_margin": winning_vote_count - runner_up_count,
-        "unanimous_vote": len(counts) == 1 and valid_votes == ensemble_size,
-        "disagreement_vote": len(counts) > 1,
-        "vote_entropy": float(-(probs * np.log2(probs)).sum()),
-        "mean_voted_policy_rank": float(np.mean(ranks)),
-        "vote_rank_span": int(max(ranks) - min(ranks)),
-        "selected_policy_rank": selected_rank,
-        "escalation_disagreement": escalation_disagreement,
-    }
 
 
 def summarize_final_metrics(sim: cv.Sim, scenario_name: str, strategy_name: str, seed: int) -> dict:
@@ -688,14 +620,6 @@ def summarize_final_metrics(sim: cv.Sim, scenario_name: str, strategy_name: str,
         "policy_oscillation_score": cvlp.compute_policy_oscillation_score(policy_ids_for_score),
         "decision_count": float(len(decision_df)),
         "guardrail_adjusted_count": float(decision_df["guardrail_adjusted"].sum()) if len(decision_df) else 0.0,
-        "ensemble_disagreement_rate": float(decision_df["disagreement_vote"].mean()) if len(decision_df) and "disagreement_vote" in decision_df else 0.0,
-        "ensemble_unanimous_rate": float(decision_df["unanimous_vote"].mean()) if len(decision_df) and "unanimous_vote" in decision_df else 0.0,
-        "ensemble_vote_entropy_mean": float(decision_df["vote_entropy"].mean()) if len(decision_df) and "vote_entropy" in decision_df else 0.0,
-        "ensemble_vote_margin_mean": float(decision_df["vote_margin"].mean()) if len(decision_df) and "vote_margin" in decision_df else 0.0,
-        "ensemble_vote_rank_span_mean": float(decision_df["vote_rank_span"].mean()) if len(decision_df) and "vote_rank_span" in decision_df else 0.0,
-        "ensemble_escalation_disagreement_rate": float(decision_df["escalation_disagreement"].mean())
-        if len(decision_df) and "escalation_disagreement" in decision_df
-        else 0.0,
         "low_prevalence_online_guardrail_block_count": float(
             (decision_df.get("guardrail_reason", pd.Series(dtype=str)) == "low_prevalence_online_guardrail_block").sum()
         )
@@ -814,21 +738,21 @@ def run_policy_comparison(args: argparse.Namespace, config: dict, outdir: Path) 
 def run_memory_ablation(args: argparse.Namespace, config: dict, outdir: Path) -> dict:
     scenario_names = [name for name in ["medium", "high"] if name in config["scenario_names"] or args.scenario == "all"]
     seeds = config["seeds"][: min(5, len(config["seeds"]))]
+    strategies = ["baseline_no_policy"] + ABLATION_STRATEGIES
     return run_runs(
         args,
         config,
         scenario_names,
-        ["llm_single_memory_nomem_only", "llm_single_memory"],
+        strategies,
         seeds,
         outdir,
-        "memory",
+        "memory_ablation",
     )
 
 
 def run_guardrail_ablation(args: argparse.Namespace, config: dict, outdir: Path) -> dict:
-    scenario_names = [name for name in ["low", "medium", "high"] if name in config["scenario_names"] or args.scenario == "all"]
-    # Theory ON: burden guardrail ON vs OFF
-    result_theory = run_runs(
+    scenario_names = [name for name in ["low", "medium"] if name in config["scenario_names"] or args.scenario == "all"]
+    return run_runs(
         args,
         config,
         scenario_names,
@@ -836,57 +760,6 @@ def run_guardrail_ablation(args: argparse.Namespace, config: dict, outdir: Path)
         config["seeds"],
         outdir,
         "guardrail",
-    )
-    # Theory OFF: burden guardrail ON vs OFF
-    result_notheory = run_runs(
-        args,
-        config,
-        scenario_names,
-        ["llm_memory_without_guardrail_notheory", "llm_memory_with_guardrail_notheory"],
-        config["seeds"],
-        outdir,
-        "guardrail_notheory",
-    )
-    # Merge
-    merged = dict(result_theory)
-    for k, v in result_notheory.items():
-        if k in merged and isinstance(merged[k], pd.DataFrame) and isinstance(v, pd.DataFrame):
-            merged[k] = pd.concat([merged[k], v], ignore_index=True)
-    return merged
-
-
-def run_ensemble_ablation(args: argparse.Namespace, config: dict, outdir: Path) -> dict:
-    scenario_names = [name for name in ["medium", "high"] if name in config["scenario_names"] or args.scenario == "all"]
-    if args.preset == "paper" and args.scenario == "all":
-        scenario_names = list(PAPER_SCENARIOS.keys())
-    return run_runs(args, config, scenario_names, ENSEMBLE_STRATEGIES, config["seeds"], outdir, "ensemble")
-
-
-def run_theory_ablation(args: argparse.Namespace, config: dict, outdir: Path, no_guardrail: bool = False) -> dict:
-    """Ablation: with vs without SYSTEM_KNOWLEDGE_RULES in the system prompt.
-
-    Both strategies use memory_weeks=4 and single-agent.
-    The only difference is ``use_theory_prompt``.  This experiment only produces
-    meaningful differences in ``--use-api`` mode because the surrogate decision
-    function does not read the system prompt.
-
-    When no_guardrail=True, both strategies disable the burden guardrail so that
-    the LLM's raw policy preferences are not masked by guardrail corrections.
-    """
-    if no_guardrail:
-        strategies = ["llm_single_memory_notheory_noguardrail", "llm_single_memory_noguardrail"]
-        label = "theory_noguardrail"
-    else:
-        strategies = ["llm_single_memory_notheory", "llm_single_memory"]
-        label = "theory"
-    return run_runs(
-        args,
-        config,
-        config["scenario_names"],
-        strategies,
-        config["seeds"],
-        outdir,
-        label,
     )
 
 
@@ -928,98 +801,37 @@ def run_sensitivity_analysis(args: argparse.Namespace, config: dict, outdir: Pat
     return bundle
 
 
-def run_weight_sensitivity(args: argparse.Namespace, config: dict, outdir: Path) -> dict:
-    """CPBU weight sensitivity: recompute CPBU under 11 weight variants.
-
-    Reads existing aggregated policy benchmark data (or runs it if not available),
-    then applies ``cvlp.evaluate_cpbu_weight_sensitivity`` to produce a
-    per-variant, per-scenario, per-strategy CPBU table.
-
-    Returns a bundle with keys: ``aggregate`` (weight sensitivity table),
-    ``design`` (weight variant definitions).
-    """
-    import pandas as pd
-
-    # Try to load existing policy aggregate; otherwise run policy comparison
-    policy_aggregate_path = outdir / "policy" / "policy_summary_metrics.csv"
-    if policy_aggregate_path.exists():
-        agg_df = pd.read_csv(policy_aggregate_path)
-        print(f"Loaded existing policy aggregate from {policy_aggregate_path}")
-    else:
-        policy_bundle = run_policy_comparison(args, config, outdir / "policy")
-        agg_df = policy_bundle.get("aggregate")
-        if agg_df is None or agg_df.empty:
-            print("Warning: policy comparison produced no aggregate data; cannot run weight sensitivity.")
-            return {}
-
-    sensitivity_df = cvlp.evaluate_cpbu_weight_sensitivity(agg_df)
-
-    # Build a compact design table
-    design_rows = []
-    for vname in sensitivity_df["weight_variant"].unique():
-        vrow = sensitivity_df[sensitivity_df["weight_variant"] == vname].iloc[0]
-        design_rows.append({
-            "weight_variant": vname,
-            "w_infection": vrow["w_infection"],
-            "w_ops": vrow["w_ops"],
-            "w_teaching": vrow["w_teaching"],
-            "w_stability": vrow["w_stability"],
-        })
-    design_df = pd.DataFrame(design_rows)
-
-    # Pivot into a readable summary: strategy × scenario × variant
-    pivot = sensitivity_df.pivot_table(
-        index=["strategy", "scenario"],
-        columns="weight_variant",
-        values="CPBU",
-        aggfunc="first",
-    ).reset_index()
-
-    bundle = {
-        "aggregate": sensitivity_df,
-        "design": design_df,
-        "pivot": pivot,
-    }
-    return bundle
-
-
 def save_tables(results: dict, outdir: Path) -> dict:
     paths = {}
-
-    def experiment_dir(name: str) -> Path:
-        path = outdir / name
-        path.mkdir(parents=True, exist_ok=True)
-        return path
 
     def save_df(name: str, df: pd.DataFrame):
         if df is None or df.empty:
             return
-        experiment_name, table_name = name.split("/", 1) if "/" in name else ("misc", name)
-        path = experiment_dir(experiment_name) / f"{table_name}.csv"
+        path = outdir / f"{name}.csv"
         df.to_csv(path, index=False, encoding="utf-8-sig")
         paths[name] = str(path)
 
     validation = results.get("validation", {})
     if validation:
-        save_df("validation/model_validation_doubling_time", validation.get("doubling"))
+        save_df("model_validation_doubling_time", validation.get("doubling"))
         fixed = validation.get("fixed", {})
-        save_df("validation/model_validation_fixed_policy_runs", fixed.get("run"))
-        save_df("validation/model_validation_fixed_policy_summary", fixed.get("aggregate"))
+        save_df("model_validation_fixed_policy_runs", fixed.get("run"))
+        save_df("model_validation_fixed_policy_summary", fixed.get("aggregate"))
         layer_check = validation.get("layer_check", {})
-        save_df("validation/model_validation_layer_contributions", layer_check.get("layers"))
-        save_df("validation/model_validation_layer_runs", layer_check.get("run"))
+        save_df("model_validation_layer_contributions", layer_check.get("layers"))
+        save_df("model_validation_layer_runs", layer_check.get("run"))
 
-    for key in ["policy", "memory", "guardrail", "guardrail_notheory", "ensemble", "theory", "theory_noguardrail", "robustness", "sensitivity", "weight_sensitivity"]:
+    for key in ["policy", "memory", "guardrail", "robustness", "sensitivity"]:
         bundle = results.get(key)
         if not bundle:
             continue
-        save_df(f"{key}/{key}_run_metrics", bundle.get("run"))
-        save_df(f"{key}/{key}_summary_metrics", bundle.get("aggregate"))
-        save_df(f"{key}/{key}_daily_metrics", bundle.get("daily"))
-        save_df(f"{key}/{key}_policy_trace", bundle.get("trace"))
-        save_df(f"{key}/{key}_decision_summary", bundle.get("decision"))
-        save_df(f"{key}/{key}_layer_contributions", bundle.get("layers"))
-        save_df(f"{key}/{key}_design", bundle.get("design"))
+        save_df(f"{key}_run_metrics", bundle.get("run"))
+        save_df(f"{key}_summary_metrics", bundle.get("aggregate"))
+        save_df(f"{key}_daily_metrics", bundle.get("daily"))
+        save_df(f"{key}_policy_trace", bundle.get("trace"))
+        save_df(f"{key}_decision_summary", bundle.get("decision"))
+        save_df(f"{key}_layer_contributions", bundle.get("layers"))
+        save_df(f"{key}_design", bundle.get("design"))
 
     summary_json = outdir / "experiment_manifest.json"
     summary_json.write_text(json.dumps(paths, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1064,38 +876,23 @@ def plot_policy_bundle(bundle: dict, outdir: Path, name: str, scenario_name: str
     if daily_plot.empty:
         daily_plot = daily.copy()
         scenario_name = str(daily_plot["scenario"].iloc[0])
-    daily_stat = (
+    daily_mean = (
         daily_plot.groupby(["strategy", "day"], as_index=False)
-        .agg(
-            cum_infections_mean=("cum_infections", "mean"),
-            cum_infections_std=("cum_infections", "std"),
-            new_infections_7d_avg_mean=("new_infections_7d_avg", "mean"),
-            new_infections_7d_avg_std=("new_infections_7d_avg", "std"),
-        )
+        .agg(cum_infections=("cum_infections", "mean"), new_infections_7d_avg=("new_infections_7d_avg", "mean"))
         .reset_index(drop=True)
     )
 
     fig = pl.figure(figsize=(13, 8))
     ax1 = fig.add_subplot(2, 1, 1)
     ax2 = fig.add_subplot(2, 1, 2)
-    for strategy_name, group in daily_stat.groupby("strategy", sort=False):
-        days = group["day"].values
-        color = _color_for(strategy_name)
-        # Cum infections with ±1 std band
-        cum_mean = group["cum_infections_mean"].values
-        cum_std = group["cum_infections_std"].values
-        ax1.plot(days, cum_mean, label=strategy_name, color=color, lw=2.2)
-        ax1.fill_between(days, cum_mean - cum_std, cum_mean + cum_std, color=color, alpha=0.12, lw=0)
-        # New infections 7d avg with ±1 std band
-        new_mean = group["new_infections_7d_avg_mean"].values
-        new_std = group["new_infections_7d_avg_std"].values
-        ax2.plot(days, new_mean, label=strategy_name, color=color, lw=2.0)
-        ax2.fill_between(days, new_mean - new_std, new_mean + new_std, color=color, alpha=0.12, lw=0)
-    ax1.set_title(f"{name}: cumulative infections ({scenario_name}) ± 1σ")
+    for strategy_name, group in daily_mean.groupby("strategy", sort=False):
+        ax1.plot(group["day"], group["cum_infections"], label=strategy_name, color=_color_for(strategy_name), lw=2.2)
+        ax2.plot(group["day"], group["new_infections_7d_avg"], label=strategy_name, color=_color_for(strategy_name), lw=2.0)
+    ax1.set_title(f"{name}: cumulative infections ({scenario_name})")
     ax1.set_xlabel("Day")
     ax1.set_ylabel("Cumulative infections")
     ax1.grid(alpha=0.3)
-    ax2.set_title("7-day average new infections ± 1σ")
+    ax2.set_title("7-day average new infections")
     ax2.set_xlabel("Day")
     ax2.set_ylabel("New infections/day")
     ax2.grid(alpha=0.3)
@@ -1108,25 +905,18 @@ def plot_policy_bundle(bundle: dict, outdir: Path, name: str, scenario_name: str
 
     if not trace.empty:
         trace_plot = trace[trace["scenario"] == scenario_name].copy()
-        strategies = sorted(trace_plot["strategy"].drop_duplicates())
-        n_strat = len(strategies)
-        fig, axes = pl.subplots(n_strat, 1, figsize=(13, 3.0 * n_strat), sharex=True, sharey=True)
-        if n_strat == 1:
-            axes = [axes]
-        for ax, strategy_name in zip(axes, strategies):
-            strat_data = trace_plot[trace_plot["strategy"] == strategy_name]
-            seeds = sorted(strat_data["seed"].drop_duplicates())
-            for seed in seeds:
-                seed_data = strat_data[strat_data["seed"] == seed].sort_values("day")
-                ax.step(seed_data["day"], seed_data["policy_rank"], where="post",
-                        color=_color_for(strategy_name), lw=0.8, alpha=0.45)
-            ax.set_title(strategy_name, fontsize=11, color=_color_for(strategy_name))
-            ax.set_ylabel("Policy rank")
-            ax.set_yticks([-1, 0, 1, 2, 3, 4])
-            ax.set_yticklabels(["none", "P0", "P1", "P2", "P3", "P4"])
-            ax.grid(alpha=0.3)
-        axes[-1].set_xlabel("Day")
-        fig.suptitle(f"{name}: policy trajectory per seed ({scenario_name})", fontsize=13, y=1.01)
+        trace_mean = trace_plot.groupby(["strategy", "day"], as_index=False).agg(policy_rank=("policy_rank", "mean"))
+        fig = pl.figure(figsize=(13, 4.8))
+        ax = fig.add_subplot(1, 1, 1)
+        for strategy_name, group in trace_mean.groupby("strategy", sort=False):
+            ax.step(group["day"], group["policy_rank"], where="post", label=strategy_name, color=_color_for(strategy_name), lw=2.2)
+        ax.set_title(f"{name}: policy trajectory ({scenario_name})")
+        ax.set_xlabel("Day")
+        ax.set_ylabel("Policy rank")
+        ax.set_yticks([-1, 0, 1, 2, 3, 4])
+        ax.set_yticklabels(["none", "P0", "P1", "P2", "P3", "P4"])
+        ax.grid(alpha=0.3)
+        ax.legend(frameon=False)
         fig.tight_layout()
         path = outdir / f"{name}_policy_trace.png"
         fig.savefig(path, dpi=220, bbox_inches="tight")
@@ -1161,24 +951,18 @@ def plot_policy_bundle(bundle: dict, outdir: Path, name: str, scenario_name: str
 
 def save_plots(results: dict, outdir: Path) -> list[Path]:
     paths = []
-    for key in ["policy", "memory", "guardrail", "guardrail_notheory", "ensemble", "theory", "theory_noguardrail", "robustness"]:
+    for key in ["policy", "memory", "guardrail", "robustness"]:
         bundle = results.get(key)
         if bundle:
-            plot_dir = outdir / key
-            plot_dir.mkdir(parents=True, exist_ok=True)
-            paths.extend(plot_policy_bundle(bundle, plot_dir, key, scenario_name="medium"))
+            paths.extend(plot_policy_bundle(bundle, outdir, key, scenario_name="medium"))
     sensitivity = results.get("sensitivity", {})
     if sensitivity:
-        plot_dir = outdir / "sensitivity"
-        plot_dir.mkdir(parents=True, exist_ok=True)
-        paths.extend(plot_policy_bundle(sensitivity, plot_dir, "sensitivity", scenario_name="medium_base"))
+        paths.extend(plot_policy_bundle(sensitivity, outdir, "sensitivity", scenario_name="medium_base"))
 
     validation = results.get("validation", {})
     fixed = validation.get("fixed", {}) if validation else {}
     if fixed:
-        plot_dir = outdir / "validation"
-        plot_dir.mkdir(parents=True, exist_ok=True)
-        paths.extend(plot_policy_bundle(fixed, plot_dir, "model_validation_fixed_policy", scenario_name="medium"))
+        paths.extend(plot_policy_bundle(fixed, outdir, "model_validation_fixed_policy", scenario_name="medium"))
     return paths
 
 
@@ -1238,52 +1022,6 @@ def build_markdown_report(results: dict, config: dict, args: argparse.Namespace,
         )
         lines.extend(["", "## Guardrail Summary", "", markdown_table(guard_summary)])
 
-    ensemble = results.get("ensemble", {})
-    ensemble_df = ensemble.get("run", pd.DataFrame()) if ensemble else pd.DataFrame()
-    if not ensemble_df.empty:
-        ensemble_summary = (
-            ensemble_df.groupby("strategy", as_index=False)
-            .agg(
-                cum_infections=("cum_infections", "mean"),
-                policy_switch_count=("policy_switch_count", "mean"),
-                ensemble_disagreement_rate=("ensemble_disagreement_rate", "mean"),
-                ensemble_unanimous_rate=("ensemble_unanimous_rate", "mean"),
-                ensemble_vote_entropy_mean=("ensemble_vote_entropy_mean", "mean"),
-            )
-            .sort_values("strategy")
-        )
-        lines.extend(["", "## Ensemble Decision Summary", "", markdown_table(ensemble_summary)])
-
-    theory = results.get("theory", {})
-    theory_run = theory.get("run", pd.DataFrame()) if theory else pd.DataFrame()
-    if not theory_run.empty:
-        theory_summary = (
-            theory_run.groupby("strategy", as_index=False)
-            .agg(
-                cum_infections=("cum_infections", "mean"),
-                policy_switch_count=("policy_switch_count", "mean"),
-                policy_oscillation_score=("policy_oscillation_score", "mean"),
-                P3_P4_days=("P3_P4_days", "mean"),
-            )
-            .sort_values("strategy")
-        )
-        lines.extend(["", "## Theory Ablation Summary", "", markdown_table(theory_summary)])
-
-    theory_ng = results.get("theory_noguardrail", {})
-    theory_ng_run = theory_ng.get("run", pd.DataFrame()) if theory_ng else pd.DataFrame()
-    if not theory_ng_run.empty:
-        theory_ng_summary = (
-            theory_ng_run.groupby("strategy", as_index=False)
-            .agg(
-                cum_infections=("cum_infections", "mean"),
-                policy_switch_count=("policy_switch_count", "mean"),
-                policy_oscillation_score=("policy_oscillation_score", "mean"),
-                P3_P4_days=("P3_P4_days", "mean"),
-            )
-            .sort_values("strategy")
-        )
-        lines.extend(["", "## Theory Ablation (No Guardrail) Summary", "", markdown_table(theory_ng_summary)])
-
     sensitivity = results.get("sensitivity", {})
     sensitivity_agg = sensitivity.get("aggregate", pd.DataFrame()) if sensitivity else pd.DataFrame()
     if not sensitivity_agg.empty:
@@ -1328,11 +1066,7 @@ def build_markdown_report(results: dict, config: dict, args: argparse.Namespace,
     if plot_paths:
         lines.extend(["", "## Figures", ""])
         for path in plot_paths:
-            try:
-                display_path = str(path.relative_to(Path(args.outdir).resolve()))
-            except ValueError:
-                display_path = str(path)
-            lines.append(f"- `{display_path}`")
+            lines.append(f"- `{path.name}`")
     lines.append("")
     return "\n".join(lines)
 
@@ -1343,22 +1077,13 @@ def main() -> int:
     outdir = Path(args.outdir).resolve()
     outdir.mkdir(parents=True, exist_ok=True)
 
-    def experiment_dir(name: str) -> Path:
-        path = outdir / name
-        path.mkdir(parents=True, exist_ok=True)
-        return path
-
     requested_strategies = set()
-    if args.experiment in {"all", "core", "policy", "robustness", "sensitivity", "weight_sensitivity"}:
+    if args.experiment in {"all", "core", "policy", "robustness", "sensitivity"}:
         requested_strategies.update(CORE_STRATEGIES)
     if args.experiment in {"all", "core", "memory"}:
-        requested_strategies.update(["llm_single_memory_nomem_only", "llm_single_memory"])
-    if args.experiment in {"all", "theory"}:
-        requested_strategies.update(["llm_single_memory_notheory", "llm_single_memory"])
+        requested_strategies.update(ABLATION_STRATEGIES)
     if args.experiment in {"all", "core", "guardrail"}:
         requested_strategies.update(["llm_memory_without_guardrail", "llm_memory_with_guardrail"])
-    if args.experiment in {"all", "ensemble"}:
-        requested_strategies.update(ENSEMBLE_STRATEGIES)
     if args.use_api and requested_strategies & API_STRATEGIES and not os.getenv("DASHSCOPE_API_KEY"):
         message = "SKIP: DASHSCOPE_API_KEY is not set, so real LLM strategies cannot run."
         print(message)
@@ -1376,24 +1101,17 @@ def main() -> int:
 
     results = {}
     if args.experiment in {"all", "core", "validation"}:
-        results["validation"] = run_model_validation(args, config, experiment_dir("validation"))
+        results["validation"] = run_model_validation(args, config, outdir)
     if args.experiment in {"all", "core", "policy"}:
-        results["policy"] = run_policy_comparison(args, config, experiment_dir("policy"))
+        results["policy"] = run_policy_comparison(args, config, outdir)
     if args.experiment in {"all", "core", "memory"}:
-        results["memory"] = run_memory_ablation(args, config, experiment_dir("memory"))
+        results["memory"] = run_memory_ablation(args, config, outdir)
     if args.experiment in {"all", "core", "guardrail"}:
-        results["guardrail"] = run_guardrail_ablation(args, config, experiment_dir("guardrail"))
-    if args.experiment in {"all", "ensemble"}:
-        results["ensemble"] = run_ensemble_ablation(args, config, experiment_dir("ensemble"))
-    if args.experiment in {"all", "theory"}:
-        results["theory"] = run_theory_ablation(args, config, experiment_dir("theory"))
-        results["theory_noguardrail"] = run_theory_ablation(args, config, experiment_dir("theory_noguardrail"), no_guardrail=True)
+        results["guardrail"] = run_guardrail_ablation(args, config, outdir)
     if args.experiment in {"all", "robustness"}:
-        results["robustness"] = run_robustness(args, config, experiment_dir("robustness"))
+        results["robustness"] = run_robustness(args, config, outdir)
     if args.experiment in {"all", "sensitivity"}:
-        results["sensitivity"] = run_sensitivity_analysis(args, config, experiment_dir("sensitivity"))
-    if args.experiment in {"all", "weight_sensitivity"}:
-        results["weight_sensitivity"] = run_weight_sensitivity(args, config, experiment_dir("weight_sensitivity"))
+        results["sensitivity"] = run_sensitivity_analysis(args, config, outdir)
 
     artifact_paths = save_tables(results, outdir)
     plot_paths = [] if args.no_plots else save_plots(results, outdir)

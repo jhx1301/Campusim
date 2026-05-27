@@ -2032,7 +2032,7 @@ class campus_policy_agent(Intervention):
         worsening = (
             summary.get('estimated_risk_trend') == 'worsening'
             or summary.get('new_infections_trend') == 'up'
-            or float(summary.get('r_eff_current', 0.0)) > 1.1
+            or float(state.get('growth_ratio_7d_vs_prev_7d', 0.0)) > 1.1
             or effect_summary.get('dominant_effect_trend') == 'worsening'
         )
         return bool((high_quarantine or high_testing or high_teaching_disruption) and not worsening)
@@ -2045,12 +2045,11 @@ class campus_policy_agent(Intervention):
         summary = state.get('past_7d_summary', {}) if isinstance(state.get('past_7d_summary'), dict) else {}
         infections_per_1000 = float(state.get('new_infections_per_1000_last_7d', 0.0))
         new_infections_sum = float(summary.get('new_infections_sum', 0.0))
-        r_eff = float(summary.get('r_eff_current', 0.0))
         growth_ratio = float(state.get('growth_ratio_7d_vs_prev_7d', 0.0))
         return (
             infections_per_1000 < 10.0
             and new_infections_sum < 500.0
-            and not (r_eff > 1.25 and growth_ratio >= 1.5)
+            and not (growth_ratio > 1.5)
         )
 
 

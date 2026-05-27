@@ -17,7 +17,6 @@ import matplotlib
 matplotlib.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Noto Sans SC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 import pylab as pl
-from pathlib import Path
 from datetime import datetime
 
 
@@ -28,8 +27,6 @@ POP_SIZE = 5000          # 校园总人数
 POP_INFECTED = 30        # 初始感染人数
 N_DAYS = 60              # 仿真天数
 RAND_SEED = 42           # 随机种子
-
-OUTDIR = Path(__file__).resolve().parent / "figures" / "campus_simple_demo"
 
 
 def build_baseline_sim():
@@ -159,21 +156,26 @@ def print_layer_transmission(sim, label):
         print(f"    {layer_names[layer]:8s} ({layer:3s}): {counts[layer]:>5d}  {bar}")
 
 
-def save_comparison_plot(sim_baseline, sim_interv, outdir):
-    """生成并保存基线 vs 干预的对比图。"""
-    outdir.mkdir(parents=True, exist_ok=True)
+def show_comparison_plot(sim_baseline, sim_interv):
+    """生成并弹出基线 vs 干预的对比图窗口。"""
 
     dates = sim_baseline.datevec
     fig = pl.figure(figsize=(14, 10))
 
     # 图1: 每日新增感染
     ax1 = fig.add_subplot(2, 2, 1)
-    ax1.plot(dates, sim_baseline.results["new_infections"].values,
-             label="无干预 (基线)", color="#D96C5F", lw=2)
-    ax1.plot(dates, sim_interv.results["new_infections"].values,
-             label="有干预", color="#2D936C", lw=2)
+    new_inf_base = sim_baseline.results["new_infections"].values
+    new_inf_interv = sim_interv.results["new_infections"].values
+    # 原始每日值（细线）
+    ax1.plot(dates, new_inf_base, color="#D96C5F", lw=0.8, alpha=0.5)
+    ax1.plot(dates, new_inf_interv, color="#2D936C", lw=0.8, alpha=0.5)
+    # 7日移动平均（粗线）
+    ma_base = np.convolve(new_inf_base, np.ones(7)/7, mode='same')
+    ma_interv = np.convolve(new_inf_interv, np.ones(7)/7, mode='same')
+    ax1.plot(dates, ma_base, label="无干预 (基线)", color="#D96C5F", lw=2.5)
+    ax1.plot(dates, ma_interv, label="有干预", color="#2D936C", lw=2.5)
     ax1.axvspan(dates[25], dates[44], color="#d9edf7", alpha=0.4, label="线上教学期间")
-    ax1.set_title("每日新增感染人数")
+    ax1.set_title("每日新增感染人数（细线=每日值，粗线=7日移动平均）")
     ax1.set_ylabel("人数/天")
     ax1.legend(fontsize=8)
     ax1.grid(alpha=0.3)
@@ -221,11 +223,7 @@ def save_comparison_plot(sim_baseline, sim_interv, outdir):
                  fontsize=16, fontweight="bold", y=0.98)
     fig.autofmt_xdate()
     fig.tight_layout(rect=[0, 0, 1, 0.94])
-
-    fig_path = outdir / "campus_simple_demo.png"
-    fig.savefig(fig_path, dpi=200, bbox_inches="tight")
-    pl.close(fig)
-    return fig_path
+    pl.show()
 
 
 def main():
@@ -264,10 +262,10 @@ def main():
     # 各层传播统计
     print_layer_transmission(sim_interv, "干预组")
 
-    # ---- 生成图片 ----
-    print_section("生成对比图表")
-    fig_path = save_comparison_plot(sim_baseline, sim_interv, OUTDIR)
-    print(f"\n    图片已保存: {fig_path}")
+    # ---- 弹出对比图表 ----
+    print_section("弹出对比图表窗口")
+    print("  关闭图表窗口后程序将继续...")
+    show_comparison_plot(sim_baseline, sim_interv)
 
     print_section("基础Demo运行完成")
     print(f"  结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

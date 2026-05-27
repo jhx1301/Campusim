@@ -33,9 +33,9 @@ CAMPUS_LAYER_KEYS = ["d", "clu", "clg", "of", "ta", "cm"]
 SYSTEM_KNOWLEDGE_RULES = [
     "Epidemic indicators often lag policy changes, so do not downgrade too quickly after a single-day decline.",
     "Base the immediate decision primarily on the recent 7-day versus previous 7-day trends, and use recent policy memory to judge whether the trend is sustained and whether the current policy is working across multiple periods.",
-    "When R_eff > 1 and cases are rising, prioritize suppressing the contact layers whose transmission trends are worsening the most.",
+    "When the epidemic is clearly growing (rising cases week over week), prioritize suppressing the contact layers whose transmission trends are worsening the most.",
     "Dormitory, classroom, and community transmission can spill over into each other at the system level, so compare both current counts and trend direction.",
-    "If infections, key layer transmission, and policy effects are all improving, prefer holding the current policy level to confirm the trend is sustained. Only consider downgrading after R_eff has been consistently below 0.9 for at least 2 consecutive decision cycles.",
+    "If infections, key layer transmission, and policy effects are all improving, prefer holding the current policy level to confirm the trend is sustained. Only consider downgrading when the epidemic shows sustained, unambiguous improvement across multiple consecutive decision cycles — a single week of decline is not enough to confirm the trend is durable.",
     "P3_strong and P4_emergency have high operational and teaching costs, so reserve them for clearly worsening transmission under the current policy.",
     "Do not escalate only because one layer is still the largest source; check whether that layer is rising or falling.",
     "Testing, isolation, and online teaching reduce transmission but also increase operational burden and disruption on the campus.",
@@ -183,14 +183,17 @@ def get_policy_by_rank(rank, policy_catalog=None):
 
 def apply_policy_transition_constraint(proposed_policy_id, current_policy_id, policy_catalog=None):
     """
-    Enforce the strict weekly +/-1 transition rule.
+    Apply asymmetric transition constraint: upgrades are unrestricted, downgrades step one level at a time.
     """
     catalog = policy_catalog if policy_catalog is not None else make_default_policy_catalog()
     if current_policy_id is None:
         return proposed_policy_id
     current_rank = get_policy_rank(current_policy_id, catalog)
     proposed_rank = get_policy_rank(proposed_policy_id, catalog)
-    clipped_rank = min(max(proposed_rank, current_rank - 1), current_rank + 1)
+    if proposed_rank <= current_rank:
+        clipped_rank = max(proposed_rank, current_rank - 1)
+    else:
+        clipped_rank = proposed_rank
     return get_policy_by_rank(clipped_rank, catalog)
 
 
@@ -210,10 +213,8 @@ def build_system_prompt(use_theory_prompt=True):
         "risk_level must be one of low, medium, high, critical. "
         "reason must be a short Chinese sentence within 40 characters. "
         "Key data fields in the state you receive: "
-        "r_eff_current is the effective reproduction number. Above 1.0 means the epidemic is growing, "
-        "between 0.9 and 1.0 means it is near equilibrium. "
         "growth_ratio_7d_vs_prev_7d is the ratio of new infections in the past 7 days versus the previous 7 days. "
-        "Above 1.0 means accelerating, below 1.0 means decelerating. "
+        "Above 1.0 means the epidemic is growing week-over-week; below 1.0 means it is shrinking. "
         "new_infections_per_1000_last_7d is the weekly new infections per 1000 population. "
         "new_infections_trend is the direction label (up/down/flat) comparing the past 7 days to the previous 7 days. "
         "estimated_risk_trend is the overall risk direction (improving/stable/worsening). "
@@ -357,7 +358,6 @@ def extract_campus_policy_state(sim, agent=None, decision_day=None, window=7):
     new_diagnoses = _result_values(sim, "new_diagnoses")
     new_tests = _result_values(sim, "new_tests")
     n_quarantined = _result_values(sim, "n_quarantined")
-    r_eff_values = _result_values(sim, "r_eff")
 
     inf_window, inf_prev = _window_pair(new_infections, end_day, window)
     diag_window, diag_prev = _window_pair(new_diagnoses, end_day, window)
@@ -367,7 +367,7 @@ def extract_campus_policy_state(sim, agent=None, decision_day=None, window=7):
     new_infections_sum = float(inf_window.sum())
     new_diagnoses_sum = float(diag_window.sum())
     new_tests_sum = float(test_window.sum())
-    current_r_eff = _window_finite_mean(r_eff_values, end_day, window)
+    growth_ratio = _growth_ratio(inf_window, inf_prev)
     layer_counts = _extract_layer_transmissions(sim, end_day=end_day, window=window)
     scaled_pop_size = getattr(sim, "scaled_pop_size", None) or sim["pop_size"]
 
@@ -387,14 +387,13 @@ def extract_campus_policy_state(sim, agent=None, decision_day=None, window=7):
             "test_positivity_proxy": round(_safe_ratio(new_diagnoses_sum, new_tests_sum), 6),
             "n_quarantined_mean": round(float(quar_window.mean()) if len(quar_window) else 0.0, 4),
             "quarantine_trend": _trend_label(quar_window, quar_prev),
-            "r_eff_current": round(float(current_r_eff), 4),
-            "estimated_risk_trend": _estimated_risk_trend(inf_window, inf_prev, current_r_eff),
+            "estimated_risk_trend": _estimated_risk_trend(inf_window, inf_prev, growth_ratio),
         },
         "new_infections_per_1000_last_7d": round(_safe_ratio(new_infections_sum * 1000.0, scaled_pop_size), 6),
         "diagnosis_ascertainment_proxy": round(_safe_ratio(new_diagnoses_sum, new_infections_sum), 6),
         "online_teaching_active": bool(policy_catalog.get(current_policy, {}).get("online_teaching_active", False)) if current_policy else False,
         "current_restriction_intensity": policy_catalog.get(current_policy, {}).get("restriction_intensity", 0) if current_policy else 0,
-        "growth_ratio_7d_vs_prev_7d": round(_growth_ratio(inf_window, inf_prev), 6),
+        "growth_ratio_7d_vs_prev_7d": round(growth_ratio, 6),
         "intervention_burden_last_7d": {
             "mean_quarantined": round(float(quar_window.mean()) if len(quar_window) else 0.0, 4),
             "mean_quarantined_per_1000": round(_safe_ratio((float(quar_window.mean()) if len(quar_window) else 0.0) * 1000.0, scaled_pop_size), 6),
@@ -865,12 +864,14 @@ def _trend_label(current, previous, tolerance=0.05):
     return "flat"
 
 
-def _estimated_risk_trend(inf_window, inf_prev, current_r_eff):
+def _estimated_risk_trend(inf_window, inf_prev, growth_ratio):
     trend = _trend_label(inf_window, inf_prev)
-    if current_r_eff > 1.1 or trend == "up":
+    if trend == "up":
         return "worsening"
-    if current_r_eff < 0.9 and trend == "down":
+    if trend == "down" and growth_ratio < 1.0:
         return "improving"
+    if trend == "flat" and growth_ratio > 1.0:
+        return "worsening"
     return "stable"
 
 
@@ -979,7 +980,6 @@ def _build_recent_policy_memory(sim, decision_history, decision_day, memory_week
                 "new_infections_sum": state_snapshot.get("past_7d_summary", {}).get("new_infections_sum", 0.0),
                 "new_infections_trend": state_snapshot.get("past_7d_summary", {}).get("new_infections_trend", "flat"),
                 "growth_ratio_7d_vs_prev_7d": state_snapshot.get("growth_ratio_7d_vs_prev_7d", 0.0),
-                "r_eff_current": state_snapshot.get("past_7d_summary", {}).get("r_eff_current", 0.0),
                 "estimated_risk_trend": state_snapshot.get("past_7d_summary", {}).get("estimated_risk_trend", "stable"),
                 "peak_layer_last_7d": state_snapshot.get("peak_layer_last_7d"),
                 "layer_transmission_trends": state_snapshot.get("layer_transmission_trends", {}),
