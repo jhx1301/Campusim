@@ -150,4 +150,7 @@ examples/figures/
 
 # Graduation thesis and defense documents
 *.docx
+*thesis*.txt
+*thesis*.md
+*thesis*.docx
 软件架构答辩汇报稿.md
