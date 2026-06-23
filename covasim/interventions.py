@@ -15,6 +15,7 @@ from . import utils as cvu
 from . import base as cvb
 from . import defaults as cvd
 from . import llm_policy as cvlp
+from . import llm_memory as cvlm
 from . import parameters as cvpar
 from . import immunity as cvi
 
@@ -1620,7 +1621,12 @@ class campus_policy_agent(Intervention):
                  defer_first_decision_until_interval=False,
                  api_key=None, base_url=None, model=cvlp.DEFAULT_QWEN_MODEL,
                  temperature=cvlp.DEFAULT_TEMPERATURE, max_tokens=cvlp.DEFAULT_MAX_TOKENS,
-                 client=None, decision_fn=None, **kwargs):
+                 client=None, decision_fn=None,
+                 memory_store=None, global_memory_store=None,
+                 enable_memory_context=True,
+                 short_term_window=4, similar_top_k=6, similar_cases_per_group=2,
+                 similarity_lambdas=None, trend_context_window=3,
+                 **kwargs):
         super().__init__(**kwargs)
         self.start_day = start_day
         self.end_day = end_day
@@ -1643,6 +1649,17 @@ class campus_policy_agent(Intervention):
         self.max_tokens = max_tokens
         self.client = client
         self.decision_fn = decision_fn
+
+        # Dual-branch memory parameters
+        self.memory_store = memory_store
+        self.global_memory_store = global_memory_store
+        self.enable_memory_context = bool(enable_memory_context)
+        self.short_term_window = int(short_term_window)
+        self.similar_top_k = int(similar_top_k)
+        self.similar_cases_per_group = int(similar_cases_per_group)
+        self.similarity_lambdas = similarity_lambdas or {"state": 0.30, "layer": 0.25, "trend": 0.20, "text": 0.25}
+        self.trend_context_window = int(trend_context_window)
+        self.simulation_id = None
 
         self.campus_layers = sc.dcp(cvlp.CAMPUS_LAYER_KEYS)
         self.baseline_beta_layer = {}
@@ -1740,6 +1757,15 @@ class campus_policy_agent(Intervention):
         for interv in self.sub_interventions:
             interv.initialize(sim)
 
+        # Register simulation with memory store
+        if self.memory_store is not None and not self.memory_store.read_only:
+            import uuid
+            self.simulation_id = f"{sim.label}_{sim['rand_seed']}_{uuid.uuid4().hex[:8]}"
+            self.memory_store.register_simulation(
+                self.simulation_id, sim['rand_seed'],
+                scenario=str(sim.label), strategy=str(getattr(self, 'label', '')),
+                pop_size=sim['pop_size'], n_days=sim['n_days'])
+
         return
 
 
@@ -1771,6 +1797,20 @@ class campus_policy_agent(Intervention):
             if interv is not None and not interv.finalized:
                 interv.finalize(sim)
         self.sub_interventions = []
+
+        # Finalize last pending memory entry
+        if self.memory_store is not None and not self.memory_store.read_only and self.simulation_id:
+            try:
+                self.memory_store.finalize_pending_entry(
+                    simulation_id=self.simulation_id,
+                    current_day=sim.npts,
+                    sim=sim,
+                    policy_catalog=self.policy_catalog,
+                    window_days=self.state_window_days,
+                )
+            except Exception:
+                pass  # Non-fatal: memory finalization is best-effort
+
         return
 
 
@@ -1783,10 +1823,58 @@ class campus_policy_agent(Intervention):
 
 
     def _run_decision_cycle(self, sim):
+        # ═══ Phase 0: Finalize previous pending memory entry ═══
+        if self.memory_store is not None and not self.memory_store.read_only and self.simulation_id:
+            try:
+                self.memory_store.finalize_pending_entry(
+                    simulation_id=self.simulation_id,
+                    current_day=sim.t,
+                    sim=sim,
+                    policy_catalog=self.policy_catalog,
+                    window_days=self.state_window_days,
+                )
+            except Exception:
+                pass  # Non-fatal
+
+        # ═══ Phase 1: Extract current state ═══
         state = cvlp.extract_campus_policy_state(sim, agent=self, decision_day=sim.t, window=self.state_window_days)
+
+        # ═══ Phase 2: Dual-branch memory ═══
+        current_trend_context = None
+        if self.memory_store is not None and self.simulation_id:
+            # Always read recent entries (for trend_context storage even if not injected)
+            recent = self.memory_store.get_recent_completed_entries(
+                self.simulation_id, self.short_term_window, before_day=sim.t)
+
+            # Always build trend_context (stored in memory_vectors for eval S_trend)
+            current_trend_context = cvlm.build_trend_context(
+                recent, state, window=self.trend_context_window)
+
+            # Only inject into LLM context when enable_memory_context=True
+            if self.enable_memory_context:
+                compressed = cvlm.compress_short_term_trajectory(
+                    recent, state, self.policy_catalog)
+                state["short_term_trajectory"] = compressed
+
+                # Similar scenario retrieval: only when global_memory_store exists
+                if self.global_memory_store is not None:
+                    similar = cvlm.retrieve_similar_scenarios(
+                        state, current_trend_context, self.global_memory_store,
+                        top_k=self.similar_top_k,
+                        cases_per_group=self.similar_cases_per_group,
+                        lambdas=self.similarity_lambdas,
+                        exclude_entry_ids=None,
+                    )
+                    state["similar_scenarios"] = similar
+
+        # ═══ Phase 3-6: LLM decision + constraint + guardrails ═══
         fallback_policy = self.current_policy or self.fallback_policy or self.initial_policy
         system_prompt = cvlp.build_system_prompt(use_theory_prompt=self.use_theory_prompt)
         user_payload = cvlp.build_user_payload(state, self.policy_catalog)
+
+        # Full state snapshot for record keeping (includes memory data)
+        full_state_snapshot = cvlp.build_full_state_snapshot(state)
+
         record = {
             'decision_day': sim.t,
             'decision_date': sim.date(sim.t),
@@ -1801,7 +1889,7 @@ class campus_policy_agent(Intervention):
             'error_type': None,
             'error_message': None,
             'usage': {},
-            'state_snapshot': state,
+            'state_snapshot': full_state_snapshot,
             'memory_snapshot': sc.dcp(state.get('recent_policy_memory', [])),
             'restriction_profile_applied': None,
             'ensemble_votes': [],
@@ -1857,6 +1945,21 @@ class campus_policy_agent(Intervention):
         self.last_decision = sc.dcp(record)
         self.decision_history.append(sc.dcp(record))
         cvlp.append_jsonl_record(self.log_path, record)
+
+        # ═══ Phase 7: Create current pending memory entry ═══
+        if self.memory_store is not None and not self.memory_store.read_only and self.simulation_id:
+            try:
+                entry_data = cvlm.build_pending_memory_entry(state, record, sim)
+                sv = cvlm.build_state_vector(state)
+                lv = cvlm.build_layer_vector(state)
+                te = self.memory_store.compute_text_embedding(
+                    cvlm.build_state_description_text(state))
+                self.memory_store.create_pending_entry(
+                    self.simulation_id, sim.t, entry_data, sv, lv,
+                    current_trend_context, te)
+            except Exception:
+                pass  # Non-fatal
+
         return
 
 

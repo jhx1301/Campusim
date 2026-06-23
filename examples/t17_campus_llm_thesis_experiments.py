@@ -31,6 +31,7 @@ os.environ.setdefault("COVASIM_VERBOSE", "0")
 
 import covasim as cv
 import covasim.llm_policy as cvlp
+import covasim.llm_memory as cvlm
 import numpy as np
 import pandas as pd
 import pylab as pl
@@ -63,6 +64,7 @@ ABLATION_STRATEGIES = [
     "ablation_memory_only",
     "ablation_expert_only",
     "ablation_expert_and_memory",
+    "llm_dual_memory",
 ]
 ALL_STRATEGIES = [
     "baseline_no_policy",
@@ -74,6 +76,7 @@ ALL_STRATEGIES = [
     "ablation_memory_only",
     "ablation_expert_only",
     "ablation_expert_and_memory",
+    "llm_dual_memory",
 ]
 FIXED_POLICIES = ["P0_normal", "P1_guarded", "P2_moderate", "P3_strong", "P4_emergency"]
 API_STRATEGIES = {
@@ -84,6 +87,7 @@ API_STRATEGIES = {
     "ablation_memory_only",
     "ablation_expert_only",
     "ablation_expert_and_memory",
+    "llm_dual_memory",
 }
 CAMPUS_LAYERS = list(cvlp.CAMPUS_LAYER_KEYS)
 LAYER_GROUPS = {
@@ -101,6 +105,7 @@ STRATEGY_COLORS = {
     "llm_ensemble_memory": "#e6ab02",
     "llm_memory_without_guardrail": "#66a61e",
     "llm_memory_with_guardrail": "#1b9e77",
+    "llm_dual_memory": "#e7298a",
     "fixed_P0_normal": "#999999",
     "fixed_P2_moderate": "#80cdc1",
     "fixed_P3_strong": "#dfc27d",
@@ -134,6 +139,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--outdir", default=str(DEFAULT_OUTDIR))
     parser.add_argument("--skip-if-no-api-key", action="store_true")
     parser.add_argument("--no-plots", action="store_true", help="Skip PNG generation.")
+    # Dual-branch memory options
+    parser.add_argument(
+        "--memory-mode",
+        choices=["none", "build_collect", "eval"],
+        default="none",
+        help="Memory mode: none=standard, build_collect=collect memory without retrieval, eval=use frozen DB with retrieval.",
+    )
+    parser.add_argument("--memory-build-db", default=None, help="Path for build_collect phase database.")
+    parser.add_argument("--memory-eval-db", default=None, help="Path to frozen database for eval phase.")
+    parser.add_argument("--memory-build-seeds", type=int, default=5, help="Number of seeds for build_collect phase.")
     return parser.parse_args()
 
 
@@ -272,7 +287,8 @@ def make_fixed_policy_decision_fn(policy_id: str):
     return decision_fn
 
 
-def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path | None = None):
+def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path | None = None,
+                      memory_store=None, global_memory_store=None, enable_memory_context=True):
     log_path = None
     if outdir is not None and strategy_name != "fixed_policy_internal":
         log_path = str(outdir / f"{strategy_name}_decision_log.jsonl")
@@ -399,6 +415,25 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
             enable_burden_guardrail=False,
             **common,
         )
+    # --- Dual-branch memory strategy ---
+    if strategy_name == "llm_dual_memory":
+        return cv.campus_policy_agent(
+            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            use_theory_prompt=True,
+            memory_weeks=4,
+            ensemble_size=1,
+            min_policy_hold_intervals=2,
+            enable_burden_guardrail=True,
+            memory_store=memory_store,
+            global_memory_store=global_memory_store,
+            enable_memory_context=enable_memory_context,
+            short_term_window=4,
+            similar_top_k=6,
+            similar_cases_per_group=2,
+            trend_context_window=3,
+            **common,
+        )
     raise ValueError(f"Unsupported strategy: {strategy_name}")
 
 
@@ -417,7 +452,9 @@ def make_fixed_policy_agent(policy_id: str):
     )
 
 
-def run_strategy_once(args: argparse.Namespace, config: dict, scenario_name: str, strategy_name: str, seed: int, outdir: Path) -> cv.Sim:
+def run_strategy_once(args: argparse.Namespace, config: dict, scenario_name: str, strategy_name: str,
+                      seed: int, outdir: Path,
+                      memory_store=None, global_memory_store=None, enable_memory_context=True) -> cv.Sim:
     pars = make_common_pars(config, scenario_name, seed)
     if strategy_name == "baseline_no_policy":
         sim = cv.Sim(pars=pars, label=strategy_name)
@@ -425,7 +462,11 @@ def run_strategy_once(args: argparse.Namespace, config: dict, scenario_name: str
         policy_id = strategy_name.removeprefix("fixed_")
         sim = cv.Sim(pars=pars, interventions=[make_fixed_policy_agent(policy_id)], label=strategy_name)
     else:
-        sim = cv.Sim(pars=pars, interventions=[make_policy_agent(args, strategy_name, outdir)], label=strategy_name)
+        agent = make_policy_agent(args, strategy_name, outdir,
+                                  memory_store=memory_store,
+                                  global_memory_store=global_memory_store,
+                                  enable_memory_context=enable_memory_context)
+        sim = cv.Sim(pars=pars, interventions=[agent], label=strategy_name)
     sim.run()
     return sim
 
@@ -654,6 +695,10 @@ def run_runs(
     seeds: list[int],
     outdir: Path,
     label: str,
+    memory_store=None,
+    global_memory_store=None,
+    enable_memory_context=True,
+    embedding_provider=None,
 ) -> dict:
     rows = []
     daily_frames = []
@@ -667,7 +712,28 @@ def run_runs(
             for seed in seeds:
                 completed += 1
                 print(f"[{label}] {completed}/{total}: {scenario_name} / {strategy_name} / seed {seed}")
-                sim = run_strategy_once(args, config, scenario_name, strategy_name, seed, outdir)
+
+                # For eval mode, create per-seed episode store
+                episode_store = None
+                actual_memory_store = memory_store
+                if global_memory_store is not None and strategy_name == "llm_dual_memory":
+                    # Eval mode: create in-memory episode store per seed
+                    episode_store = cvlm.MemoryStore(
+                        db_path=":memory:", read_only=False,
+                        embedding_provider=embedding_provider)
+                    actual_memory_store = episode_store
+
+                sim = run_strategy_once(
+                    args, config, scenario_name, strategy_name, seed, outdir,
+                    memory_store=actual_memory_store,
+                    global_memory_store=global_memory_store,
+                    enable_memory_context=enable_memory_context,
+                )
+
+                # Close episode store after run
+                if episode_store is not None:
+                    episode_store.close()
+
                 rows.append(summarize_final_metrics(sim, scenario_name, strategy_name, seed))
                 daily_frames.append(build_daily_metrics(sim, scenario_name, strategy_name, seed))
                 trace_frames.append(build_policy_trace_df(sim, scenario_name, strategy_name, seed))
@@ -739,6 +805,18 @@ def run_memory_ablation(args: argparse.Namespace, config: dict, outdir: Path) ->
     scenario_names = [name for name in ["medium", "high"] if name in config["scenario_names"] or args.scenario == "all"]
     seeds = config["seeds"][: min(5, len(config["seeds"]))]
     strategies = ["baseline_no_policy"] + ABLATION_STRATEGIES
+
+    memory_mode = getattr(args, "memory_mode", "none")
+
+    # Dual-branch memory two-phase workflow
+    if memory_mode == "build_collect":
+        return _run_memory_build_collect(args, config, scenario_names, seeds, outdir)
+    elif memory_mode == "eval":
+        return _run_memory_eval(args, config, scenario_names, seeds, outdir)
+
+    # Standard ablation without memory stores (original behavior)
+    # Remove llm_dual_memory from strategies when not in memory mode
+    strategies = [s for s in strategies if s != "llm_dual_memory"]
     return run_runs(
         args,
         config,
@@ -748,6 +826,60 @@ def run_memory_ablation(args: argparse.Namespace, config: dict, outdir: Path) ->
         outdir,
         "memory_ablation",
     )
+
+
+def _run_memory_build_collect(args, config, scenario_names, seeds, outdir):
+    """Phase 1: Collect memory entries without retrieval (LLM acts as expert_only)."""
+    build_db_path = args.memory_build_db or str(outdir / "memory_build.db")
+    print(f"[memory_build_collect] Building memory database: {build_db_path}")
+
+    embedding_provider = cvlm.EmbeddingProvider()
+    build_store = cvlm.MemoryStore(db_path=build_db_path, read_only=False,
+                                    embedding_provider=embedding_provider)
+
+    # Only run llm_dual_memory in build_collect mode
+    strategies = ["llm_dual_memory"]
+    result = run_runs(
+        args, config, scenario_names, strategies, seeds, outdir,
+        label="memory_build_collect",
+        memory_store=build_store,
+        global_memory_store=None,
+        enable_memory_context=False,
+        embedding_provider=embedding_provider,
+    )
+
+    build_store.close()
+    print(f"[memory_build_collect] Database saved: {build_db_path}")
+    return result
+
+
+def _run_memory_eval(args, config, scenario_names, seeds, outdir):
+    """Phase 2: Use frozen database with full dual-branch retrieval."""
+    frozen_db_path = args.memory_eval_db or str(outdir / "memory_build.db")
+    if not Path(frozen_db_path).exists():
+        raise FileNotFoundError(
+            f"Frozen memory database not found: {frozen_db_path}. "
+            "Run with --memory-mode build_collect first."
+        )
+    print(f"[memory_eval] Using frozen memory database: {frozen_db_path}")
+
+    embedding_provider = cvlm.EmbeddingProvider()
+    global_store = cvlm.MemoryStore(db_path=frozen_db_path, read_only=True,
+                                     embedding_provider=embedding_provider)
+
+    # Run llm_dual_memory in eval mode with full retrieval
+    strategies = ["baseline_no_policy", "ablation_expert_only", "llm_dual_memory"]
+    result = run_runs(
+        args, config, scenario_names, strategies, seeds, outdir,
+        label="memory_eval",
+        memory_store=None,  # Will be replaced by per-seed episode store
+        global_memory_store=global_store,
+        enable_memory_context=True,
+        embedding_provider=embedding_provider,
+    )
+
+    global_store.close()
+    return result
 
 
 def run_guardrail_ablation(args: argparse.Namespace, config: dict, outdir: Path) -> dict:

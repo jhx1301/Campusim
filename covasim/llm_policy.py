@@ -220,6 +220,8 @@ def build_system_prompt(use_theory_prompt=True):
         "estimated_risk_trend is the overall risk direction (improving/stable/worsening). "
         "layer_transmission_trends are per-layer trend labels showing which contact layers are rising or falling. "
         "recent_policy_memory is the history of recent policy changes and their observed effects."
+        "short_term_trajectory_summary describes recent policy evolution, infection trend, growth ratio, and the observed feedback pattern after the latest policy adjustment."
+        "similar_scenarios_summary describes historical situations with similar epidemic states, grouped by the policy that was executed, showing the observed outcomes for each policy choice."
     )
     if use_theory_prompt:
         prompt += " Use these short systems rules when deciding: " + " ".join(SYSTEM_KNOWLEDGE_RULES)
@@ -227,10 +229,33 @@ def build_system_prompt(use_theory_prompt=True):
 
 
 def build_user_payload(state, policy_catalog):
-    """Build the fixed user payload for policy selection."""
+    """Build the user payload for LLM policy selection.
+
+    Strips full structured memory data (short_term_trajectory, similar_scenarios)
+    and replaces them with their summary_text versions to control token count.
+    Internal fields (prefixed with _) are also removed.
+    """
+    # Keys to exclude from LLM payload
+    _EXCLUDE_KEYS = {"short_term_trajectory", "similar_scenarios", "_scaled_pop"}
+
+    llm_state = {k: v for k, v in state.items() if k not in _EXCLUDE_KEYS and not k.startswith("_")}
+
+    # Inject summary texts if available
+    trajectory = state.get("short_term_trajectory")
+    if trajectory and isinstance(trajectory, dict):
+        summary = trajectory.get("summary_text", "")
+        if summary:
+            llm_state["short_term_trajectory_summary"] = summary
+
+    scenarios = state.get("similar_scenarios")
+    if scenarios and isinstance(scenarios, dict):
+        summary = scenarios.get("summary_text", "")
+        if summary:
+            llm_state["similar_scenarios_summary"] = summary
+
     return {
         "task": "Choose exactly one next-period policy_id from the predefined campus policy catalog.",
-        "state": state,
+        "state": llm_state,
         "policy_catalog_brief": policy_catalog_to_brief(policy_catalog),
         "output_schema": {
             "policy_id": "P0_normal | P1_guarded | P2_moderate | P3_strong | P4_emergency",
@@ -238,6 +263,12 @@ def build_user_payload(state, policy_catalog):
             "reason": "short Chinese reason, <=40 chars",
         },
     }
+
+
+def build_full_state_snapshot(state):
+    """Return a deep copy of the full state for record keeping (includes memory data)."""
+    import copy
+    return copy.deepcopy(state)
 
 
 def policy_catalog_to_brief(policy_catalog):
@@ -404,6 +435,14 @@ def extract_campus_policy_state(sim, agent=None, decision_day=None, window=7):
         },
     }
 
+    # r_eff realtime fields
+    r_eff_info = _extract_r_eff_realtime(sim, end_day, window)
+    state["r_eff_mean"] = r_eff_info["r_eff_mean"]
+    state["r_eff_current"] = r_eff_info["r_eff_current"]
+    state["r_eff_trend"] = r_eff_info["r_eff_trend"]
+    state["r_eff_source"] = r_eff_info["source"]
+    state["past_7d_summary"]["r_eff_current"] = r_eff_info["r_eff_mean"]
+
     if layer_counts is not None:
         state["layer_transmission_last_7d"] = layer_counts
         state["peak_layer_last_7d"] = max(layer_counts, key=layer_counts.get) if layer_counts else None
@@ -419,6 +458,9 @@ def extract_campus_policy_state(sim, agent=None, decision_day=None, window=7):
     state["recent_policy_memory"] = recent_policy_memory
     state["policy_effect_summary"] = _summarize_policy_effects(recent_policy_memory)
     state["policy_volatility_last_4w"] = _compute_policy_volatility(recent_policy_memory, policy_catalog)
+
+    # Internal field for memory vector builders (not sent to LLM)
+    state["_scaled_pop"] = scaled_pop_size
 
     return state
 
@@ -900,6 +942,127 @@ def _window_finite_mean(values, end_day, window):
     if finite_values.size == 0:
         return 0.0
     return float(finite_values.mean())
+
+
+def _extract_r_eff_realtime(sim, end_day, window=7):
+    """
+    Compute an approximate r_eff during simulation (before compute_results()).
+
+    Uses the same 'daily' formula as sim.compute_r_eff():
+        r_eff = mean_infectious_duration * (new_infections - n_imports) / n_infectious
+
+    Data from ``people.date_infectious``, ``date_recovered``, ``date_dead``
+    is available at intervention time (set during ``update_states_pre``).
+
+    Falls back to sim.results['r_eff'] if pre-computed values exist (e.g., in tests).
+    Falls back to growth_ratio proxy when too few outcomes exist.
+    """
+    # Fallback: check if sim.results['r_eff'] has pre-computed non-zero values
+    r_eff_result = _result_values(sim, "r_eff")
+    if r_eff_result.size > 0 and end_day >= 0:
+        end = min(int(end_day), r_eff_result.size - 1)
+        w_start = max(0, end - int(window) + 1)
+        w_slice = r_eff_result[w_start:end + 1]
+        if w_slice.size > 0 and float(w_slice.mean()) > 0:
+            r_mean = float(w_slice.mean())
+            r_current = float(r_eff_result[end])
+            half = len(w_slice) // 2
+            if half >= 1:
+                first_half = float(w_slice[:half].mean())
+                second_half = float(w_slice[half:].mean())
+                diff = second_half - first_half
+                if diff > 0.05:
+                    trend = "up"
+                elif diff < -0.05:
+                    trend = "down"
+                else:
+                    trend = "flat"
+            else:
+                trend = "flat"
+            return {
+                "r_eff_mean": round(r_mean, 4),
+                "r_eff_current": round(r_current, 4),
+                "r_eff_trend": trend,
+                "source": "results",
+            }
+
+    people = getattr(sim, "people", None)
+    if people is None or end_day < 0:
+        return {"r_eff_mean": 0.0, "r_eff_current": 0.0,
+                "r_eff_trend": "flat", "source": "unavailable"}
+
+    # --- mean infectious duration from recovered/dead ---
+    try:
+        recov_inds = people.defined("date_recovered")
+        dead_inds = people.defined("date_dead")
+        if len(recov_inds) + len(dead_inds) < 5:
+            raise ValueError("insufficient outcomes")
+        date_outcome = np.concatenate(
+            (people.date_recovered[recov_inds], people.date_dead[dead_inds])
+        )
+        inds = np.concatenate((recov_inds, dead_inds))
+        date_inf = people.date_infectious[inds]
+        mean_dur = float(date_outcome.mean() - date_inf.mean())
+        if mean_dur <= 0:
+            raise ValueError("invalid mean duration")
+    except Exception:
+        return {"r_eff_mean": 0.0, "r_eff_current": 0.0,
+                "r_eff_trend": "flat", "source": "unavailable"}
+
+    # --- daily r_eff for [0 .. end_day] ---
+    new_inf = _result_values(sim, "new_infections")
+    n_imports = _result_values(sim, "n_imports")
+    n_inf = _result_values(sim, "n_infectious")
+
+    if new_inf.size == 0 or n_inf.size == 0:
+        return {"r_eff_mean": 0.0, "r_eff_current": 0.0,
+                "r_eff_trend": "flat", "source": "unavailable"}
+
+    end = min(int(end_day), new_inf.size - 1)
+    length = end + 1
+    local_inf = new_inf[:length] - n_imports[:length]
+    local_ninf = n_inf[:length]
+    raw = mean_dur * np.divide(
+        local_inf, local_ninf,
+        out=np.zeros(length, dtype=float),
+        where=local_ninf > 0,
+    )
+
+    # simple smoothing (kernel=2) for interior points
+    if length >= 3:
+        smoothed = np.copy(raw)
+        for i in range(1, length - 1):
+            smoothed[i] = (raw[i - 1] + raw[i] + raw[i + 1]) / 3.0
+    else:
+        smoothed = raw
+
+    # --- window stats ---
+    w_start = max(0, end - int(window) + 1)
+    w_slice = smoothed[w_start:end + 1]
+    r_mean = float(w_slice.mean()) if len(w_slice) else 0.0
+    r_current = float(smoothed[end]) if end >= 0 else 0.0
+
+    # trend: compare first half vs second half of window
+    half = len(w_slice) // 2
+    if half >= 1:
+        first_half = float(w_slice[:half].mean())
+        second_half = float(w_slice[half:].mean())
+        diff = second_half - first_half
+        if diff > 0.05:
+            trend = "up"
+        elif diff < -0.05:
+            trend = "down"
+        else:
+            trend = "flat"
+    else:
+        trend = "flat"
+
+    return {
+        "r_eff_mean": round(r_mean, 4),
+        "r_eff_current": round(r_current, 4),
+        "r_eff_trend": trend,
+        "source": "realtime",
+    }
 
 
 def _extract_layer_transmissions(sim, end_day, window):
