@@ -142,18 +142,25 @@ dmypy.json
 # Node.js and NPM
 node_modules
 
-# Claude Code local settings
-.claude/settings.local.json
+# Local AI tool configuration
+.claude/
+CLAUDE.md
 
 # Experiment output figures and data
 examples/figures/
+results/
+
+# Generated figures
+tools/fig/
+
+# Local reference papers
+aaai_HanxiangJiang.pdf
 
 # Original Covasim README (replaced by Chinese README.md)
 README.rst
 
-# Graduation thesis and defense documents
+# Local graduation thesis and defense documents
 *.docx
 *thesis*.txt
-*thesis*.md
 *thesis*.docx
 软件架构答辩汇报稿.md
