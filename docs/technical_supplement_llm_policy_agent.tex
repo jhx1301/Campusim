@@ -1,0 +1,283 @@
+% Technical supplement for the campus LLM policy agent.
+% The prompt wording below follows covasim/llm_policy.py. Whitespace is
+% normalized only for typesetting.
+
+\section{Technical Supplement: LLM Policy Agent}
+\label{app:llm-policy-agent}
+
+\subsection{Role of the language model}
+
+The language model is used as a constrained, high-level policy selector inside
+the campus epidemic simulator.  It does not generate epidemiological parameters
+or directly manipulate the contact network.  At each decision time, the agent
+receives an aggregate state summary and selects exactly one policy from the
+ordered catalog
+\(
+\mathcal{P}=\{P0_{\mathrm{normal}},P1_{\mathrm{guarded}},
+P2_{\mathrm{moderate}},P3_{\mathrm{strong}},P4_{\mathrm{emergency}}\}
+\).
+The simulator, rather than the LLM, maps the selected identifier to fixed
+testing, screening, contact-tracing, teaching, and contact-reduction parameters.
+Thus, the action space is finite and all low-level intervention parameters are
+specified before inference.
+
+In the paper configuration, decisions are made every seven simulation days.
+The initial policy is \texttt{P0\_normal}, and the first model decision is
+deferred until day 7, so that one complete observation window is available.
+All features are computed using simulation days preceding the decision day;
+the current decision day is not included in the seven-day window.
+
+\subsection{Fixed policy action space}
+
+Table~\ref{tab:policy-catalog-brief} reports the policy information exposed to
+the LLM.  The detailed numerical intervention profiles are deliberately omitted
+from the prompt.  They remain fixed in the simulator and cannot be edited by the
+model.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{clccl}
+\hline
+Rank & Policy ID & Intensity & Online & Prompt-level description \\
+\hline
+0 & \texttt{P0\_normal} & 0 & No & Normal teaching and baseline controls \\
+1 & \texttt{P1\_guarded} & 1 & No & Stronger screening/tracing; mild restrictions \\
+2 & \texttt{P2\_moderate} & 2 & No & Higher screening; reduced in-person intensity \\
+3 & \texttt{P3\_strong} & 3 & No & High-cost, hybrid-like strong control \\
+4 & \texttt{P4\_emergency} & 4 & Yes & Maximum restrictions and online teaching \\
+\hline
+\end{tabular}
+\caption{Compact policy catalog supplied to the LLM.  The implementation uses
+longer natural-language summaries with the same meaning.}
+\label{tab:policy-catalog-brief}
+\end{table}
+
+For exact reproducibility, the five \texttt{summary} strings serialized in
+\texttt{policy\_catalog\_brief} are:
+
+\begin{itemize}
+  \item \texttt{P0\_normal}: ``Lowest-cost posture with normal teaching,
+  baseline symptom testing, low-frequency targeted screening, and routine
+  tracing.''
+  \item \texttt{P1\_guarded}: ``Low-cost guarded posture with stronger
+  screening and tracing plus mild public-space restrictions while keeping
+  in-person teaching normal.''
+  \item \texttt{P2\_moderate}: ``Medium-cost posture with higher screening
+  cadence, strong tracing, and reduced classroom, lab, and office intensity
+  while staying mostly in person.''
+  \item \texttt{P3\_strong}: ``High-cost strong-control posture with
+  hybrid-like contact reduction, elevated screening, and strict campus
+  restrictions to counter clearly worsening spread.''
+  \item \texttt{P4\_emergency}: ``Highest-cost emergency posture with online
+  teaching, campus-wide high-frequency screening, and maximum restrictions for
+  severe uncontrolled spread.''
+\end{itemize}
+
+\subsection{System prompt}
+
+The following is the complete system prompt used by the full agent.  Wording is
+reproduced exactly; whitespace between sentences is normalized for typesetting.
+For ablations without expert knowledge, the final paragraph beginning with
+``Use these short systems rules'' is omitted.
+
+\begin{quote}\small
+You are a campus epidemic prevention and control expert. Your task is to choose
+exactly one next-period policy based on the aggregated campus state. You may
+only choose one of these \texttt{policy\_id} values:
+\texttt{P0\_normal}, \texttt{P1\_guarded}, \texttt{P2\_moderate},
+\texttt{P3\_strong}, \texttt{P4\_emergency}. Do not create new policies. Do not
+modify policy parameters. Do not output any low-level transmission parameters.
+Do not give real-world medical advice. You are only selecting the next
+simulation policy.
+
+Output must be strict JSON containing exactly three fields:
+\texttt{policy\_id}, \texttt{risk\_level}, \texttt{reason}.
+\texttt{policy\_id} must be one of the five fixed policies.
+\texttt{risk\_level} must be one of \texttt{low}, \texttt{medium},
+\texttt{high}, \texttt{critical}. \texttt{reason} must be a short Chinese
+sentence within 40 characters.
+
+Key data fields in the state you receive:
+\texttt{growth\_ratio\_7d\_vs\_prev\_7d} is the ratio of new infections in the
+past 7 days versus the previous 7 days. Above 1.0 means the epidemic is growing
+week-over-week; below 1.0 means it is shrinking.
+\texttt{new\_infections\_per\_1000\_last\_7d} is the weekly new infections per
+1000 population. \texttt{new\_infections\_trend} is the direction label
+(\texttt{up}/\texttt{down}/\texttt{flat}) comparing the past 7 days to the
+previous 7 days. \texttt{estimated\_risk\_trend} is the overall risk direction
+(\texttt{improving}/\texttt{stable}/\texttt{worsening}).
+\texttt{layer\_transmission\_trends} are per-layer trend labels showing which
+contact layers are rising or falling. \texttt{recent\_policy\_memory} is the
+history of recent policy changes and their observed effects.
+\texttt{short\_term\_trajectory\_summary} describes recent policy evolution,
+infection trend, growth ratio, and the observed feedback pattern after the
+latest policy adjustment. \texttt{similar\_scenarios\_summary} describes
+historical situations with similar epidemic states, grouped by the policy that
+was executed, showing the observed outcomes for each policy choice.
+
+Use these short systems rules when deciding: Epidemic indicators often lag
+policy changes, so do not downgrade too quickly after a single-day decline.
+Base the immediate decision primarily on the recent 7-day versus previous 7-day
+trends, and use recent policy memory to judge whether the trend is sustained and
+whether the current policy is working across multiple periods. When the epidemic
+is clearly growing (rising cases week over week), prioritize suppressing the
+contact layers whose transmission trends are worsening the most. Dormitory,
+classroom, and community transmission can spill over into each other at the
+system level, so compare both current counts and trend direction. If infections,
+key layer transmission, and policy effects are all improving, prefer holding the
+current policy level to confirm the trend is sustained. Only consider
+downgrading when the epidemic shows sustained, unambiguous improvement across
+multiple consecutive decision cycles---a single week of decline is not enough
+to confirm the trend is durable. \texttt{P3\_strong} and
+\texttt{P4\_emergency} have high operational and teaching costs, so reserve them
+for clearly worsening transmission under the current policy. Do not escalate
+only because one layer is still the largest source; check whether that layer is
+rising or falling. Testing, isolation, and online teaching reduce transmission
+but also increase operational burden and disruption on the campus. Frequent
+policy up-down switching reduces stability and should be avoided unless risk is
+clearly worsening.
+\end{quote}
+
+\subsection{User message and state representation}
+
+The user message is a UTF-8 JSON serialization of the following template:
+
+\begin{verbatim}
+{
+  "task": "Choose exactly one next-period policy_id from the predefined
+           campus policy catalog.",
+  "state": { ... aggregate state fields ... },
+  "policy_catalog_brief": [ ... five fixed policy summaries ... ],
+  "output_schema": {
+    "policy_id": "P0_normal | P1_guarded | P2_moderate |
+                  P3_strong | P4_emergency",
+    "risk_level": "low | medium | high | critical",
+    "reason": "short Chinese reason, <=40 chars"
+  }
+}
+\end{verbatim}
+
+The aggregate state contains the following feature groups:
+
+\begin{itemize}
+  \item \textbf{Decision context:} decision day/date, current policy, duration
+  under the current policy, current restriction intensity, and whether online
+  teaching is active.
+  \item \textbf{Seven-day epidemic summary:} sums and means of new infections
+  and diagnoses, their categorical trends, test count, a diagnosis-to-test
+  positivity proxy, mean quarantine occupancy, and estimated risk trend.
+  \item \textbf{Normalized severity and dynamics:} new infections per 1,000,
+  diagnosis ascertainment proxy, the ratio of infections in the latest seven
+  days to the preceding seven days, and real-time effective reproduction number
+  summaries (current value, mean, trend, and source).
+  \item \textbf{Contact-layer evidence:} seven-day transmission counts, the
+  largest contributing layer, and current-versus-previous-window counts, deltas,
+  ratios, and trend labels for classroom, dormitory, office/laboratory, and
+  community layers.
+  \item \textbf{Intervention burden:} tests and mean quarantined individuals,
+  both as totals and per 1,000 population, plus teaching restriction intensity.
+  \item \textbf{Recent decision memory:} previous state summaries, proposed and
+  executed policies, stated risk, and observed post-decision changes in
+  infections, testing, quarantine, and teaching disruption.  The standard
+  full-agent configuration retains the most recent four weekly decisions.
+  \item \textbf{Memory summaries:} a recency-weighted policy-effect summary and
+  a policy-volatility summary.  When dual-branch memory is enabled, a compressed
+  short-term trajectory and retrieved long-term similar scenarios are included
+  as natural-language summaries.  Their full structured records and the
+  internal population-size field are excluded from the LLM message to control
+  token usage, but are retained in the audit log.
+\end{itemize}
+
+The layer keys used internally are \texttt{d} (dormitory), \texttt{clu} and
+\texttt{clg} (classroom/course layers), \texttt{of} and \texttt{ta}
+(office/laboratory-related layers), and \texttt{cm} (community/common-space
+layer).
+
+\subsection{Required output and validation}
+
+The only accepted model output is a JSON object with exactly three keys:
+
+\begin{verbatim}
+{
+  "policy_id": "P2_moderate",
+  "risk_level": "medium",
+  "reason": "传播仍在上升，建议加强防控"
+}
+\end{verbatim}
+
+The parser rejects missing keys, additional keys, non-object JSON, an unknown
+policy identifier, or a risk label outside the four-value vocabulary.  The
+reason must be a string; leading and trailing whitespace is removed and text
+longer than 40 characters is truncated to 40 characters.  The API additionally
+requests JSON-object response formatting.  If the response contains surrounding
+text, the parser attempts to extract one JSON object; it also performs limited
+brace/bracket balancing for truncated responses.  Empty, filtered, or otherwise
+invalid responses are retried up to three times with exponential backoff.  If
+all attempts fail, the current policy is retained as the safe fallback and the
+error is recorded.
+
+\subsection{Decision post-processing}
+
+The model output is a proposal, not an unconditionally executed action.  The
+following deterministic processing is applied after schema validation:
+
+\begin{enumerate}
+  \item \textbf{Transition constraint.} Escalation to a stricter policy is
+  allowed immediately, whereas relaxation is limited to one rank per weekly
+  decision.  Formally, for current rank \(r_t\) and proposed rank \(\hat r\),
+  \(r'=\hat r\) if \(\hat r>r_t\), and
+  \(r'=\max(\hat r,r_t-1)\) otherwise.
+  \item \textbf{Minimum-hold guardrail.} A proposal reversing the most recent
+  nonzero policy-change direction is blocked until the current policy has been
+  held for two decision intervals (14 days in the full configuration), except
+  when the reported risk is \texttt{critical}.
+  \item \textbf{Burden guardrail.} A non-critical escalation is blocked when
+  operational burden is already high but epidemic evidence is not worsening.
+  High burden is triggered by at least 20 mean quarantined persons per 1,000,
+  at least 80 tests per 1,000 in seven days, or restriction intensity at least
+  3. Worsening evidence overrides this block.
+  \item \textbf{Low-prevalence online-teaching guardrail.} An escalation to an
+  online-teaching policy is capped at \texttt{P2\_moderate} (or the current
+  stricter non-online policy) when weekly incidence is below 10 per 1,000, fewer
+  than 500 infections occurred in the window, and the growth ratio is not above
+  1.5.
+\end{enumerate}
+
+For the optional three-member ensemble, the policy ID is selected by majority
+vote.  Ties favor the stricter policy rank.  If multiple responses support the
+winning policy, the response with the highest risk level supplies the reported
+risk and reason.  Invalid member responses are ignored unless all members fail.
+
+\subsection{Inference and reproducibility settings}
+
+The implementation uses an OpenAI-compatible Chat Completions interface.  For
+the experiments in \texttt{t17\_campus\_llm\_thesis\_experiments.py}, the
+command-line defaults are temperature 0.2 and maximum output length 4,096
+tokens; JSON-object response formatting and model-side thinking are enabled.
+The current repository defaults point to model
+\texttt{deepseek-v4-flash} at \texttt{https://api.deepseek.com}.  The Python
+client class and environment-variable names retain the historical
+``Qwen/DashScope'' naming, but these names do not describe the current default
+provider.  Each JSONL audit record stores the model name, endpoint, temperature,
+token limit, finish reason, token usage, raw response, parsed decision, complete
+state snapshot, user payload, exact system prompt, and SHA-256 hash of the system
+prompt.
+
+Importantly, the experiment script calls the external model only when the
+\texttt{--use-api} flag is supplied.  Without this flag, LLM-labeled strategies
+use a deterministic surrogate decision function for smoke testing and simulator
+validation; such runs must not be reported as real-LLM evaluations.
+
+\subsection{Prompt and memory ablations}
+
+The code supports controlled ablations that preserve the same action space and
+output schema.  Disabling expert knowledge removes only the nine systems rules
+from the system prompt.  Disabling recent memory sets the decision-history
+window to zero.  The dual-branch memory study independently enables (i) a
+compressed within-episode short-term trajectory over four entries and (ii)
+long-term retrieval of up to six similar cases, with at most two cases per
+executed-policy group.  Similarity combines state, contact-layer, temporal-trend,
+and text components with weights 0.30, 0.25, 0.20, and 0.25, respectively.  The
+full single-agent policy used in the core comparison enables expert rules,
+four-week recent memory, the 14-day reversal hold, and both burden guardrails.
