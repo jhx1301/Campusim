@@ -1,63 +1,47 @@
-'''
-Covasim installation. Requirements are listed in requirements.txt. There are two
-options:
-    pip install -e .       # Standard install, does not include optional libraries
-    pip install -e .[full] # Full install, including optional libraries
-'''
+"""CEMAS package installation."""
 
 import os
-import sys
 import runpy
-from setuptools import setup, find_packages
 
-# Load requirements from txt file
-with open('requirements.txt') as f:
-    requirements = f.read().splitlines()
+from setuptools import find_packages, setup
 
-# Get version
-cwd = os.path.abspath(os.path.dirname(__file__))
-versionpath = os.path.join(cwd, 'covasim', 'version.py')
-version = runpy.run_path(versionpath)['__version__']
 
-# Get the documentation
-with open(os.path.join(cwd, 'README.rst'), "r") as f:
-    long_description = f.read()
+ROOT = os.path.abspath(os.path.dirname(__file__))
 
-CLASSIFIERS = [
-    "Environment :: Console",
-    "Intended Audience :: Science/Research",
-    "License :: Other/Proprietary License",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Development Status :: 5 - Production/Stable",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
-]
+with open(os.path.join(ROOT, "requirements.txt"), encoding="utf-8") as handle:
+    requirements = [line.strip() for line in handle if line.strip() and not line.startswith("#")]
+
+version = runpy.run_path(os.path.join(ROOT, "cemas", "version.py"))["__version__"]
+
+with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as handle:
+    long_description = handle.read()
 
 setup(
-    name="covasim",
+    name="cemas",
     version=version,
-    author="Cliff Kerr, Robyn Stuart, Romesh Abeysuriya, Dina Mistry, Lauren George, and Daniel Klein, on behalf of the IDM COVID-19 Response Team",
-    author_email="info@covasim.org",
-    description="COVID-19 Agent-based Simulator",
+    author="CEMAS Authors",
+    description="Campus Epidemic Multi-Agent Simulation with LLM-driven adaptive policy control",
     long_description=long_description,
-    long_description_content_type="text/x-rst",
-    url='http://covasim.org',
-    keywords=["COVID", "COVID-19", "coronavirus", "SARS-CoV-2", "stochastic", "agent-based model", "interventions", "epidemiology"],
+    long_description_content_type="text/markdown",
+    license="MIT",
+    keywords=[
+        "epidemic simulation", "agent-based model", "campus", "LLM",
+        "adaptive interventions", "COVID-19",
+    ],
     platforms=["OS Independent"],
-    classifiers=CLASSIFIERS,
-    packages=find_packages(),
+    classifiers=[
+        "Environment :: Console",
+        "Intended Audience :: Science/Research",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Topic :: Scientific/Engineering",
+    ],
+    packages=find_packages(exclude=("tests", "tests.*", "examples", "examples.*")),
+    package_data={"covasim": ["data/assets/*"]},
     include_package_data=True,
+    python_requires=">=3.10",
     install_requires=requirements,
-    extras_require={
-        'full':  [
-            'plotly',
-            'fire',
-            'optuna',
-            'synthpops',
-            'parestlib',
-        ],
-    }
 )
-

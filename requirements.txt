@@ -1,9 +1,14 @@
-numpy
-numba
-pandas
-scipy<1.16.0
-statsmodels
-matplotlib
-sciris>=2.0.4
-openai>=1.0.0
-sentence-transformers
+# Reference environment used to validate the CEMAS supplement (Python 3.10.20)
+numpy==2.2.6
+numba==0.65.1
+pandas==2.3.3
+scipy==1.15.3
+statsmodels==0.14.6
+matplotlib==3.10.9
+sciris==3.2.9
+openai==2.33.0
+optuna==4.8.0
+sentence-transformers==5.6.0
+torch==2.13.0
+transformers==5.13.0
+scikit-learn==1.7.2
