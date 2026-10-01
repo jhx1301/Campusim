@@ -503,11 +503,11 @@ def test_campus_policy_agent_defer_first_decision_until_interval():
 
 
 @pytest.mark.online
-@pytest.mark.skipif(not os.getenv("DASHSCOPE_API_KEY"), reason="DASHSCOPE_API_KEY not set")
+@pytest.mark.skipif(not (os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY")), reason="LLM_API_KEY not set")
 def test_qwen_policy_client_online_example_state():
     state_path = Path(__file__).resolve().parents[1] / "examples" / "campus_policy_state_example.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    client = cvlp.QwenPolicyClient(api_key=os.getenv("DASHSCOPE_API_KEY"))
+    client = cvlp.PolicyClient(api_key=os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY"))
     response = client.decide_policy(state=state, policy_catalog=cvlp.make_default_policy_catalog())
 
     assert response["decision"]["policy_id"] in cvlp.POLICY_IDS
