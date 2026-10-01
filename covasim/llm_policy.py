@@ -14,8 +14,11 @@ from pathlib import Path
 import numpy as np
 
 
-DEFAULT_DASHSCOPE_BASE_URL = "https://api.deepseek.com"
-DEFAULT_QWEN_MODEL = "deepseek-v4-flash"
+DEFAULT_LLM_BASE_URL = "https://api.deepseek.com"
+DEFAULT_LLM_MODEL = "deepseek-v4-flash"
+# Backward-compatible names retained for existing experiment scripts.
+DEFAULT_DASHSCOPE_BASE_URL = DEFAULT_LLM_BASE_URL
+DEFAULT_QWEN_MODEL = DEFAULT_LLM_MODEL
 DEFAULT_TEMPERATURE = 0.0
 DEFAULT_MAX_TOKENS = 4096
 DEFAULT_REASON_MAX_CHARS = 40
@@ -485,16 +488,24 @@ def summarize_policy_decision(decision_record):
     return f"[day {decision_record['decision_day']}] {proposed} -> {applied}"
 
 
-class QwenPolicyClient:
+class PolicyClient:
     """
-    Real DashScope Qwen client using the OpenAI-compatible Chat Completions API.
+    Provider-neutral client for an OpenAI-compatible Chat Completions API.
+
+    Generic ``LLM_*`` environment variables take precedence over the legacy
+    ``DASHSCOPE_*`` names so existing experiments remain reproducible.
     """
 
-    def __init__(self, api_key=None, base_url=None, model=DEFAULT_QWEN_MODEL,
+    def __init__(self, api_key=None, base_url=None, model=None,
                  temperature=DEFAULT_TEMPERATURE, max_tokens=DEFAULT_MAX_TOKENS):
-        self.api_key = api_key or os.getenv("DASHSCOPE_API_KEY")
-        self.base_url = base_url or os.getenv("DASHSCOPE_BASE_URL") or DEFAULT_DASHSCOPE_BASE_URL
-        self.model = model
+        self.api_key = api_key or os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+        self.base_url = (
+            base_url
+            or os.getenv("LLM_BASE_URL")
+            or os.getenv("DASHSCOPE_BASE_URL")
+            or DEFAULT_LLM_BASE_URL
+        )
+        self.model = model or os.getenv("LLM_MODEL") or DEFAULT_LLM_MODEL
         self.temperature = temperature
         self.max_tokens = max_tokens
         self._client = None
@@ -502,11 +513,14 @@ class QwenPolicyClient:
     def _get_client(self):
         if self._client is None:
             if not self.api_key:
-                raise PolicyDecisionError("Environment variable DASHSCOPE_API_KEY is not set.")
+                raise PolicyDecisionError(
+                    "Environment variable LLM_API_KEY is not set "
+                    "(legacy DASHSCOPE_API_KEY is also supported)."
+                )
             try:
                 from openai import OpenAI
             except ImportError as exc:  # pragma: no cover
-                raise PolicyDecisionError('The "openai" package is required for Qwen policy decisions.') from exc
+                raise PolicyDecisionError('The "openai" package is required for LLM policy decisions.') from exc
             self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         return self._client
 
@@ -586,6 +600,10 @@ class QwenPolicyClient:
             "max_tokens": self.max_tokens,
             "finish_reason": finish_reason,
         }
+
+
+# Compatibility alias for code created before the provider-neutral rename.
+QwenPolicyClient = PolicyClient
 
 
 def compute_policy_oscillation_score(policy_ids, policy_catalog=None):

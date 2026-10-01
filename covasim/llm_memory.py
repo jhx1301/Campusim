@@ -134,14 +134,36 @@ class MemoryStore:
         self.db_path = db_path
         self.read_only = read_only
         self._embedding_provider = embedding_provider or EmbeddingProvider()
+        self._connect()
 
-        if db_path == ":memory:":
+    def _connect(self) -> None:
+        """Open the SQLite connection, honoring true filesystem read-only mode."""
+        if self.db_path == ":memory:":
+            if self.read_only:
+                raise ValueError('read_only=True is not supported with db_path=":memory:"')
             self._conn = sqlite3.connect(":memory:")
+        elif self.read_only:
+            path = Path(self.db_path).expanduser().resolve()
+            if not path.is_file():
+                raise FileNotFoundError(f"Read-only memory database not found: {path}")
+            self._conn = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
         else:
-            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(db_path)
+            path = Path(self.db_path).expanduser()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(str(path))
+
         self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(_SCHEMA)
+        if not self.read_only:
+            self._conn.executescript(_SCHEMA)
+
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        state["_conn"] = None
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self._connect()
 
     # -- simulation management --
 
@@ -1015,6 +1037,7 @@ def retrieve_similar_scenarios(
                 lc = {}
 
         groups[pol].append({
+            "entry_id": int(full.get("entry_id", c["entry_id"])),
             "similarity": round(sim_score, 4),
             "risk_level": full.get("risk_level", ""),
             "dominant_layer": max(lc, key=lc.get) if lc else "unknown",
@@ -1034,6 +1057,7 @@ def retrieve_similar_scenarios(
     total = sum(len(v) for v in groups.values())
     return {
         "retrieved_count": total,
+        "entry_ids": [int(case["entry_id"]) for cases in groups.values() for case in cases],
         "policy_groups": groups,
         "summary_text": summary_text,
     }

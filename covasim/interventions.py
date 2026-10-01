@@ -1607,8 +1607,8 @@ class campus_policy_agent(Intervention):
 
     This intervention:
         - extracts aggregate state every decision interval
-        - requests a policy ID from a real Qwen API client
-        - enforces strict +-1 weekly policy transitions
+        - requests a policy ID from an OpenAI-compatible LLM client
+        - optionally limits policy downgrades to one level per decision
         - falls back safely on failures
         - rewrites campus beta layers from baseline each day
         - updates existing testing/screening/tracing interventions in place
@@ -1618,12 +1618,14 @@ class campus_policy_agent(Intervention):
                  initial_policy='P0_normal', fallback_policy=None, policy_catalog=None, log_path=None,
                  memory_weeks=4, use_theory_prompt=True, ensemble_size=1,
                  min_policy_hold_intervals=2, enable_burden_guardrail=True,
+                 enforce_transition_constraint=True,
                  defer_first_decision_until_interval=False,
-                 api_key=None, base_url=None, model=cvlp.DEFAULT_QWEN_MODEL,
+                 api_key=None, base_url=None, model=cvlp.DEFAULT_LLM_MODEL,
                  temperature=cvlp.DEFAULT_TEMPERATURE, max_tokens=cvlp.DEFAULT_MAX_TOKENS,
                  client=None, decision_fn=None,
                  memory_store=None, global_memory_store=None,
                  enable_memory_context=True,
+                 enable_short_term_memory=True, enable_long_term_memory=True,
                  short_term_window=4, similar_top_k=6, similar_cases_per_group=2,
                  similarity_lambdas=None, trend_context_window=3,
                  **kwargs):
@@ -1641,6 +1643,7 @@ class campus_policy_agent(Intervention):
         self.ensemble_size = int(ensemble_size)
         self.min_policy_hold_intervals = int(min_policy_hold_intervals)
         self.enable_burden_guardrail = bool(enable_burden_guardrail)
+        self.enforce_transition_constraint = bool(enforce_transition_constraint)
         self.defer_first_decision_until_interval = bool(defer_first_decision_until_interval)
         self.api_key = api_key
         self.base_url = base_url
@@ -1654,6 +1657,8 @@ class campus_policy_agent(Intervention):
         self.memory_store = memory_store
         self.global_memory_store = global_memory_store
         self.enable_memory_context = bool(enable_memory_context)
+        self.enable_short_term_memory = bool(enable_short_term_memory)
+        self.enable_long_term_memory = bool(enable_long_term_memory)
         self.short_term_window = int(short_term_window)
         self.similar_top_k = int(similar_top_k)
         self.similar_cases_per_group = int(similar_cases_per_group)
@@ -1714,7 +1719,7 @@ class campus_policy_agent(Intervention):
         self.policy_trace = []
 
         if self.client is None and self.decision_fn is None:
-            self.client = cvlp.QwenPolicyClient(
+            self.client = cvlp.PolicyClient(
                 api_key=self.api_key,
                 base_url=self.base_url,
                 model=self.model,
@@ -1761,9 +1766,10 @@ class campus_policy_agent(Intervention):
         if self.memory_store is not None and not self.memory_store.read_only:
             import uuid
             self.simulation_id = f"{sim.label}_{sim['rand_seed']}_{uuid.uuid4().hex[:8]}"
+            scenario_name = getattr(sim, "memory_scenario_name", sim.label)
             self.memory_store.register_simulation(
                 self.simulation_id, sim['rand_seed'],
-                scenario=str(sim.label), strategy=str(getattr(self, 'label', '')),
+                scenario=str(scenario_name), strategy=str(getattr(self, 'label', '')),
                 pop_size=sim['pop_size'], n_days=sim['n_days'])
 
         return
@@ -1841,6 +1847,7 @@ class campus_policy_agent(Intervention):
 
         # ═══ Phase 2: Dual-branch memory ═══
         current_trend_context = None
+        recent = []
         if self.memory_store is not None and self.simulation_id:
             # Always read recent entries (for trend_context storage even if not injected)
             recent = self.memory_store.get_recent_completed_entries(
@@ -1850,14 +1857,15 @@ class campus_policy_agent(Intervention):
             current_trend_context = cvlm.build_trend_context(
                 recent, state, window=self.trend_context_window)
 
-            # Only inject into LLM context when enable_memory_context=True
+            # Inject each memory branch independently. Keeping the global context
+            # switch preserves the behaviour of existing callers.
             if self.enable_memory_context:
-                compressed = cvlm.compress_short_term_trajectory(
-                    recent, state, self.policy_catalog)
-                state["short_term_trajectory"] = compressed
+                if self.enable_short_term_memory:
+                    compressed = cvlm.compress_short_term_trajectory(
+                        recent, state, self.policy_catalog)
+                    state["short_term_trajectory"] = compressed
 
-                # Similar scenario retrieval: only when global_memory_store exists
-                if self.global_memory_store is not None:
+                if self.enable_long_term_memory and self.global_memory_store is not None:
                     similar = cvlm.retrieve_similar_scenarios(
                         state, current_trend_context, self.global_memory_store,
                         top_k=self.similar_top_k,
@@ -1890,7 +1898,21 @@ class campus_policy_agent(Intervention):
             'error_message': None,
             'usage': {},
             'state_snapshot': full_state_snapshot,
-            'memory_snapshot': sc.dcp(state.get('recent_policy_memory', [])),
+            'memory_snapshot': {
+                'memory_mode': (
+                    'both' if self.enable_short_term_memory and self.enable_long_term_memory
+                    else 'short_only' if self.enable_short_term_memory
+                    else 'long_only' if self.enable_long_term_memory
+                    else 'none'
+                ),
+                'short_term_memory_enabled': bool(self.enable_short_term_memory and self.enable_memory_context),
+                'long_term_memory_enabled': bool(self.enable_long_term_memory and self.enable_memory_context),
+                'short_term_entry_count': int(len(recent)) if self.enable_short_term_memory and self.enable_memory_context else 0,
+                'long_term_retrieved_count': int(state.get('similar_scenarios', {}).get('retrieved_count', 0)),
+                'short_term_summary': state.get('short_term_trajectory', {}).get('summary_text', ''),
+                'long_term_summary': state.get('similar_scenarios', {}).get('summary_text', ''),
+                'long_term_entry_ids': sc.dcp(state.get('similar_scenarios', {}).get('entry_ids', [])),
+            },
             'restriction_profile_applied': None,
             'ensemble_votes': [],
             'guardrail_adjusted': False,
@@ -1908,7 +1930,11 @@ class campus_policy_agent(Intervention):
             response = self._request_decision(state)
             decision = response['decision']
             proposed_policy = decision['policy_id']
-            constrained_policy = cvlp.apply_policy_transition_constraint(proposed_policy, self.current_policy, self.policy_catalog)
+            if self.enforce_transition_constraint:
+                constrained_policy = cvlp.apply_policy_transition_constraint(
+                    proposed_policy, self.current_policy, self.policy_catalog)
+            else:
+                constrained_policy = proposed_policy
             applied_policy, guardrail_reason = self._apply_policy_guardrails(constrained_policy, state, decision)
 
             record.update({
@@ -1952,8 +1978,15 @@ class campus_policy_agent(Intervention):
                 entry_data = cvlm.build_pending_memory_entry(state, record, sim)
                 sv = cvlm.build_state_vector(state)
                 lv = cvlm.build_layer_vector(state)
-                te = self.memory_store.compute_text_embedding(
-                    cvlm.build_state_description_text(state))
+                # Evaluation episode stores are never searched as the global
+                # corpus, so avoid an unnecessary embedding model call. This is
+                # especially important for short-only runs: their memory must not
+                # depend on the long-term retriever being installed or online.
+                if self.global_memory_store is not None:
+                    te = np.zeros(384, dtype=float)
+                else:
+                    te = self.memory_store.compute_text_embedding(
+                        cvlm.build_state_description_text(state))
                 self.memory_store.create_pending_entry(
                     self.simulation_id, sim.t, entry_data, sv, lv,
                     current_trend_context, te)
