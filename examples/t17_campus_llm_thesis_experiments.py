@@ -6,21 +6,20 @@ This script implements the experiment plan used in the final thesis chapter:
    effects, and layer transmission contribution.
 2. Strategy comparison: no policy, threshold policy, and LLM-style policy.
 3. Memory ablation: single-agent decisions with and without memory.
-4. Guardrail ablation: memory policy with and without burden guardrails.
-5. Robustness: low, medium, and high transmission scenarios over multiple seeds.
+4. Robustness: low, medium, and high transmission scenarios over multiple seeds.
 
-The default ``quick`` preset is intended for smoke tests. Use ``--preset paper``
-to run the 40000-person, 84-day setup from the thesis design.
+The default configuration runs the 40000-person, 84-day paper setup. Every
+LLM-based strategy calls the configured API.
 
 Examples:
-    python examples/t17_campus_llm_thesis_experiments.py --preset quick
-    python examples/t17_campus_llm_thesis_experiments.py --preset paper --experiment core
-    python examples/t17_campus_llm_thesis_experiments.py --preset paper --use-api --experiment policy
+    python examples/t17_campus_llm_thesis_experiments.py --experiment core
+    python examples/t17_campus_llm_thesis_experiments.py --experiment policy
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -53,19 +52,27 @@ SENSITIVITY_VARIANTS = {
     "medium_common_contacts_low": dict(base_scenario="medium", contacts_scale=dict(cm=0.80), description="Campus common-space contacts -20%."),
     "medium_common_contacts_high": dict(base_scenario="medium", contacts_scale=dict(cm=1.20), description="Campus common-space contacts +20%."),
 }
-QUICK_SCENARIOS = {
-    name: dict(beta_scale=pars["beta_scale"], pop_infected=max(2, int(round(pars["pop_infected"] / 10))))
-    for name, pars in PAPER_SCENARIOS.items()
-}
-
 CORE_STRATEGIES = ["baseline_no_policy", "baseline_threshold", "llm_single_memory"]
+MEMORY_BRANCH_STRATEGIES = [
+    "memory_branch_none",
+    "memory_branch_short_only",
+    "memory_branch_long_only",
+    "memory_branch_both",
+]
 ABLATION_STRATEGIES = [
     "ablation_no_expert_no_memory",
     "ablation_memory_only",
     "ablation_expert_only",
     "ablation_expert_and_memory",
+    "ablation_dual_memory_only",
     "llm_dual_memory",
 ]
+MEMORY_BUILD_STRATEGIES = [
+    "baseline_threshold",
+    "ablation_no_expert_no_memory",
+    "ablation_expert_only",
+]
+DUAL_MEMORY_STRATEGIES = {"ablation_dual_memory_only", "llm_dual_memory"} | set(MEMORY_BRANCH_STRATEGIES)
 ALL_STRATEGIES = [
     "baseline_no_policy",
     "baseline_threshold",
@@ -76,7 +83,9 @@ ALL_STRATEGIES = [
     "ablation_memory_only",
     "ablation_expert_only",
     "ablation_expert_and_memory",
+    "ablation_dual_memory_only",
     "llm_dual_memory",
+    *MEMORY_BRANCH_STRATEGIES,
 ]
 FIXED_POLICIES = ["P0_normal", "P1_guarded", "P2_moderate", "P3_strong", "P4_emergency"]
 API_STRATEGIES = {
@@ -87,7 +96,9 @@ API_STRATEGIES = {
     "ablation_memory_only",
     "ablation_expert_only",
     "ablation_expert_and_memory",
+    "ablation_dual_memory_only",
     "llm_dual_memory",
+    *MEMORY_BRANCH_STRATEGIES,
 }
 CAMPUS_LAYERS = list(cvlp.CAMPUS_LAYER_KEYS)
 LAYER_GROUPS = {
@@ -103,8 +114,6 @@ STRATEGY_COLORS = {
     "baseline_single_agent_nomemory": "#9970ab",
     "llm_single_memory": "#1b9e77",
     "llm_ensemble_memory": "#e6ab02",
-    "llm_memory_without_guardrail": "#66a61e",
-    "llm_memory_with_guardrail": "#1b9e77",
     "llm_dual_memory": "#e7298a",
     "fixed_P0_normal": "#999999",
     "fixed_P2_moderate": "#80cdc1",
@@ -114,6 +123,11 @@ STRATEGY_COLORS = {
     "ablation_memory_only": "#4393c3",
     "ablation_expert_only": "#9970ab",
     "ablation_expert_and_memory": "#1b9e77",
+    "ablation_dual_memory_only": "#f1a340",
+    "memory_branch_none": "#7f7f7f",
+    "memory_branch_short_only": "#1f77b4",
+    "memory_branch_long_only": "#ff7f0e",
+    "memory_branch_both": "#2ca02c",
 }
 
 
@@ -121,23 +135,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run thesis campus LLM policy experiments.")
     parser.add_argument(
         "--experiment",
-        choices=["all", "core", "validation", "policy", "memory", "guardrail", "robustness", "sensitivity"],
+        choices=["all", "core", "validation", "policy", "memory", "memory_branch", "robustness", "sensitivity"],
         default="core",
-        help="Experiment set to run. 'core' runs validation, policy, memory, and guardrail at modest cost.",
+        help="Experiment set to run. 'core' runs validation, policy, and memory experiments.",
     )
-    parser.add_argument("--preset", choices=["quick", "paper"], default="quick", help="Parameter preset.")
     parser.add_argument("--pop-size", type=int, default=None, help="Override population size.")
     parser.add_argument("--n-days", type=int, default=None, help="Override simulation length.")
     parser.add_argument("--seeds", type=int, default=None, help="Override number of seeds for main experiments.")
     parser.add_argument("--validation-seeds", type=int, default=None, help="Override seeds for validation experiments.")
     parser.add_argument("--scenario", choices=["all", "low", "medium", "high"], default="all", help="Scenario subset.")
-    parser.add_argument("--use-api", action="store_true", help="Use the real Qwen-compatible LLM API.")
-    parser.add_argument("--model", default=cvlp.DEFAULT_QWEN_MODEL, help=f"LLM model name, default: {cvlp.DEFAULT_QWEN_MODEL}")
-    parser.add_argument("--base-url", default=os.getenv("DASHSCOPE_BASE_URL", cvlp.DEFAULT_DASHSCOPE_BASE_URL))
+    parser.add_argument("--model", default=os.getenv("LLM_MODEL", cvlp.DEFAULT_LLM_MODEL), help=f"LLM model name, default: {cvlp.DEFAULT_LLM_MODEL}")
+    parser.add_argument("--base-url", default=os.getenv("LLM_BASE_URL", os.getenv("DASHSCOPE_BASE_URL", cvlp.DEFAULT_LLM_BASE_URL)))
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--max-tokens", type=int, default=cvlp.DEFAULT_MAX_TOKENS)
     parser.add_argument("--outdir", default=str(DEFAULT_OUTDIR))
-    parser.add_argument("--skip-if-no-api-key", action="store_true")
     parser.add_argument("--no-plots", action="store_true", help="Skip PNG generation.")
     # Dual-branch memory options
     parser.add_argument(
@@ -149,22 +160,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--memory-build-db", default=None, help="Path for build_collect phase database.")
     parser.add_argument("--memory-eval-db", default=None, help="Path to frozen database for eval phase.")
     parser.add_argument("--memory-build-seeds", type=int, default=5, help="Number of seeds for build_collect phase.")
+    parser.add_argument(
+        "--memory-build-strategies",
+        default=",".join(MEMORY_BUILD_STRATEGIES),
+        help="Comma-separated strategies to collect into the memory DB during build_collect.",
+    )
+    parser.add_argument(
+        "--memory-build-temperature-jitter",
+        type=float,
+        default=0.0,
+        help="Uniform +/- temperature jitter for API-backed build_collect LLM runs.",
+    )
     return parser.parse_args()
 
 
 def resolve_config(args: argparse.Namespace) -> dict:
-    if args.preset == "paper":
-        pop_size = 40000
-        n_days = 84
-        seeds = 10
-        validation_seeds = 30
-        scenarios = PAPER_SCENARIOS
-    else:
-        pop_size = 4000
-        n_days = 56
-        seeds = 2
-        validation_seeds = 3
-        scenarios = QUICK_SCENARIOS
+    pop_size = 40000
+    n_days = 84
+    seeds = 10
+    validation_seeds = 30
+    scenarios = PAPER_SCENARIOS
 
     pop_size = int(args.pop_size or pop_size)
     n_days = int(args.n_days or n_days)
@@ -232,52 +247,6 @@ def make_threshold_decision_fn():
     return decision_fn
 
 
-def make_surrogate_llm_decision_fn(mode: str):
-    def decision_fn(state, policy_catalog):
-        summary = state.get("past_7d_summary", {})
-        effect = state.get("policy_effect_summary", {})
-        volatility = state.get("policy_volatility_last_4w", {})
-        burden = state.get("intervention_burden_last_7d", {})
-        infections = float(summary.get("new_infections_sum", 0.0))
-        infections_per_1000 = float(state.get("new_infections_per_1000_last_7d", 0.0))
-        growth = float(state.get("growth_ratio_7d_vs_prev_7d", 1.0))
-        trend = summary.get("estimated_risk_trend", "stable")
-        current_policy = state.get("current_policy") or "P0_normal"
-        current_rank = cvlp.get_policy_rank(current_policy, policy_catalog)
-
-        target_rank = current_rank
-        if infections_per_1000 >= 8 or infections >= 300 or trend == "worsening" or growth >= 1.1:
-            target_rank = max(target_rank, 2)
-        if infections_per_1000 >= 18 or infections >= 700 or growth >= 1.5:
-            target_rank = max(target_rank, 3)
-        if infections_per_1000 >= 30 or infections >= 1200 or growth >= 1.8:
-            target_rank = 4
-        if infections_per_1000 <= 4 and infections < 160 and summary.get("new_infections_trend") == "down":
-            target_rank = min(target_rank, 1)
-        if infections_per_1000 <= 2 and infections < 80 and growth <= 1.0:
-            target_rank = 0
-
-        if mode != "nomemory":
-            if effect.get("dominant_effect_trend") == "improving":
-                target_rank = min(target_rank, current_rank)
-            if effect.get("dominant_effect_trend") == "worsening":
-                target_rank = max(target_rank, min(4, current_rank + 1))
-            if float(volatility.get("policy_oscillation_score", 0.0)) >= 2.0:
-                target_rank = min(target_rank, max(current_rank, target_rank - 1))
-            if float(burden.get("mean_quarantined_per_1000", 0.0)) >= 20.0 and trend != "worsening":
-                target_rank = min(target_rank, current_rank)
-
-        target_rank = int(np.clip(target_rank, 0, 4))
-        risk_level = ["low", "low", "medium", "high", "critical"][target_rank]
-        return {
-            "policy_id": cvlp.get_policy_by_rank(target_rank, policy_catalog),
-            "risk_level": risk_level,
-            "reason": "结合趋势与负担决策",
-        }
-
-    return decision_fn
-
-
 def make_fixed_policy_decision_fn(policy_id: str):
     def decision_fn(state, policy_catalog):
         rank = cvlp.get_policy_rank(policy_id, policy_catalog)
@@ -304,6 +273,9 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
         defer_first_decision_until_interval=True,
         log_path=log_path,
         label=f"{strategy_name}_agent",
+        memory_store=memory_store,
+        global_memory_store=global_memory_store,
+        enable_memory_context=enable_memory_context,
     )
 
     if strategy_name == "baseline_threshold":
@@ -317,8 +289,8 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
         )
     if strategy_name == "baseline_single_agent_nomemory":
         return cv.campus_policy_agent(
-            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("nomemory"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            decision_fn=None,
+            api_key=os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
             use_theory_prompt=False,
             memory_weeks=0,
             ensemble_size=1,
@@ -328,8 +300,8 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
         )
     if strategy_name == "llm_single_memory":
         return cv.campus_policy_agent(
-            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            decision_fn=None,
+            api_key=os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
             use_theory_prompt=True,
             memory_weeks=4,
             ensemble_size=1,
@@ -339,8 +311,8 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
         )
     if strategy_name == "llm_ensemble_memory":
         return cv.campus_policy_agent(
-            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            decision_fn=None,
+            api_key=os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
             use_theory_prompt=True,
             memory_weeks=4,
             ensemble_size=3,
@@ -348,33 +320,11 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
             enable_burden_guardrail=True,
             **common,
         )
-    if strategy_name == "llm_memory_without_guardrail":
-        return cv.campus_policy_agent(
-            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
-            use_theory_prompt=True,
-            memory_weeks=4,
-            ensemble_size=1,
-            min_policy_hold_intervals=2,
-            enable_burden_guardrail=False,
-            **common,
-        )
-    if strategy_name == "llm_memory_with_guardrail":
-        return cv.campus_policy_agent(
-            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
-            use_theory_prompt=True,
-            memory_weeks=4,
-            ensemble_size=1,
-            min_policy_hold_intervals=2,
-            enable_burden_guardrail=True,
-            **common,
-        )
     # --- 2×2 ablation: expert knowledge × memory ---
     if strategy_name == "ablation_no_expert_no_memory":
         return cv.campus_policy_agent(
-            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("nomemory"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            decision_fn=None,
+            api_key=os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
             use_theory_prompt=False,
             memory_weeks=0,
             ensemble_size=1,
@@ -384,8 +334,8 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
         )
     if strategy_name == "ablation_memory_only":
         return cv.campus_policy_agent(
-            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            decision_fn=None,
+            api_key=os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
             use_theory_prompt=False,
             memory_weeks=2,
             ensemble_size=1,
@@ -395,8 +345,8 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
         )
     if strategy_name == "ablation_expert_only":
         return cv.campus_policy_agent(
-            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("nomemory"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            decision_fn=None,
+            api_key=os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
             use_theory_prompt=True,
             memory_weeks=0,
             ensemble_size=1,
@@ -406,8 +356,8 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
         )
     if strategy_name == "ablation_expert_and_memory":
         return cv.campus_policy_agent(
-            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            decision_fn=None,
+            api_key=os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
             use_theory_prompt=True,
             memory_weeks=2,
             ensemble_size=1,
@@ -415,19 +365,50 @@ def make_policy_agent(args: argparse.Namespace, strategy_name: str, outdir: Path
             enable_burden_guardrail=False,
             **common,
         )
+    if strategy_name == "ablation_dual_memory_only":
+        return cv.campus_policy_agent(
+            decision_fn=None,
+            api_key=os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
+            use_theory_prompt=False,
+            memory_weeks=0,
+            ensemble_size=1,
+            min_policy_hold_intervals=1,
+            enable_burden_guardrail=False,
+            short_term_window=4,
+            similar_top_k=6,
+            similar_cases_per_group=2,
+            trend_context_window=3,
+            **common,
+        )
     # --- Dual-branch memory strategy ---
     if strategy_name == "llm_dual_memory":
         return cv.campus_policy_agent(
-            decision_fn=None if args.use_api else make_surrogate_llm_decision_fn("memory"),
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            decision_fn=None,
+            api_key=os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
             use_theory_prompt=True,
             memory_weeks=4,
             ensemble_size=1,
             min_policy_hold_intervals=2,
             enable_burden_guardrail=True,
-            memory_store=memory_store,
-            global_memory_store=global_memory_store,
-            enable_memory_context=enable_memory_context,
+            short_term_window=4,
+            similar_top_k=6,
+            similar_cases_per_group=2,
+            trend_context_window=3,
+            **common,
+        )
+    if strategy_name in MEMORY_BRANCH_STRATEGIES:
+        short_enabled = strategy_name in {"memory_branch_short_only", "memory_branch_both"}
+        long_enabled = strategy_name in {"memory_branch_long_only", "memory_branch_both"}
+        return cv.campus_policy_agent(
+            decision_fn=None,
+            api_key=os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
+            use_theory_prompt=True,
+            memory_weeks=0,
+            ensemble_size=1,
+            min_policy_hold_intervals=2,
+            enable_burden_guardrail=True,
+            enable_short_term_memory=short_enabled,
+            enable_long_term_memory=long_enabled,
             short_term_window=4,
             similar_top_k=6,
             similar_cases_per_group=2,
@@ -467,8 +448,38 @@ def run_strategy_once(args: argparse.Namespace, config: dict, scenario_name: str
                                   global_memory_store=global_memory_store,
                                   enable_memory_context=enable_memory_context)
         sim = cv.Sim(pars=pars, interventions=[agent], label=strategy_name)
+    sim.memory_scenario_name = scenario_name
     sim.run()
     return sim
+
+
+def parse_strategy_list(raw: str, default: list[str]) -> list[str]:
+    strategies = [item.strip() for item in str(raw or "").split(",") if item.strip()]
+    strategies = strategies or list(default)
+    supported = set(ALL_STRATEGIES + CORE_STRATEGIES + ABLATION_STRATEGIES)
+    unsupported = [strategy for strategy in strategies if strategy not in supported]
+    if unsupported:
+        raise ValueError(f"Unsupported memory build strategies: {unsupported}")
+    return strategies
+
+
+def args_with_temperature_jitter(
+    args: argparse.Namespace,
+    scenario_name: str,
+    strategy_name: str,
+    seed: int,
+    jitter: float,
+) -> argparse.Namespace:
+    if jitter <= 0.0 or strategy_name not in API_STRATEGIES:
+        return args
+
+    key = f"{scenario_name}|{strategy_name}|{seed}".encode("utf-8")
+    rng_seed = int.from_bytes(hashlib.sha256(key).digest()[:8], "little") % (2**32)
+    rng = np.random.default_rng(rng_seed)
+    temperature = float(np.clip(args.temperature + rng.uniform(-jitter, jitter), 0.0, 2.0))
+    jittered = argparse.Namespace(**vars(args))
+    jittered.temperature = temperature
+    return jittered
 
 
 def result_values(sim: cv.Sim, key: str) -> np.ndarray:
@@ -632,6 +643,40 @@ def build_decision_summary_df(sim: cv.Sim, scenario_name: str, strategy_name: st
     return pd.DataFrame(rows)
 
 
+def build_memory_retrieval_audit_df(sim: cv.Sim, scenario_name: str, strategy_name: str, seed: int) -> pd.DataFrame:
+    """Build one auditable row per LLM decision for the two memory branches."""
+    agent = sim["interventions"][0] if sim["interventions"] else None
+    rows = []
+    if agent is None:
+        return pd.DataFrame(rows)
+    for record in getattr(agent, "decision_history", []):
+        snapshot = record.get("memory_snapshot", {})
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        usage = record.get("usage", {}) if isinstance(record.get("usage"), dict) else {}
+        rows.append({
+            "scenario": scenario_name,
+            "strategy": strategy_name,
+            "seed": int(seed),
+            "decision_day": record.get("decision_day"),
+            "decision_date": record.get("decision_date"),
+            "memory_mode": snapshot.get("memory_mode", "none"),
+            "short_term_memory_enabled": bool(snapshot.get("short_term_memory_enabled", False)),
+            "long_term_memory_enabled": bool(snapshot.get("long_term_memory_enabled", False)),
+            "short_term_entry_count": int(snapshot.get("short_term_entry_count", 0) or 0),
+            "long_term_retrieved_count": int(snapshot.get("long_term_retrieved_count", 0) or 0),
+            "long_term_entry_ids": json.dumps(snapshot.get("long_term_entry_ids", []), ensure_ascii=False),
+            "short_term_summary": snapshot.get("short_term_summary", ""),
+            "long_term_summary": snapshot.get("long_term_summary", ""),
+            "fallback_used": bool(record.get("fallback_used", False)),
+            "error_type": record.get("error_type"),
+            "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
+            "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
+            "total_tokens": int(usage.get("total_tokens", 0) or 0),
+        })
+    return pd.DataFrame(rows)
+
+
 def summarize_final_metrics(sim: cv.Sim, scenario_name: str, strategy_name: str, seed: int) -> dict:
     trace_df = build_policy_trace_df(sim, scenario_name, strategy_name, seed)
     decision_df = build_decision_summary_df(sim, scenario_name, strategy_name, seed)
@@ -699,11 +744,13 @@ def run_runs(
     global_memory_store=None,
     enable_memory_context=True,
     embedding_provider=None,
+    temperature_jitter: float = 0.0,
 ) -> dict:
     rows = []
     daily_frames = []
     trace_frames = []
     decision_frames = []
+    audit_frames = []
     layer_rows = []
     total = len(scenario_names) * len(strategies) * len(seeds)
     completed = 0
@@ -712,11 +759,16 @@ def run_runs(
             for seed in seeds:
                 completed += 1
                 print(f"[{label}] {completed}/{total}: {scenario_name} / {strategy_name} / seed {seed}")
+                run_args = args_with_temperature_jitter(
+                    args, scenario_name, strategy_name, seed, temperature_jitter)
 
                 # For eval mode, create per-seed episode store
                 episode_store = None
                 actual_memory_store = memory_store
-                if global_memory_store is not None and strategy_name == "llm_dual_memory":
+                needs_episode_store = strategy_name in (
+                    DUAL_MEMORY_STRATEGIES - {"memory_branch_none"}
+                )
+                if global_memory_store is not None and needs_episode_store:
                     # Eval mode: create in-memory episode store per seed
                     episode_store = cvlm.MemoryStore(
                         db_path=":memory:", read_only=False,
@@ -724,7 +776,7 @@ def run_runs(
                     actual_memory_store = episode_store
 
                 sim = run_strategy_once(
-                    args, config, scenario_name, strategy_name, seed, outdir,
+                    run_args, config, scenario_name, strategy_name, seed, outdir,
                     memory_store=actual_memory_store,
                     global_memory_store=global_memory_store,
                     enable_memory_context=enable_memory_context,
@@ -740,22 +792,59 @@ def run_runs(
                 decision = build_decision_summary_df(sim, scenario_name, strategy_name, seed)
                 if len(decision):
                     decision_frames.append(decision)
+                audit = build_memory_retrieval_audit_df(sim, scenario_name, strategy_name, seed)
+                if len(audit):
+                    audit_frames.append(audit)
                 layer_rows.extend(summarize_layer_contributions(sim, scenario_name, strategy_name, seed))
 
     run_df = pd.DataFrame(rows)
+    audit_df = pd.concat(audit_frames, ignore_index=True) if audit_frames else pd.DataFrame()
+    if not audit_df.empty:
+        audit_metrics = (
+            audit_df.groupby(["scenario", "strategy", "seed"], as_index=False)
+            .agg(
+                short_term_memory_coverage=("short_term_entry_count", lambda s: float((s > 0).mean())),
+                long_term_retrieval_hit_rate=("long_term_retrieved_count", lambda s: float((s > 0).mean())),
+                mean_long_term_retrieved=("long_term_retrieved_count", "mean"),
+                prompt_tokens=("prompt_tokens", "sum"),
+                completion_tokens=("completion_tokens", "sum"),
+                total_tokens=("total_tokens", "sum"),
+                fallback_count=("fallback_used", "sum"),
+            )
+        )
+        run_df = run_df.merge(audit_metrics, on=["scenario", "strategy", "seed"], how="left")
+        added = [
+            "short_term_memory_coverage", "long_term_retrieval_hit_rate",
+            "mean_long_term_retrieved", "prompt_tokens", "completion_tokens",
+            "total_tokens", "fallback_count",
+        ]
+        run_df[added] = run_df[added].fillna(0)
+    if set(MEMORY_BRANCH_STRATEGIES).intersection(set(run_df["strategy"])):
+        none = (
+            run_df[run_df["strategy"] == "memory_branch_none"]
+            [["scenario", "seed", "cum_infections"]]
+            .rename(columns={"cum_infections": "none_cum_infections"})
+        )
+        run_df = run_df.merge(none, on=["scenario", "seed"], how="left")
+        run_df["cum_infections_difference_vs_none"] = run_df["cum_infections"] - run_df["none_cum_infections"]
+        run_df["cum_infections_pct_change_vs_none"] = np.where(
+            run_df["none_cum_infections"] > 0,
+            100.0 * run_df["cum_infections_difference_vs_none"] / run_df["none_cum_infections"],
+            np.nan,
+        )
     return {
         "run": run_df,
         "aggregate": aggregate_runs(run_df),
         "daily": pd.concat(daily_frames, ignore_index=True) if daily_frames else pd.DataFrame(),
         "trace": pd.concat(trace_frames, ignore_index=True) if trace_frames else pd.DataFrame(),
         "decision": pd.concat(decision_frames, ignore_index=True) if decision_frames else pd.DataFrame(),
+        "audit": audit_df,
         "layers": pd.DataFrame(layer_rows),
     }
 
 
 def run_model_validation(args: argparse.Namespace, config: dict, outdir: Path) -> dict:
-    validation_seed_count = min(len(config["validation_seeds"]), 10 if args.preset == "quick" else len(config["validation_seeds"]))
-    validation_seeds = config["validation_seeds"][:validation_seed_count]
+    validation_seeds = config["validation_seeds"]
     medium = ["medium"]
 
     doubling_rows = []
@@ -810,13 +899,16 @@ def run_memory_ablation(args: argparse.Namespace, config: dict, outdir: Path) ->
 
     # Dual-branch memory two-phase workflow
     if memory_mode == "build_collect":
-        return _run_memory_build_collect(args, config, scenario_names, seeds, outdir)
+        build_scenario_names = list(config["scenario_names"])
+        build_seed_count = max(1, int(getattr(args, "memory_build_seeds", 5)))
+        build_seeds = config["seeds"][: min(build_seed_count, len(config["seeds"]))]
+        return _run_memory_build_collect(args, config, build_scenario_names, build_seeds, outdir)
     elif memory_mode == "eval":
         return _run_memory_eval(args, config, scenario_names, seeds, outdir)
 
     # Standard ablation without memory stores (original behavior)
-    # Remove llm_dual_memory from strategies when not in memory mode
-    strategies = [s for s in strategies if s != "llm_dual_memory"]
+    # Remove dual-branch memory strategies when not in memory mode
+    strategies = [s for s in strategies if s not in DUAL_MEMORY_STRATEGIES]
     return run_runs(
         args,
         config,
@@ -829,7 +921,7 @@ def run_memory_ablation(args: argparse.Namespace, config: dict, outdir: Path) ->
 
 
 def _run_memory_build_collect(args, config, scenario_names, seeds, outdir):
-    """Phase 1: Collect memory entries without retrieval (LLM acts as expert_only)."""
+    """Phase 1: Collect diverse memory entries without retrieval."""
     build_db_path = args.memory_build_db or str(outdir / "memory_build.db")
     print(f"[memory_build_collect] Building memory database: {build_db_path}")
 
@@ -837,8 +929,15 @@ def _run_memory_build_collect(args, config, scenario_names, seeds, outdir):
     build_store = cvlm.MemoryStore(db_path=build_db_path, read_only=False,
                                     embedding_provider=embedding_provider)
 
-    # Only run llm_dual_memory in build_collect mode
-    strategies = ["llm_dual_memory"]
+    strategies = parse_strategy_list(args.memory_build_strategies, MEMORY_BUILD_STRATEGIES)
+    temperature_jitter = max(0.0, float(getattr(args, "memory_build_temperature_jitter", 0.0)))
+    print(
+        "[memory_build_collect] Collecting "
+        f"{len(strategies)} strategies x {len(scenario_names)} scenarios x {len(seeds)} seeds"
+    )
+    if temperature_jitter > 0.0:
+        print(f"[memory_build_collect] API temperature jitter: +/-{temperature_jitter:.3f}")
+
     result = run_runs(
         args, config, scenario_names, strategies, seeds, outdir,
         label="memory_build_collect",
@@ -846,6 +945,7 @@ def _run_memory_build_collect(args, config, scenario_names, seeds, outdir):
         global_memory_store=None,
         enable_memory_context=False,
         embedding_provider=embedding_provider,
+        temperature_jitter=temperature_jitter,
     )
 
     build_store.close()
@@ -867,8 +967,14 @@ def _run_memory_eval(args, config, scenario_names, seeds, outdir):
     global_store = cvlm.MemoryStore(db_path=frozen_db_path, read_only=True,
                                      embedding_provider=embedding_provider)
 
-    # Run llm_dual_memory in eval mode with full retrieval
-    strategies = ["baseline_no_policy", "ablation_expert_only", "llm_dual_memory"]
+    # Run a 2x2 expert-knowledge x dual-memory evaluation matrix.
+    strategies = [
+        "baseline_no_policy",
+        "ablation_no_expert_no_memory",
+        "ablation_dual_memory_only",
+        "ablation_expert_only",
+        "llm_dual_memory",
+    ]
     result = run_runs(
         args, config, scenario_names, strategies, seeds, outdir,
         label="memory_eval",
@@ -882,17 +988,105 @@ def _run_memory_eval(args, config, scenario_names, seeds, outdir):
     return result
 
 
-def run_guardrail_ablation(args: argparse.Namespace, config: dict, outdir: Path) -> dict:
-    scenario_names = [name for name in ["low", "medium"] if name in config["scenario_names"] or args.scenario == "all"]
-    return run_runs(
-        args,
-        config,
-        scenario_names,
-        ["llm_memory_without_guardrail", "llm_memory_with_guardrail"],
-        config["seeds"],
-        outdir,
-        "guardrail",
-    )
+def build_memory_branch_statistics(run_df: pd.DataFrame) -> pd.DataFrame:
+    """Paired inference and 2x2 effects for the clean memory-branch ablation."""
+    from scipy import stats
+
+    metrics = [
+        "cum_infections", "peak_new_infections", "cum_tests", "mean_quarantined",
+        "teaching_restriction_days", "restriction_intensity_days", "P3_P4_days",
+        "policy_switch_count", "total_tokens",
+    ]
+    labels = {
+        "memory_branch_none": (0, 0),
+        "memory_branch_short_only": (1, 0),
+        "memory_branch_long_only": (0, 1),
+        "memory_branch_both": (1, 1),
+    }
+    rows = []
+
+    def add_effect(scenario, metric, comparison, values):
+        values = np.asarray(values, dtype=float)
+        n = len(values)
+        mean = float(np.mean(values)) if n else np.nan
+        std = float(np.std(values, ddof=1)) if n > 1 else 0.0
+        if n > 1 and std > 0:
+            half = float(stats.t.ppf(0.975, n - 1) * std / math.sqrt(n))
+            t_p = float(stats.ttest_1samp(values, 0.0).pvalue)
+        else:
+            half = 0.0
+            t_p = 1.0 if mean == 0 else np.nan
+        if n and np.allclose(values, 0.0):
+            w_p = 1.0
+        else:
+            try:
+                w_p = float(stats.wilcoxon(values).pvalue) if n else np.nan
+            except ValueError:
+                w_p = 1.0
+        rows.append({
+            "scenario": scenario, "metric": metric, "comparison": comparison,
+            "n_pairs": n, "mean_difference": mean, "std_difference": std,
+            "ci95_low": mean - half, "ci95_high": mean + half,
+            "paired_t_p": t_p, "wilcoxon_p": w_p,
+        })
+
+    branch = run_df[run_df["strategy"].isin(labels)].copy()
+    for scenario, scenario_df in branch.groupby("scenario"):
+        for metric in metrics:
+            wide = scenario_df.pivot(index="seed", columns="strategy", values=metric).dropna()
+            if not set(labels).issubset(wide.columns):
+                continue
+            none = wide["memory_branch_none"]
+            short = wide["memory_branch_short_only"]
+            long = wide["memory_branch_long_only"]
+            both = wide["memory_branch_both"]
+            add_effect(scenario, metric, "short_only_vs_none", short - none)
+            add_effect(scenario, metric, "long_only_vs_none", long - none)
+            add_effect(scenario, metric, "both_vs_none", both - none)
+            add_effect(scenario, metric, "short_main_effect", ((short - none) + (both - long)) / 2.0)
+            add_effect(scenario, metric, "long_main_effect", ((long - none) + (both - short)) / 2.0)
+            add_effect(scenario, metric, "short_x_long_interaction", both - short - long + none)
+
+    # Difference-in-differences across risk scenarios, paired by seed.
+    for metric in metrics:
+        wide = branch.pivot(index="seed", columns=["scenario", "strategy"], values=metric)
+        for left, right in [("medium", "low"), ("high", "medium"), ("high", "low")]:
+            for strategy in MEMORY_BRANCH_STRATEGIES[1:]:
+                required = [(left, strategy), (left, "memory_branch_none"),
+                            (right, strategy), (right, "memory_branch_none")]
+                if not all(column in wide.columns for column in required):
+                    continue
+                values = ((wide[(left, strategy)] - wide[(left, "memory_branch_none")])
+                          - (wide[(right, strategy)] - wide[(right, "memory_branch_none")])).dropna()
+                add_effect("cross_scenario", metric,
+                           f"{strategy}_effect_{left}_vs_{right}", values)
+    return pd.DataFrame(rows)
+
+
+def run_memory_branch_ablation(args, config, outdir):
+    if args.memory_mode != "eval":
+        raise ValueError("--experiment memory_branch requires --memory-mode eval")
+    frozen_db_path = args.memory_eval_db or str(outdir / "memory_build.db")
+    if not Path(frozen_db_path).exists():
+        raise FileNotFoundError(f"Frozen memory database not found: {frozen_db_path}")
+    scenario_names = list(config["scenario_names"])
+    seeds = config["seeds"][: min(5, len(config["seeds"]))]
+    embedding_provider = cvlm.EmbeddingProvider()
+    global_store = cvlm.MemoryStore(
+        db_path=frozen_db_path, read_only=True, embedding_provider=embedding_provider)
+    try:
+        bundle = run_runs(
+            args, config, scenario_names,
+            ["baseline_no_policy"] + MEMORY_BRANCH_STRATEGIES,
+            seeds, outdir, label="memory_branch",
+            global_memory_store=global_store,
+            enable_memory_context=True,
+            embedding_provider=embedding_provider,
+        )
+    finally:
+        global_store.close()
+    bundle["statistics"] = build_memory_branch_statistics(bundle["run"])
+    return bundle
 
 
 def run_robustness(args: argparse.Namespace, config: dict, outdir: Path) -> dict:
@@ -933,7 +1127,7 @@ def run_sensitivity_analysis(args: argparse.Namespace, config: dict, outdir: Pat
     return bundle
 
 
-def save_tables(results: dict, outdir: Path) -> dict:
+def save_tables(results: dict, outdir: Path, args: argparse.Namespace, config: dict) -> dict:
     paths = {}
 
     def save_df(name: str, df: pd.DataFrame):
@@ -941,7 +1135,7 @@ def save_tables(results: dict, outdir: Path) -> dict:
             return
         path = outdir / f"{name}.csv"
         df.to_csv(path, index=False, encoding="utf-8-sig")
-        paths[name] = str(path)
+        paths[name] = path.name
 
     validation = results.get("validation", {})
     if validation:
@@ -953,7 +1147,7 @@ def save_tables(results: dict, outdir: Path) -> dict:
         save_df("model_validation_layer_contributions", layer_check.get("layers"))
         save_df("model_validation_layer_runs", layer_check.get("run"))
 
-    for key in ["policy", "memory", "guardrail", "robustness", "sensitivity"]:
+    for key in ["policy", "memory", "memory_branch", "robustness", "sensitivity"]:
         bundle = results.get(key)
         if not bundle:
             continue
@@ -962,12 +1156,31 @@ def save_tables(results: dict, outdir: Path) -> dict:
         save_df(f"{key}_daily_metrics", bundle.get("daily"))
         save_df(f"{key}_policy_trace", bundle.get("trace"))
         save_df(f"{key}_decision_summary", bundle.get("decision"))
+        save_df(f"{key}_retrieval_audit", bundle.get("audit"))
+        save_df(f"{key}_statistics", bundle.get("statistics"))
         save_df(f"{key}_layer_contributions", bundle.get("layers"))
         save_df(f"{key}_design", bundle.get("design"))
 
     summary_json = outdir / "experiment_manifest.json"
-    summary_json.write_text(json.dumps(paths, ensure_ascii=False, indent=2), encoding="utf-8")
-    paths["manifest"] = str(summary_json)
+    manifest = {
+        "format_version": 1,
+        "project": "CEMAS",
+        "experiment": args.experiment,
+        "population": int(config["pop_size"]),
+        "days": int(config["n_days"]),
+        "seeds": list(config["seeds"]),
+        "validation_seeds": list(config["validation_seeds"]),
+        "scenarios": list(config["scenario_names"]),
+        "llm": {
+            "model": args.model,
+            "base_url": args.base_url,
+            "temperature": float(args.temperature),
+            "max_tokens": int(args.max_tokens),
+        },
+        "artifacts": dict(sorted(paths.items())),
+    }
+    summary_json.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    paths["manifest"] = summary_json.name
     return paths
 
 
@@ -1081,9 +1294,79 @@ def plot_policy_bundle(bundle: dict, outdir: Path, name: str, scenario_name: str
     return paths
 
 
+def plot_memory_branch_bundle(bundle: dict, outdir: Path) -> list[Path]:
+    """Create thesis figures for the 2x2 short/long memory ablation."""
+    paths = []
+    run = bundle.get("run", pd.DataFrame())
+    daily = bundle.get("daily", pd.DataFrame())
+    audit = bundle.get("audit", pd.DataFrame())
+    branch = run[run["strategy"].isin(MEMORY_BRANCH_STRATEGIES)].copy()
+    if branch.empty:
+        return paths
+    scenarios = [s for s in ["low", "medium", "high"] if s in set(branch["scenario"])]
+
+    fig, axes = pl.subplots(1, len(scenarios), figsize=(5 * len(scenarios), 4.8), squeeze=False)
+    for ax, scenario in zip(axes[0], scenarios):
+        group = branch[branch["scenario"] == scenario].groupby("strategy")["cum_infections"]
+        means = group.mean().reindex(MEMORY_BRANCH_STRATEGIES)
+        ns = group.count().reindex(MEMORY_BRANCH_STRATEGIES)
+        sem = group.std().reindex(MEMORY_BRANCH_STRATEGIES).fillna(0) / np.sqrt(ns)
+        ax.bar(range(4), means, yerr=1.96 * sem, capsize=4,
+               color=[_color_for(s) for s in MEMORY_BRANCH_STRATEGIES])
+        ax.set_xticks(range(4), ["None", "Short", "Long", "Both"], rotation=15)
+        ax.set_title(scenario)
+        ax.set_ylabel("Cumulative infections")
+        ax.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+    path = outdir / "memory_branch_infections_ci.png"; fig.savefig(path, dpi=220, bbox_inches="tight"); pl.close(fig); paths.append(path)
+
+    fig, axes = pl.subplots(len(scenarios), 1, figsize=(12, 4 * len(scenarios)), squeeze=False)
+    for ax, scenario in zip(axes[:, 0], scenarios):
+        subset = daily[(daily["scenario"] == scenario) & daily["strategy"].isin(MEMORY_BRANCH_STRATEGIES)]
+        means = subset.groupby(["strategy", "day"], as_index=False)["cum_infections"].mean()
+        for strategy, group in means.groupby("strategy"):
+            ax.plot(group["day"], group["cum_infections"], label=strategy, color=_color_for(strategy), lw=2)
+        ax.set_title(scenario); ax.set_xlabel("Day"); ax.set_ylabel("Cumulative infections"); ax.grid(alpha=0.3); ax.legend(frameon=False)
+    fig.tight_layout()
+    path = outdir / "memory_branch_infection_curves.png"; fig.savefig(path, dpi=220, bbox_inches="tight"); pl.close(fig); paths.append(path)
+
+    fig, axes = pl.subplots(1, len(scenarios), figsize=(5 * len(scenarios), 4.8), squeeze=False)
+    for ax, scenario in zip(axes[0], scenarios):
+        subset = branch[branch["scenario"] == scenario]
+        for strategy, group in subset.groupby("strategy"):
+            ax.scatter(group["weighted_policy_cost"] if "weighted_policy_cost" in group else group["restriction_intensity_days"],
+                       group["cum_infections"], label=strategy, color=_color_for(strategy), alpha=0.8)
+        ax.set_title(scenario); ax.set_xlabel("Policy cost"); ax.set_ylabel("Cumulative infections"); ax.grid(alpha=0.3)
+    axes[0, 0].legend(frameon=False, fontsize=8)
+    fig.tight_layout()
+    path = outdir / "memory_branch_cost_tradeoff.png"; fig.savefig(path, dpi=220, bbox_inches="tight"); pl.close(fig); paths.append(path)
+
+    fig, axes = pl.subplots(1, len(scenarios), figsize=(5 * len(scenarios), 4.8), squeeze=False)
+    for ax, scenario in zip(axes[0], scenarios):
+        means = branch[branch["scenario"] == scenario].groupby("strategy")["cum_infections"].mean()
+        ax.plot([0, 1], [means.get("memory_branch_none", np.nan), means.get("memory_branch_short_only", np.nan)], marker="o", label="Long off")
+        ax.plot([0, 1], [means.get("memory_branch_long_only", np.nan), means.get("memory_branch_both", np.nan)], marker="o", label="Long on")
+        ax.set_xticks([0, 1], ["Short off", "Short on"]); ax.set_title(scenario); ax.set_ylabel("Cumulative infections"); ax.grid(alpha=0.3); ax.legend(frameon=False)
+    fig.tight_layout()
+    path = outdir / "memory_branch_interaction.png"; fig.savefig(path, dpi=220, bbox_inches="tight"); pl.close(fig); paths.append(path)
+
+    if not audit.empty:
+        summary = audit[audit["strategy"].isin(MEMORY_BRANCH_STRATEGIES)].groupby(["scenario", "strategy"], as_index=False).agg(
+            retrieval_hit_rate=("long_term_retrieved_count", lambda s: float((s > 0).mean())),
+            mean_prompt_tokens=("prompt_tokens", "mean"))
+        fig, axes = pl.subplots(1, 2, figsize=(13, 4.8))
+        for idx, metric in enumerate(["retrieval_hit_rate", "mean_prompt_tokens"]):
+            pivot = summary.pivot(index="scenario", columns="strategy", values=metric).reindex(scenarios)
+            pivot.plot(kind="bar", ax=axes[idx], color=[_color_for(c) for c in pivot.columns])
+            axes[idx].set_title(metric.replace("_", " ").title()); axes[idx].grid(axis="y", alpha=0.3); axes[idx].legend(frameon=False, fontsize=8)
+        fig.tight_layout()
+        path = outdir / "memory_branch_retrieval_tokens.png"; fig.savefig(path, dpi=220, bbox_inches="tight"); pl.close(fig); paths.append(path)
+    return paths
+
+
 def save_plots(results: dict, outdir: Path) -> list[Path]:
     paths = []
-    for key in ["policy", "memory", "guardrail", "robustness"]:
+    for key in ["policy", "memory", "robustness"]:
         bundle = results.get(key)
         if bundle:
             paths.extend(plot_policy_bundle(bundle, outdir, key, scenario_name="medium"))
@@ -1095,21 +1378,22 @@ def save_plots(results: dict, outdir: Path) -> list[Path]:
     fixed = validation.get("fixed", {}) if validation else {}
     if fixed:
         paths.extend(plot_policy_bundle(fixed, outdir, "model_validation_fixed_policy", scenario_name="medium"))
+    memory_branch = results.get("memory_branch", {})
+    if memory_branch:
+        paths.extend(plot_memory_branch_bundle(memory_branch, outdir))
     return paths
 
 
 def build_markdown_report(results: dict, config: dict, args: argparse.Namespace, artifact_paths: dict, plot_paths: list[Path]) -> str:
     lines = [
-        "# Campus LLM Thesis Experiments",
+        "# CEMAS Paper Experiments",
         "",
         "## Setup",
         "",
-        f"- Preset: `{args.preset}`",
         f"- Population: `{config['pop_size']}`",
         f"- Days: `{config['n_days']}`",
         f"- Seeds: `{len(config['seeds'])}` main, `{len(config['validation_seeds'])}` validation",
         f"- Scenarios: `{', '.join(config['scenario_names'])}`",
-        f"- API mode: `{args.use_api}`",
         "",
     ]
 
@@ -1139,20 +1423,6 @@ def build_markdown_report(results: dict, config: dict, args: argparse.Namespace,
                     f"- Best medium-scenario balance score: `{best['strategy']}` with CPBU `{best['CPBU']:.3f}`.",
                 ]
             )
-
-    guardrail = results.get("guardrail", {})
-    guard_df = guardrail.get("run", pd.DataFrame()) if guardrail else pd.DataFrame()
-    if not guard_df.empty:
-        guard_summary = (
-            guard_df.groupby("strategy", as_index=False)
-            .agg(
-                low_prevalence_online_guardrail_block_count=("low_prevalence_online_guardrail_block_count", "mean"),
-                guardrail_adjusted_count=("guardrail_adjusted_count", "mean"),
-                cum_infections=("cum_infections", "mean"),
-            )
-            .sort_values("strategy")
-        )
-        lines.extend(["", "## Guardrail Summary", "", markdown_table(guard_summary)])
 
     sensitivity = results.get("sensitivity", {})
     sensitivity_agg = sensitivity.get("aggregate", pd.DataFrame()) if sensitivity else pd.DataFrame()
@@ -1214,22 +1484,18 @@ def main() -> int:
         requested_strategies.update(CORE_STRATEGIES)
     if args.experiment in {"all", "core", "memory"}:
         requested_strategies.update(ABLATION_STRATEGIES)
-    if args.experiment in {"all", "core", "guardrail"}:
-        requested_strategies.update(["llm_memory_without_guardrail", "llm_memory_with_guardrail"])
-    if args.use_api and requested_strategies & API_STRATEGIES and not os.getenv("DASHSCOPE_API_KEY"):
-        message = "SKIP: DASHSCOPE_API_KEY is not set, so real LLM strategies cannot run."
-        print(message)
-        return 0 if args.skip_if_no_api_key else 1
+    if args.experiment == "memory_branch" or (args.experiment == "all" and args.memory_mode == "eval"):
+        requested_strategies.update(MEMORY_BRANCH_STRATEGIES)
+    if requested_strategies & API_STRATEGIES and not (os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY")):
+        raise RuntimeError("LLM_API_KEY is required for the selected LLM experiment.")
 
     print("=== Campus LLM Thesis Experiments ===")
     print(f"Experiment: {args.experiment}")
-    print(f"Preset: {args.preset}")
     print(f"Population: {config['pop_size']}")
     print(f"Days: {config['n_days']}")
     print(f"Scenarios: {config['scenario_names']}")
     print(f"Main seeds: {config['seeds']}")
     print(f"Output: {outdir}")
-    print(f"API mode: {args.use_api}")
 
     results = {}
     if args.experiment in {"all", "core", "validation"}:
@@ -1238,14 +1504,14 @@ def main() -> int:
         results["policy"] = run_policy_comparison(args, config, outdir)
     if args.experiment in {"all", "core", "memory"}:
         results["memory"] = run_memory_ablation(args, config, outdir)
-    if args.experiment in {"all", "core", "guardrail"}:
-        results["guardrail"] = run_guardrail_ablation(args, config, outdir)
+    if args.experiment == "memory_branch" or (args.experiment == "all" and args.memory_mode == "eval"):
+        results["memory_branch"] = run_memory_branch_ablation(args, config, outdir)
     if args.experiment in {"all", "robustness"}:
         results["robustness"] = run_robustness(args, config, outdir)
     if args.experiment in {"all", "sensitivity"}:
         results["sensitivity"] = run_sensitivity_analysis(args, config, outdir)
 
-    artifact_paths = save_tables(results, outdir)
+    artifact_paths = save_tables(results, outdir, args, config)
     plot_paths = [] if args.no_plots else save_plots(results, outdir)
     report_text = build_markdown_report(results, config, args, artifact_paths, plot_paths)
     report_path = outdir / "summary_report.md"
