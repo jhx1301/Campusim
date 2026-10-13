@@ -1,3 +1,5 @@
+"""Regression tests for the historical P0–P4 implementation, not v1 contracts."""
+
 import json
 import os
 import tempfile
@@ -112,7 +114,7 @@ def make_memory_record(day, proposed_policy, applied_policy, infections_sum, tes
 
 def test_apply_policy_transition_constraint():
     catalog = cvlp.make_default_policy_catalog()
-    assert cvlp.apply_policy_transition_constraint("P4_emergency", "P1_guarded", catalog) == "P2_moderate"
+    assert cvlp.apply_policy_transition_constraint("P4_emergency", "P1_guarded", catalog) == "P4_emergency"
     assert cvlp.apply_policy_transition_constraint("P0_normal", "P3_strong", catalog) == "P2_moderate"
     assert cvlp.apply_policy_transition_constraint("P2_moderate", None, catalog) == "P2_moderate"
 
@@ -142,8 +144,8 @@ def test_build_system_prompt_and_policy_catalog_brief_include_debias_rules():
     prompt = cvlp.build_system_prompt(use_theory_prompt=True)
     assert "recent 7-day versus previous 7-day trends" in prompt
     assert "P3_strong and P4_emergency have high operational and teaching costs" in prompt
-    assert "consider stepping down to P1_guarded" in prompt
-    assert "consider stepping down to P0_normal" in prompt
+    assert "sustained, unambiguous improvement across multiple consecutive decision cycles" in prompt
+    assert "a single week of decline is not enough" in prompt
 
     brief = cvlp.policy_catalog_to_brief(cvlp.make_default_policy_catalog())
     summaries = {item["policy_id"]: item["summary"] for item in brief}
@@ -296,11 +298,11 @@ def test_campus_policy_agent_absolute_rewrite_and_runtime_updates():
     expected_policies = {
         0: "P2_moderate",
         6: "P2_moderate",
-        7: "P3_strong",
-        13: "P3_strong",
-        14: "P2_moderate",
-        20: "P2_moderate",
-        21: "P1_guarded",
+        7: "P4_emergency",
+        13: "P4_emergency",
+        14: "P3_strong",
+        20: "P3_strong",
+        21: "P2_moderate",
     }
     for day, policy_id in expected_policies.items():
         assert trace_by_day[day]["policy_id"] == policy_id
@@ -309,15 +311,19 @@ def test_campus_policy_agent_absolute_rewrite_and_runtime_updates():
             assert trace_by_day[day]["effective_beta_layer"][layer] == pytest.approx(expected)
 
     assert trace_by_day[7]["effective_beta_layer"]["clu"] == pytest.approx(
-        baseline["clu"] * catalog["P3_strong"]["restriction_profile"]["clu"]
+        baseline["clu"] * catalog["P4_emergency"]["restriction_profile"]["clu"]
     )
     assert trace_by_day[7]["effective_beta_layer"]["clg"] == pytest.approx(
-        baseline["clg"] * catalog["P3_strong"]["restriction_profile"]["clg"]
+        baseline["clg"] * catalog["P4_emergency"]["restriction_profile"]["clg"]
     )
-    assert trace_by_day[21]["effective_beta_layer"]["clu"] == pytest.approx(baseline["clu"])
-    assert trace_by_day[21]["effective_beta_layer"]["clg"] == pytest.approx(baseline["clg"])
+    assert trace_by_day[21]["effective_beta_layer"]["clu"] == pytest.approx(
+        baseline["clu"] * catalog["P2_moderate"]["restriction_profile"]["clu"]
+    )
+    assert trace_by_day[21]["effective_beta_layer"]["clg"] == pytest.approx(
+        baseline["clg"] * catalog["P2_moderate"]["restriction_profile"]["clg"]
+    )
 
-    final_policy = "P1_guarded"
+    final_policy = "P2_moderate"
     screening_profile = agent._get_screening_profile(final_policy, sim)
     assert agent.testing_intervention.symp_prob == pytest.approx(catalog[final_policy]["testing_profile"]["symp_prob"])
     assert agent.screening_intervention.exclude_recent_days == screening_profile["exclude_recent_days"]
@@ -326,9 +332,10 @@ def test_campus_policy_agent_absolute_rewrite_and_runtime_updates():
 
     assert agent.decision_history[0]["model_policy_proposed"] == "P4_emergency"
     assert agent.decision_history[0]["applied_policy"] == "P2_moderate"
-    assert agent.decision_history[1]["applied_policy"] == "P3_strong"
-    assert agent.decision_history[2]["applied_policy"] == "P2_moderate"
-    assert agent.decision_history[3]["applied_policy"] == "P1_guarded"
+    assert agent.decision_history[0]["guardrail_reason"] == "low_prevalence_online_guardrail_block"
+    assert agent.decision_history[1]["applied_policy"] == "P4_emergency"
+    assert agent.decision_history[2]["applied_policy"] == "P3_strong"
+    assert agent.decision_history[3]["applied_policy"] == "P2_moderate"
 
 
 def test_campus_policy_agent_fallback_and_jsonl_log():
@@ -357,7 +364,7 @@ def test_campus_policy_agent_fallback_and_jsonl_log():
         assert agent.decision_history[0]["error_type"] == "RuntimeError"
         assert agent.decision_history[1]["fallback_used"] is False
         assert agent.decision_history[1]["model_policy_proposed"] == "P4_emergency"
-        assert agent.decision_history[1]["applied_policy"] == "P2_moderate"
+        assert agent.decision_history[1]["applied_policy"] == "P4_emergency"
 
         lines = log_path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 2
@@ -380,9 +387,13 @@ def test_campus_policy_agent_ensemble_majority_tie_and_member_failure():
         json.dumps({"policy_id": "P1_guarded", "risk_level": "medium", "reason": VALID_REASON}, ensure_ascii=False),
         json.dumps({"policy_id": "P2_moderate", "risk_level": "high", "reason": UPGRADE_REASON_1}, ensure_ascii=False),
         json.dumps({"policy_id": "P2_moderate", "risk_level": "high", "reason": UPGRADE_REASON_2}, ensure_ascii=False),
+        json.dumps({"policy_id": "P2_moderate", "risk_level": "high", "reason": VALID_REASON}, ensure_ascii=False),
+        json.dumps({"policy_id": "P1_guarded", "risk_level": "medium", "reason": VALID_REASON}, ensure_ascii=False),
         RuntimeError("member failed"),
         json.dumps({"policy_id": "P1_guarded", "risk_level": "medium", "reason": VALID_REASON}, ensure_ascii=False),
         json.dumps({"policy_id": "P4_emergency", "risk_level": "critical", "reason": UPGRADE_REASON_1}, ensure_ascii=False),
+        json.dumps({"policy_id": "P1_guarded", "risk_level": "medium", "reason": VALID_REASON}, ensure_ascii=False),
+        json.dumps({"policy_id": "P4_emergency", "risk_level": "high", "reason": UPGRADE_REASON_2}, ensure_ascii=False),
     ]
     agent = cv.campus_policy_agent(
         decision_interval_days=7,
@@ -399,10 +410,15 @@ def test_campus_policy_agent_ensemble_majority_tie_and_member_failure():
     first = agent.decision_history[0]
     second = agent.decision_history[1]
     assert first["applied_policy"] == "P2_moderate"
-    assert len(first["ensemble_votes"]) == 3
-    assert sum(vote.get("policy_id") == "P2_moderate" for vote in first["ensemble_votes"]) == 2
-    assert second["applied_policy"] == "P3_strong"
-    assert any(vote.get("error_type") == "RuntimeError" for vote in second["ensemble_votes"])
+    assert len(first["ensemble_votes"]) == 5
+    assert sum(vote.get("policy_id") == "P2_moderate" for vote in first["ensemble_votes"]) == 3
+    assert second["applied_policy"] == "P4_emergency"
+    assert second["risk_level"] == "critical"
+    assert second["fallback_used"] is False
+    assert len(second["ensemble_votes"]) == 5
+    assert sum(vote.get("policy_id") == "P1_guarded" for vote in second["ensemble_votes"]) == 2
+    assert sum(vote.get("policy_id") == "P4_emergency" for vote in second["ensemble_votes"]) == 2
+    assert sum(vote.get("error_type") == "RuntimeError" for vote in second["ensemble_votes"]) == 1
 
 
 def test_campus_policy_agent_min_hold_and_burden_guardrail():
@@ -476,6 +492,15 @@ def test_campus_policy_agent_min_hold_and_burden_guardrail():
         state=low_prevalence_state,
         decision={"risk_level": "critical"},
     )
+    assert applied_policy == "P4_emergency"
+    assert reason is None
+
+    low_prevalence_state["growth_ratio_7d_vs_prev_7d"] = 1.5
+    applied_policy, reason = low_prevalence_agent._apply_policy_guardrails(
+        proposed_policy="P4_emergency",
+        state=low_prevalence_state,
+        decision={"risk_level": "critical"},
+    )
     assert applied_policy == "P2_moderate"
     assert reason == "low_prevalence_online_guardrail_block"
 
@@ -499,7 +524,7 @@ def test_campus_policy_agent_defer_first_decision_until_interval():
     assert len(agent.decision_history) == 1
     assert agent.decision_history[0]["decision_day"] == 7
     assert all(row["policy_id"] == "P1_guarded" for row in agent.policy_trace if row["day"] < 7)
-    assert agent.policy_trace[7]["policy_id"] == "P2_moderate"
+    assert agent.policy_trace[7]["policy_id"] == "P4_emergency"
 
 
 @pytest.mark.online
