@@ -1,12 +1,12 @@
 {
   "protocol_id": "cemas-control-v1",
-  "status": "phase0_contracts_only_algorithms_pending",
+  "status": "phase1_action_space_frozen_execution_pending",
   "authored_date": "2026-10-12",
   "reviewed_date": "2026-10-13",
   "experiment_scope": "partially_observable_campus_control_and_frozen_synthetic_transfer",
   "architecture_constraints": {
     "schema_version": "cemas-control-schema-v1",
-    "implementation_phase": 0,
+    "implementation_phase": 1,
     "controller_interface": [
       "reset() -> None",
       "decide(PublicObservation) -> ActionProposal",
@@ -25,8 +25,8 @@
     "world_initialization": "one_complete_initialize_per_reset_preserve_engine_internal_reseeding_no_weekly_reseed",
     "recovered_contact_handling": "quarantine_alive_nonisolated_recovered_contacts_on_valid_notification",
     "legacy_retention": "git_history_only_no_P0_P4_compatibility_layer",
-    "phase0_excludes": [
-      "concrete_controllers", "action_codec_and_mask_algorithms", "reward_formula",
+    "phase1_excludes": [
+      "concrete_controllers", "action_resolution_algorithm", "reward_formula",
       "memory_retrieval", "rl_training", "simulation_environment", "experiment_execution"
     ]
   },
@@ -124,7 +124,39 @@
     "fixed_handling": "isolation_until_engine_recovery_and_quarantine_until_investigation_day_plus_14",
     "parameter_provenance": "remaining_disease_defaults_frozen_from_current_engine_and_exported_in_resolved_manifest"
   },
+  "environment_configuration": {
+    "fixed_baseline": {
+      "owner": "environment_configuration",
+      "controller_visible": false,
+      "public_observation_inclusion": false,
+      "semantic": "Fixed routine behavior configured by the environment; ActionVector levels select only additional policy intervention.",
+      "testing": {
+        "semantic": "Routine case-related and isolation/quarantine testing represented by T0; ordinary asymptomatic screening remains S-controlled.",
+        "reference_level": "actions.T[0].effective_parameters"
+      },
+      "screening": {
+        "semantic": "No active periodic screening represented by S0.",
+        "reference_level": "actions.S[0].effective_parameters"
+      },
+      "contact_tracing": {
+        "semantic": "Routine contact investigation and notification represented by C0; C levels select additional tracing intensity.",
+        "reference_level": "actions.C[0].effective_parameters"
+      },
+      "education": {
+        "semantic": "Normal classroom teaching represented by E0.",
+        "reference_level": "actions.E[0].effective_parameters"
+      },
+      "activity": {
+        "semantic": "Normal non-classroom public and community activity represented by A0.",
+        "reference_level": "actions.A[0].effective_parameters"
+      }
+    }
+  },
   "actions": {
+    "semantics_version": "cemas-action-semantics-v1",
+    "representation": "additional_intervention_over_fixed_baseline",
+    "zero_level_semantics": "no_additional_intervention",
+    "effective_parameter_semantics": "total_effective_setting_after_level_selection_including_baseline_not_an_additive_delta",
     "order": [
       "T",
       "S",
@@ -155,176 +187,257 @@
       0,
       0
     ],
-    "maximum_reference": "[2,highest_resource_legal_s,2,2,2]",
+    "maximum_reference": {
+      "T": 2,
+      "S": "highest_resource_legal_level",
+      "C": 2,
+      "E": 2,
+      "A": 2
+    },
     "hold_intervals": 0,
     "transition_limit": null,
     "truth_guardrail": false,
     "risk_override": false,
+    "dimension_metadata": {
+      "T": {
+        "name": "Testing",
+        "level_semantics": "Unified configuration of additional case-related and isolation/quarantine testing resources; routine baseline remains in T0.",
+        "target_scope": "case_related_testing_and_quarantine_testing",
+        "parameter_provenance": "legacy P0/P2/P4 configuration; synthetic benchmark assumption; not Covasim defaults and not calibrated",
+        "parameter_units": "probability_per_eligible_person_per_day_or_quarantine_entry",
+        "capacity_policy": "shared_clinical_daily_capacity_enforced_at_runtime"
+      },
+      "S": {
+        "name": "Screening",
+        "level_semantics": "Additional active periodic screening requested per day as a fraction of the registered population N.",
+        "target_scope": "active_periodic_screening",
+        "parameter_provenance": "v1 policy-design schedule; synthetic benchmark assumption; simulator mapping deferred to Phase 2",
+        "request_quantity_unit": "people_per_day",
+        "population_reference": "public_registered_population_N_fixed_at_reset",
+        "request_count_rounding": "ceil_ratio_times_N",
+        "legality_rule": "request_ratio_times_N_lte_public_screening_daily_capacity"
+      },
+      "C": {
+        "name": "Contact tracing",
+        "level_semantics": "Additional tracing intensity increases coverage probability and reduces notification delay; external capacity is not selected by the action.",
+        "target_scope": "contact_tracing_investigation_and_notification",
+        "parameter_provenance": "legacy P0/P2/P4 configuration; synthetic benchmark assumption; not Covasim defaults and not calibrated",
+        "parameter_units": "probability_per_contact_and_delay_in_days",
+        "capacity_policy": "shared_index_case_capacity_enforced_at_runtime"
+      },
+      "E": {
+        "name": "Education / teaching restriction",
+        "level_semantics": "Additional restriction of classroom teaching contacts; detailed attendance and simulator effects are deferred to Phase 2.",
+        "target_scope": "classroom_teaching_contacts",
+        "parameter_provenance": "v1 policy-design schedule; synthetic activity abstraction; simulator mapping deferred to Phase 2",
+        "parameter_units": "dimensionless_multiplier_and_fraction_of_activity_time",
+        "excluded_scopes": [
+          "household_and_dormitory_contacts",
+          "non_classroom_work_and_community_contacts"
+        ]
+      },
+      "A": {
+        "name": "Activity restriction",
+        "level_semantics": "Additional restriction of non-classroom public and community activity; detailed simulator effects are deferred to Phase 2.",
+        "target_scope": "non_classroom_work_public_and_community_activity",
+        "parameter_provenance": "v1 policy-design schedule; synthetic activity abstraction; simulator mapping deferred to Phase 2",
+        "parameter_units": "dimensionless_multiplier_and_fraction_of_activity_time",
+        "excluded_scopes": [
+          "household_and_dormitory_contacts",
+          "classroom_teaching_contacts"
+        ]
+      }
+    },
     "T": [
       {
         "level": 0,
-        "symp_prob": 0.08,
-        "asymp_prob": 0,
-        "symp_quar_prob": 0.25,
-        "asymp_quar_prob": 0
+        "label": "none",
+        "semantic": "No additional testing intervention; use fixed routine testing baseline.",
+        "effective_parameters": {
+          "symptomatic_daily_probability": 0.08,
+          "ordinary_asymptomatic_daily_probability": 0,
+          "symptomatic_quarantine_entry_probability": 0.25,
+          "asymptomatic_quarantine_entry_probability": 0
+        }
       },
       {
         "level": 1,
-        "symp_prob": 0.14,
-        "asymp_prob": 0,
-        "symp_quar_prob": 0.5,
-        "asymp_quar_prob": 0.03
+        "label": "low",
+        "semantic": "Low additional testing intervention.",
+        "effective_parameters": {
+          "symptomatic_daily_probability": 0.14,
+          "ordinary_asymptomatic_daily_probability": 0,
+          "symptomatic_quarantine_entry_probability": 0.5,
+          "asymptomatic_quarantine_entry_probability": 0.03
+        }
       },
       {
         "level": 2,
-        "symp_prob": 0.22,
-        "asymp_prob": 0,
-        "symp_quar_prob": 0.8,
-        "asymp_quar_prob": 0.08
+        "label": "high",
+        "semantic": "High additional testing intervention.",
+        "effective_parameters": {
+          "symptomatic_daily_probability": 0.22,
+          "ordinary_asymptomatic_daily_probability": 0,
+          "symptomatic_quarantine_entry_probability": 0.8,
+          "asymptomatic_quarantine_entry_probability": 0.08
+        }
       }
     ],
     "S": [
       {
         "level": 0,
-        "request_ratio": 0
+        "label": "none",
+        "semantic": "No additional active periodic screening.",
+        "effective_parameters": {
+          "request_ratio": 0
+        }
       },
       {
         "level": 1,
-        "request_ratio": 0.02
+        "label": "low",
+        "semantic": "Low additional screening request.",
+        "effective_parameters": {
+          "request_ratio": 0.02
+        }
       },
       {
         "level": 2,
-        "request_ratio": 0.05
+        "label": "medium",
+        "semantic": "Medium additional screening request.",
+        "effective_parameters": {
+          "request_ratio": 0.05
+        }
       },
       {
         "level": 3,
-        "request_ratio": 0.1
+        "label": "high",
+        "semantic": "High additional screening request.",
+        "effective_parameters": {
+          "request_ratio": 0.1
+        }
       }
     ],
     "C": [
       {
         "level": 0,
-        "trace_probs": {
-          "home": 0.6,
-          "school": 0.2,
-          "work": 0.18,
-          "community": 0.15
-        },
-        "trace_delay_days": {
-          "home": 0,
-          "school": 3,
-          "work": 3,
-          "community": 4
+        "label": "none",
+        "semantic": "No additional contact tracing; use fixed routine tracing baseline.",
+        "effective_parameters": {
+          "coverage_probability": {
+            "home": 0.6,
+            "school": 0.2,
+            "work": 0.18,
+            "community": 0.15
+          },
+          "notification_delay_days": {
+            "home": 0,
+            "school": 3,
+            "work": 3,
+            "community": 4
+          }
         }
       },
       {
         "level": 1,
-        "trace_probs": {
-          "home": 0.95,
-          "school": 0.45,
-          "work": 0.4,
-          "community": 0.35
-        },
-        "trace_delay_days": {
-          "home": 0,
-          "school": 1,
-          "work": 1,
-          "community": 2
+        "label": "low",
+        "semantic": "Low additional contact tracing intensity.",
+        "effective_parameters": {
+          "coverage_probability": {
+            "home": 0.95,
+            "school": 0.45,
+            "work": 0.4,
+            "community": 0.35
+          },
+          "notification_delay_days": {
+            "home": 0,
+            "school": 1,
+            "work": 1,
+            "community": 2
+          }
         }
       },
       {
         "level": 2,
-        "trace_probs": {
-          "home": 1,
-          "school": 0.8,
-          "work": 0.7,
-          "community": 0.55
-        },
-        "trace_delay_days": {
-          "home": 0,
-          "school": 0,
-          "work": 0,
-          "community": 1
+        "label": "high",
+        "semantic": "High additional contact tracing intensity.",
+        "effective_parameters": {
+          "coverage_probability": {
+            "home": 1,
+            "school": 0.8,
+            "work": 0.7,
+            "community": 0.55
+          },
+          "notification_delay_days": {
+            "home": 0,
+            "school": 0,
+            "work": 0,
+            "community": 1
+          }
         }
       }
     ],
     "E": [
       {
         "level": 0,
-        "contact_multiplier": 1,
-        "restriction_time_fraction": 0
+        "label": "normal teaching",
+        "semantic": "No additional teaching restriction; normal classroom teaching.",
+        "effective_parameters": {
+          "transmission_multiplier": 1,
+          "restriction_time_fraction": 0
+        }
       },
       {
         "level": 1,
-        "contact_multiplier": 0.5,
-        "restriction_time_fraction": 0.5
+        "label": "partial online teaching",
+        "semantic": "Partial online teaching and reduced classroom contacts.",
+        "effective_parameters": {
+          "transmission_multiplier": 0.5,
+          "restriction_time_fraction": 0.5
+        }
       },
       {
         "level": 2,
-        "contact_multiplier": 0,
-        "restriction_time_fraction": 1
+        "label": "fully online teaching",
+        "semantic": "Fully online teaching and no classroom contacts.",
+        "effective_parameters": {
+          "transmission_multiplier": 0,
+          "restriction_time_fraction": 1
+        }
       }
     ],
     "A": [
       {
         "level": 0,
-        "contact_multiplier": 1,
-        "restriction_time_fraction": 0
+        "label": "normal activity",
+        "semantic": "No additional activity restriction; normal non-classroom activity.",
+        "effective_parameters": {
+          "transmission_multiplier": 1,
+          "restriction_time_fraction": 0
+        }
       },
       {
         "level": 1,
-        "contact_multiplier": 0.75,
-        "restriction_time_fraction": 0.25
+        "label": "mild restriction",
+        "semantic": "Mild restriction of non-classroom public and community activity.",
+        "effective_parameters": {
+          "transmission_multiplier": 0.75,
+          "restriction_time_fraction": 0.25
+        }
       },
       {
         "level": 2,
-        "contact_multiplier": 0.5,
-        "restriction_time_fraction": 0.5
+        "label": "moderate restriction",
+        "semantic": "Moderate restriction of non-classroom public and community activity.",
+        "effective_parameters": {
+          "transmission_multiplier": 0.5,
+          "restriction_time_fraction": 0.5
+        }
       }
     ],
-    "layer_semantics": {
-      "campus": {
-        "home": [
-          "d",
-          "ta"
-        ],
-        "school": [
-          "clu",
-          "clg"
-        ],
-        "work": [
-          "of"
-        ],
-        "community": [
-          "cm"
-        ]
-      },
-      "hybrid": {
-        "home": [
-          "h"
-        ],
-        "school": [
-          "s"
-        ],
-        "work": [
-          "w"
-        ],
-        "community": [
-          "c"
-        ]
-      }
-    },
-    "home_contact_multiplier": 1,
     "illegal_action_fallback": "retain_current_then_lower_s_to_highest_legal_when_capacity_invalidates_it",
-    "protected_home_layers": {
-      "campus": [
-        "d",
-        "ta"
-      ],
-      "hybrid": [
-        "h"
-      ]
-    }
+    "phase1_scope": "action_semantics_table_encoding_decoding_and_public_screening_mask_only",
+    "phase2_boundary": "simulator_effects_resource_execution_validation_resolution_and_fallback_are_deferred_to_phase2",
+    "simulator_mapping": "deferred_to_phase2_executor"
   },
   "resources": {
     "clinical_tests_per_person_per_day": 0.02,

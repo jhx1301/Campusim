@@ -63,7 +63,11 @@ def _reason(value: str | None) -> None:
 
 @dataclass(frozen=True, slots=True)
 class ActionVector:
-    """The sole action representation, ordered T/S/C/E/A; no id codec here."""
+    """Extra policy levels in T/S/C/E/A order, relative to the fixed baseline.
+
+    Level zero means no additional intervention. Baseline configuration belongs
+    to the environment and is not part of this vector or PublicObservation.
+    """
 
     values: tuple[int, int, int, int, int]
 
@@ -88,6 +92,68 @@ class ActionProposal:
     def __post_init__(self) -> None:
         _instance(self.action, ActionVector, "action")
         _reason(self.reasoning)
+
+
+def _action_id(values: tuple[int, int, int, int, int]) -> int:
+    """Return the protocol action id for an already validated action tuple."""
+    t, s, c, e, a = values
+    return ((((t * ACTION_SIZES[1] + s) * ACTION_SIZES[2] + c)
+             * ACTION_SIZES[3] + e) * ACTION_SIZES[4] + a)
+
+
+@dataclass(frozen=True, slots=True)
+class ActionResolution:
+    """Requested action and the action handed to the executor.
+
+    This is a data contract only.  It deliberately performs no resource
+    projection or fallback: a resolver in a later phase must decide whether
+    the requested action can be executed and record the corresponding reason.
+    """
+
+    requested_action: ActionVector | None
+    executed_action: ActionVector
+    requested_action_id: int | None
+    executed_action_id: int
+    adjustment_reason: str | None = None
+    fallback_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.requested_action is not None:
+            _instance(self.requested_action, ActionVector, "requested_action")
+            if type(self.requested_action_id) is not int:
+                raise TypeError("requested_action_id must be an integer when requested_action is set")
+            if not 0 <= self.requested_action_id < JOINT_ACTION_COUNT:
+                raise ValueError("requested_action_id must be in [0, 324)")
+            expected = _action_id(self.requested_action.values)
+            if self.requested_action_id != expected:
+                raise ValueError("requested_action_id does not match requested_action")
+        elif self.requested_action_id is not None:
+            raise TypeError("requested_action_id must be None when requested_action is None")
+
+        _instance(self.executed_action, ActionVector, "executed_action")
+        if type(self.executed_action_id) is not int:
+            raise TypeError("executed_action_id must be an ordinary integer")
+        if not 0 <= self.executed_action_id < JOINT_ACTION_COUNT:
+            raise ValueError("executed_action_id must be in [0, 324)")
+        expected = _action_id(self.executed_action.values)
+        if self.executed_action_id != expected:
+            raise ValueError("executed_action_id does not match executed_action")
+
+        for name in ("adjustment_reason", "fallback_reason"):
+            value = getattr(self, name)
+            if value is not None and (type(value) is not str or not value.strip()):
+                raise ValueError(f"{name} must be nonempty text or None")
+        if self.requested_action is None and self.fallback_reason is None:
+            raise ValueError("missing requested_action requires fallback_reason")
+        if (self.requested_action is not None
+                and self.requested_action != self.executed_action
+                and self.adjustment_reason is None
+                and self.fallback_reason is None):
+            raise ValueError("changed executed_action requires adjustment or fallback reason")
+        if (self.requested_action is not None
+                and self.requested_action == self.executed_action
+                and self.adjustment_reason is not None):
+            raise ValueError("adjustment_reason requires a changed executed_action")
 
 
 @dataclass(frozen=True, slots=True)

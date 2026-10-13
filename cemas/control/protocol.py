@@ -73,6 +73,142 @@ def _number(value: Any, location: str, *, positive: bool = False) -> None:
         raise ProtocolValidationError(f"{location} must be a finite {constraint} number")
 
 
+def _text(value: Any, location: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ProtocolValidationError(f"{location} must be nonempty text")
+    return value
+
+
+def _probability(value: Any, location: str) -> None:
+    _number(value, location)
+    if value > 1:
+        raise ProtocolValidationError(f"{location} must be in [0, 1]")
+
+
+def _validate_action_dimension(actions: Mapping[str, Any], name: str, size: int) -> None:
+    levels = _required(actions, name, "actions")
+    if not isinstance(levels, list) or len(levels) != size:
+        raise ProtocolValidationError(f"actions.{name} must contain exactly {size} levels")
+    testing_keys = (
+        "symptomatic_daily_probability", "ordinary_asymptomatic_daily_probability",
+        "symptomatic_quarantine_entry_probability", "asymptomatic_quarantine_entry_probability",
+    )
+    contact_scopes = {"home", "school", "work", "community"}
+    expected_keys = {
+        "T": set(testing_keys), "S": {"request_ratio"},
+        "C": {"coverage_probability", "notification_delay_days"},
+        "E": {"transmission_multiplier", "restriction_time_fraction"},
+        "A": {"transmission_multiplier", "restriction_time_fraction"},
+    }
+    parameter_sets = []
+    for index, level in enumerate(levels):
+        location = f"actions.{name}[{index}]"
+        if not isinstance(level, dict):
+            raise ProtocolValidationError(f"{location} must be an object")
+        if _integer(level.get("level"), f"{location}.level") != index:
+            raise ProtocolValidationError(f"{location}.level must equal {index}")
+        for key in ("label", "semantic"):
+            _text(level.get(key), f"{location}.{key}")
+        params = _section(level, "effective_parameters", location)
+        if set(params) != expected_keys[name]:
+            raise ProtocolValidationError(f"{location}.effective_parameters has incorrect fields")
+        parameter_sets.append(params)
+        if name == "C":
+            for key in ("coverage_probability", "notification_delay_days"):
+                group = _section(params, key, location)
+                if set(group) != contact_scopes:
+                    raise ProtocolValidationError(f"{location}.{key} must describe all four contact scopes")
+                for scope, value in group.items():
+                    validator = _probability if key == "coverage_probability" else _integer
+                    validator(value, f"{location}.{key}.{scope}")
+        else:
+            for key, value in params.items():
+                _probability(value, f"{location}.{key}")
+            if name == "T" and params["ordinary_asymptomatic_daily_probability"] != 0:
+                raise ProtocolValidationError("ordinary asymptomatic testing belongs to S, not T")
+
+    # Level ordering describes intensity, independently of any simulator mapping.
+    if name == "C":
+        columns = [([p[key][scope] for p in parameter_sets], key == "notification_delay_days")
+                   for key in ("coverage_probability", "notification_delay_days")
+                   for scope in sorted(contact_scopes)]
+    else:
+        columns = [([p[key] for p in parameter_sets], key == "transmission_multiplier")
+                   for key in sorted(expected_keys[name])]
+    if any(values != sorted(values, reverse=descending) for values, descending in columns):
+        raise ProtocolValidationError(f"actions.{name} intensity must be monotone by level")
+    if name == "S" and parameter_sets[0]["request_ratio"] != 0:
+        raise ProtocolValidationError("actions.S level zero must request no screening")
+    if name in ("E", "A") and parameter_sets[0] != {
+            "transmission_multiplier": 1, "restriction_time_fraction": 0}:
+        raise ProtocolValidationError(f"actions.{name} level zero must be unrestricted")
+
+
+def _validate_action_semantics(definition: Mapping[str, Any]) -> None:
+    actions = definition["actions"]
+    fixed_values = {
+        "semantics_version": "cemas-action-semantics-v1",
+        "representation": "additional_intervention_over_fixed_baseline",
+        "zero_level_semantics": "no_additional_intervention",
+        "effective_parameter_semantics": "total_effective_setting_after_level_selection_including_baseline_not_an_additive_delta",
+        "encoding": "((((t*4+s)*3+c)*3+e)*3+a)",
+        "simulator_mapping": "deferred_to_phase2_executor",
+        "initial": [0, 0, 0, 0, 0], "minimum_reference": [0, 0, 0, 0, 0],
+        "maximum_reference": {"T": 2, "S": "highest_resource_legal_level", "C": 2, "E": 2, "A": 2},
+    }
+    for key, expected in fixed_values.items():
+        # JSON spelling also distinguishes booleans/floats from integer levels.
+        if json.dumps(_required(actions, key, "actions"), sort_keys=True) != json.dumps(expected, sort_keys=True):
+            raise ProtocolValidationError(f"actions.{key} must match the frozen v1 definition")
+    for key, expected in (("hold_intervals", 0), ("transition_limit", None),
+                          ("truth_guardrail", False), ("risk_override", False)):
+        value = _required(actions, key, "actions")
+        if type(value) is not type(expected) or value != expected:
+            raise ProtocolValidationError(f"actions.{key} must match the shared v1 selection rules")
+
+    environment = _section(definition, "environment_configuration", "protocol")
+    baseline = _section(environment, "fixed_baseline", "environment_configuration")
+    if baseline.get("owner") != "environment_configuration":
+        raise ProtocolValidationError("fixed_baseline.owner must be environment_configuration")
+    for key in ("controller_visible", "public_observation_inclusion"):
+        if baseline.get(key) is not False:
+            raise ProtocolValidationError(f"fixed_baseline.{key} must be false")
+    for name, dim in (("testing", "T"), ("screening", "S"), ("contact_tracing", "C"),
+                      ("education", "E"), ("activity", "A")):
+        entry = _section(baseline, name, "fixed_baseline")
+        _text(entry.get("semantic"), f"fixed_baseline.{name}.semantic")
+        if entry.get("reference_level") != f"actions.{dim}[0].effective_parameters":
+            raise ProtocolValidationError(f"fixed_baseline.{name} must reference its zero level")
+
+    dimensions = _section(actions, "dimension_metadata", "actions")
+    scopes = {
+        "T": "case_related_testing_and_quarantine_testing",
+        "S": "active_periodic_screening",
+        "C": "contact_tracing_investigation_and_notification",
+        "E": "classroom_teaching_contacts",
+        "A": "non_classroom_work_public_and_community_activity",
+    }
+    if set(dimensions) != set(scopes):
+        raise ProtocolValidationError("actions.dimension_metadata must describe T/S/C/E/A")
+    for name, scope in scopes.items():
+        metadata = _section(dimensions, name, "actions.dimension_metadata")
+        for key in ("name", "level_semantics", "parameter_provenance"):
+            _text(metadata.get(key), f"actions.dimension_metadata.{name}.{key}")
+        if metadata.get("target_scope") != scope:
+            raise ProtocolValidationError(f"actions.dimension_metadata.{name}.target_scope must be {scope}")
+    screening = dimensions["S"]
+    for key, expected in (
+        ("request_quantity_unit", "people_per_day"),
+        ("population_reference", "public_registered_population_N_fixed_at_reset"),
+        ("request_count_rounding", "ceil_ratio_times_N"),
+        ("legality_rule", "request_ratio_times_N_lte_public_screening_daily_capacity"),
+    ):
+        if screening.get(key) != expected:
+            raise ProtocolValidationError(f"actions.dimension_metadata.S.{key} must be {expected}")
+    for name, size in zip(("T", "S", "C", "E", "A"), (3, 4, 3, 3, 3)):
+        _validate_action_dimension(actions, name, size)
+
+
 def _seed_list(value: Any, location: str) -> list[tuple[str, int, int]]:
     if not isinstance(value, list) or not value:
         raise ProtocolValidationError(f"{location} must be a nonempty seed list")
@@ -179,6 +315,7 @@ def _validate_v1(definition: Any) -> None:
     joint_count = _integer(_required(actions, "joint_count", "actions"), "actions.joint_count", 1)
     if joint_count != math.prod(sizes):
         raise ProtocolValidationError("actions.joint_count must equal the product of actions.sizes (324)")
+    _validate_action_semantics(definition)
 
     objective = _section(definition, "objective", "protocol")
     for key in ("test_reference_daily_ratio", "notification_reference_daily_ratio"):
