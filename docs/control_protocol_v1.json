@@ -1,0 +1,1019 @@
+{
+  "protocol_id": "cemas-control-v1",
+  "status": "recommended_design_not_implemented",
+  "authored_date": "2026-10-12",
+  "reviewed_date": "2026-10-13",
+  "experiment_scope": "partially_observable_campus_control_and_frozen_synthetic_transfer",
+  "engine": {
+    "pop_size": 12000,
+    "pop_scale": 1,
+    "rescale": false,
+    "pop_infected": 30,
+    "pop_type": "campus",
+    "start_day": "2020-08-03",
+    "execution_days": 112,
+    "n_days": 111,
+    "decision_interval_days": 7,
+    "history_weeks": 4,
+    "use_waning": false,
+    "n_imports": 0,
+    "n_variants": 1,
+    "variants": [],
+    "vaccination_enabled": false,
+    "frac_susceptible": 1,
+    "rel_beta": 1,
+    "prog_by_age": true,
+    "n_beds_hosp": null,
+    "n_beds_icu": null,
+    "quar_period": 14,
+    "beta_mode": "source_calibration_artifact_required_for_scientific_runs",
+    "smoke_beta": 0.016,
+    "beta_layer": {
+      "d": 2,
+      "clu": 1,
+      "clg": 1,
+      "of": 0.8,
+      "ta": 1.2,
+      "cm": 0.35
+    },
+    "contacts": {
+      "d": 5,
+      "clu": 25,
+      "clg": 12,
+      "of": 6,
+      "ta": 3,
+      "cm": 12
+    },
+    "dynam_layer": {
+      "d": 0,
+      "clu": 1,
+      "clg": 1,
+      "of": 1,
+      "ta": 0,
+      "cm": 1
+    },
+    "campus_age_data": [
+      [
+        17,
+        23,
+        0.6
+      ],
+      [
+        24,
+        30,
+        0.2
+      ],
+      [
+        31,
+        65,
+        0.2
+      ]
+    ],
+    "campus_undergrad_age_window": [
+      17,
+      24
+    ],
+    "campus_grad_age_window": [
+      24,
+      31
+    ],
+    "campus_worker_age_window": [
+      31,
+      66
+    ],
+    "campus_teacher_ratio": 0.08,
+    "campus_staff_ratio": 0.12,
+    "campus_p_ug_in_lab": 0.1,
+    "campus_p_grad_in_class": 0.35,
+    "campus_class_size_mean": 40,
+    "campus_class_size_std": 6,
+    "campus_class_size_min": 30,
+    "campus_class_size_max": 55,
+    "campus_teachers_per_class": 1,
+    "campus_k_ts": 6,
+    "campus_k_ss": 10,
+    "campus_cl_stability": 0.4,
+    "campus_k_ls": 4,
+    "campus_lab_stability": 0.3,
+    "fixed_handling": "isolation_until_engine_recovery_and_quarantine_until_investigation_day_plus_14",
+    "parameter_provenance": "remaining_disease_defaults_frozen_from_current_engine_and_exported_in_resolved_manifest"
+  },
+  "actions": {
+    "order": [
+      "T",
+      "S",
+      "C",
+      "E",
+      "A"
+    ],
+    "sizes": [
+      3,
+      4,
+      3,
+      3,
+      3
+    ],
+    "joint_count": 324,
+    "encoding": "((((t*4+s)*3+c)*3+e)*3+a)",
+    "initial": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "minimum_reference": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "maximum_reference": "[2,highest_resource_legal_s,2,2,2]",
+    "hold_intervals": 0,
+    "transition_limit": null,
+    "truth_guardrail": false,
+    "risk_override": false,
+    "T": [
+      {
+        "level": 0,
+        "symp_prob": 0.08,
+        "asymp_prob": 0,
+        "symp_quar_prob": 0.25,
+        "asymp_quar_prob": 0
+      },
+      {
+        "level": 1,
+        "symp_prob": 0.14,
+        "asymp_prob": 0,
+        "symp_quar_prob": 0.5,
+        "asymp_quar_prob": 0.03
+      },
+      {
+        "level": 2,
+        "symp_prob": 0.22,
+        "asymp_prob": 0,
+        "symp_quar_prob": 0.8,
+        "asymp_quar_prob": 0.08
+      }
+    ],
+    "S": [
+      {
+        "level": 0,
+        "request_ratio": 0
+      },
+      {
+        "level": 1,
+        "request_ratio": 0.02
+      },
+      {
+        "level": 2,
+        "request_ratio": 0.05
+      },
+      {
+        "level": 3,
+        "request_ratio": 0.1
+      }
+    ],
+    "C": [
+      {
+        "level": 0,
+        "trace_probs": {
+          "home": 0.6,
+          "school": 0.2,
+          "work": 0.18,
+          "community": 0.15
+        },
+        "trace_delay_days": {
+          "home": 0,
+          "school": 3,
+          "work": 3,
+          "community": 4
+        }
+      },
+      {
+        "level": 1,
+        "trace_probs": {
+          "home": 0.95,
+          "school": 0.45,
+          "work": 0.4,
+          "community": 0.35
+        },
+        "trace_delay_days": {
+          "home": 0,
+          "school": 1,
+          "work": 1,
+          "community": 2
+        }
+      },
+      {
+        "level": 2,
+        "trace_probs": {
+          "home": 1,
+          "school": 0.8,
+          "work": 0.7,
+          "community": 0.55
+        },
+        "trace_delay_days": {
+          "home": 0,
+          "school": 0,
+          "work": 0,
+          "community": 1
+        }
+      }
+    ],
+    "E": [
+      {
+        "level": 0,
+        "contact_multiplier": 1,
+        "restriction_time_fraction": 0
+      },
+      {
+        "level": 1,
+        "contact_multiplier": 0.5,
+        "restriction_time_fraction": 0.5
+      },
+      {
+        "level": 2,
+        "contact_multiplier": 0,
+        "restriction_time_fraction": 1
+      }
+    ],
+    "A": [
+      {
+        "level": 0,
+        "contact_multiplier": 1,
+        "restriction_time_fraction": 0
+      },
+      {
+        "level": 1,
+        "contact_multiplier": 0.75,
+        "restriction_time_fraction": 0.25
+      },
+      {
+        "level": 2,
+        "contact_multiplier": 0.5,
+        "restriction_time_fraction": 0.5
+      }
+    ],
+    "layer_semantics": {
+      "campus": {
+        "home": [
+          "d",
+          "ta"
+        ],
+        "school": [
+          "clu",
+          "clg"
+        ],
+        "work": [
+          "of"
+        ],
+        "community": [
+          "cm"
+        ]
+      },
+      "hybrid": {
+        "home": [
+          "h"
+        ],
+        "school": [
+          "s"
+        ],
+        "work": [
+          "w"
+        ],
+        "community": [
+          "c"
+        ]
+      }
+    },
+    "home_contact_multiplier": 1,
+    "illegal_action_fallback": "retain_current_then_lower_s_to_highest_legal_when_capacity_invalidates_it",
+    "protected_home_layers": {
+      "campus": [
+        "d",
+        "ta"
+      ],
+      "hybrid": [
+        "h"
+      ]
+    }
+  },
+  "resources": {
+    "clinical_tests_per_person_per_day": 0.02,
+    "screening_static_capacity_ratios": [
+      0.02,
+      0.05,
+      0.1
+    ],
+    "screening_main_capacity_ratio": 0.05,
+    "tracing_index_cases_per_person_per_day": 0.01,
+    "carry_over": false,
+    "clinical_priority": [
+      "symptomatic_quarantine",
+      "symptomatic_other",
+      "asymptomatic_quarantine_entry"
+    ],
+    "quar_testing_policy": "start",
+    "duplicate_test_policy": "at_most_one_test_per_person_per_day_clinical_first",
+    "recent_screening_exclusion_days": 3,
+    "screening_selector": "public_school_work_other_disjoint_strata_population_proportional_then_least_recently_screened",
+    "screening_shortage": "leave_unused_capacity_and_log_eligible_shortage",
+    "screening_unused_stratum_quota": "redistribute_to_other_eligible_strata_then_log_remaining_shortage",
+    "screening_queue": false,
+    "tracing_index_selection": "uniform_seeded_sampling_of_today_delivered_cases_no_backlog",
+    "tracing_presumptive": false,
+    "tracing_contacts": "current_network_at_investigation_as_declared_simulator_approximation",
+    "notification_deduplication": "one_delivered_notification_per_person_per_day_cross_day_repeats_count",
+    "notification_deceased_at_delivery": "cancel_and_log_undelivered",
+    "notification_pending_after_action_change": "deliver_as_scheduled",
+    "tests": {
+      "sensitivity": 0.95,
+      "loss_prob": 0,
+      "report_delay_days": 1,
+      "swab_delay": null,
+      "ili_prev": null
+    },
+    "recent_test_exclusion_scope": "both_clinical_and_screening_actual_tests_on_t_minus_3_through_t_minus_1",
+    "quarantine_merge_rule": "max_investigation_day_plus_14_existing_quarantine_never_shortened"
+  },
+  "observation": {
+    "cutoff": "decision_day_minus_1",
+    "delivered_diagnosis_ledger": true,
+    "delivered_notification_ledger": true,
+    "history_order": "oldest_to_newest_left_zero_padding",
+    "history_week_valid": true,
+    "weekly_fields": [
+      "delivered_diagnoses",
+      "clinical_tests",
+      "screening_tests",
+      "delivered_notifications",
+      "isolation_person_days",
+      "quarantine_person_days",
+      "union_person_days",
+      "school_restriction_person_days",
+      "work_restriction_person_days",
+      "community_restriction_person_days",
+      "executed_action",
+      "screening_capacity"
+    ],
+    "context_fields": [
+      "decision_day",
+      "execution_days",
+      "population",
+      "initial_infections",
+      "public_target_populations",
+      "public_age_band_counts",
+      "current_action",
+      "action_duration_days",
+      "current_resource_capacities",
+      "previous_day_known_isolated",
+      "previous_day_known_quarantined",
+      "previous_day_known_union",
+      "legal_action_mask"
+    ],
+    "growth": "log2((D_current+1)/(D_previous+1))",
+    "growth_requires_two_valid_weeks": true,
+    "proxy": "delivered_week_diagnoses / executed_week_tests",
+    "proxy_zero_denominator": "0_plus_valid_false",
+    "rates": "counts_per_N_and_person_days_per_7N_or_target_N",
+    "clip": false,
+    "fit_test_normalization": false,
+    "private_reward_in_online_info": false,
+    "action_numeric_encoding": "one_hot_16_values",
+    "age_bands_shared": [[0, 16], [17, 23], [24, 30], [31, 60], [61, 99]],
+    "age_encoding": "registered_count_per_N_same_order_all_domains",
+    "legal_mask_is_shared": true
+  },
+  "activity": {
+    "daily_budget_school_or_work": 0.8,
+    "daily_budget_community": 0.2,
+    "dual_school_work_each": 0.4,
+    "neither_school_nor_work_community": 1,
+    "calendar": "every_simulation_day_same_nominal_schedule_no_weekend_model",
+    "school_roster": "campus_class_groups_ug_gr_students_teachers_union__hybrid_age_6_inclusive_22_exclusive",
+    "work_roster": "campus_lab_groups_students_teachers_union__hybrid_age_22_inclusive_65_exclusive",
+    "community_roster": "all_population",
+    "weights_fixed_at_reset": true,
+    "school_work_community_report_separately": true,
+    "overlap_with_quarantine": "distinct_operational_and_activity_dimensions_both_retained",
+    "monetary_cost": false,
+    "roster_from_reset_edges": false
+  },
+  "objective": {
+    "lambda": 1,
+    "burden_weights": {
+      "tests": 0.25,
+      "notifications": 0.25,
+      "union": 0.25,
+      "activity": 0.25
+    },
+    "test_reference_daily_ratio": 0.12,
+    "notification_reference_daily_ratio": 0.1,
+    "formula": "-[dI/N + lambda/4*(dT/(.12*N*H)+dL/(.10*N*H)+dQ/(N*H)+dA/(N*H))]",
+    "switch_penalty": 0,
+    "reward_clip": false,
+    "gamma": 1,
+    "final_ranking": "raw_metrics_and_tradeoffs_no_CPBU",
+    "initial_infections_in_reward": false
+  },
+  "calibration": {
+    "population_interpretation": "synthetic_total_not_notre_dame_student_census",
+    "data_provenance": "reconstructed_aggregate_series",
+    "primary_window": [
+      "2020-08-03",
+      "2020-08-18"
+    ],
+    "fit_parameter": "beta",
+    "beta_range": [
+      0.005,
+      0.04
+    ],
+    "fixed_layer_weights": true,
+    "use_waning": false,
+    "optimizer_seed": 84001,
+    "exploratory_train_seeds": [
+      10101,
+      10102,
+      10103
+    ],
+    "trials": 100,
+    "repeats_per_trial": 3,
+    "loss": "daily_diagnoses_MSE_normalized_by_observed_mean_plus_1_squared",
+    "r_eff_penalty": false,
+    "independent_fit_runs": 20,
+    "fit_band_quantiles": [
+      0.05,
+      0.95
+    ],
+    "exploratory_fit_window": [
+      "2020-08-03",
+      "2020-08-14"
+    ],
+    "exploratory_holdout": [
+      "2020-08-15",
+      "2020-08-18"
+    ],
+    "primary_demography": "legacy_t18_demography_frozen_separately_from_synthetic_control_campus",
+    "tests": "fixed_observed_reconstructed_daily_schedule_test_num_sensitivity_.95_loss_0_delay_0",
+    "reject_claims": [
+      "unqualified_real_world_predictive_validation",
+      "causal_effect_from_post_mitigation_counterfactual_gap"
+    ],
+    "primary_execution_days": 16,
+    "primary_n_days": 15,
+    "exploratory_fit_execution_days": 12,
+    "exploratory_fit_n_days": 11,
+    "exploratory_holdout_seed_range_inclusive": {
+      "start": 10121,
+      "end": 10140
+    },
+    "exploratory_holdout_state": "initialize_from_fit_start_and_continue_without_truth_reset_at_holdout"
+  },
+  "source": {
+    "beta_scale_uniform": [
+      0.85,
+      1.15
+    ],
+    "static_capacity_equal_probability": true,
+    "initial_infections_fixed": true,
+    "validation_scales": [
+      0.9,
+      1,
+      1.12
+    ],
+    "train_seed_values": [
+      11,
+      22,
+      33
+    ],
+    "source_world_pools": [
+      {
+        "start_inclusive": 1000000,
+        "end_exclusive": 1100000
+      },
+      {
+        "start_inclusive": 2000000,
+        "end_exclusive": 2100000
+      },
+      {
+        "start_inclusive": 3000000,
+        "end_exclusive": 3100000
+      }
+    ],
+    "checkpoint_steps": 2048,
+    "validation_mapping_order": "beta_scale_outer_capacity_inner_replicate_inner",
+    "extend_budget_relative_improvement": 0.02,
+    "coverage_gate": "each_dimension_each_level_executed_in_source_and_each_S_grade_per_available_capacity",
+    "initial_week_decisions_per_training_seed": 8192,
+    "budget_ladder": [
+      8192,
+      16384,
+      32768
+    ],
+    "pilot_full_episodes": 4,
+    "pilot_worlds": [
+      91001,
+      91002,
+      91003,
+      91004
+    ],
+    "validate_before_final_test": true,
+    "algorithm_seed_selection": "include_all_three",
+    "budget_increase_rule": "only_source_validation_before_test_same_budget_ceiling_both_RL_algorithms",
+    "source_world_pool_upper_bound_exclusive": true,
+    "checkpoint_selection_objective": "minimize_mean_undiscounted_positive_cost",
+    "final_checkpoint_candidates": 2,
+    "final_checkpoint_candidates_rule": "top_two_validation_A_cost_across_all_checkpoints_then_validation_B",
+    "extend_budget_improvement_formula": "(previous_cost-current_cost)/max(previous_cost,1e-12)_after_mean_over_training_seeds"
+  },
+  "seeds": {
+    "smoke": [
+      90001,
+      90002
+    ],
+    "calibration": [
+      10001,
+      10002,
+      10003
+    ],
+    "fit_evaluation": {
+      "start_inclusive": 10021,
+      "end_inclusive": 10040
+    },
+    "validation_A": {
+      "start_inclusive": 20001,
+      "end_inclusive": 20009
+    },
+    "validation_B": {
+      "start_inclusive": 20101,
+      "end_inclusive": 20118
+    },
+    "memory_collection": {
+      "start_inclusive": 30001,
+      "end_inclusive": 30027
+    },
+    "prompt_development": {
+      "start_inclusive": 40001,
+      "end_inclusive": 40009
+    },
+    "E1_E2": {
+      "start_inclusive": 50001,
+      "end_inclusive": 50020
+    },
+    "E3_city_A": {
+      "start_inclusive": 60001,
+      "end_inclusive": 60020
+    },
+    "E3_city_B": {
+      "start_inclusive": 60101,
+      "end_inclusive": 60120
+    },
+    "E4": {
+      "start_inclusive": 70001,
+      "end_inclusive": 70020
+    },
+    "range_notation": "range_objects_are_inclusive_explicit_seed_lists_enumerate_entries_source_world_pools_are_half_open",
+    "controller_rng": "independent_local_generator_per_method_world_train_seed"
+  },
+  "memory": {
+    "short_term_window": 4,
+    "trend_window": 3,
+    "top_k": 6,
+    "cases_per_exact_action": 2,
+    "similarity_weights": {
+      "state": 0.4,
+      "trend": 0.26666666666666666,
+      "text": 0.3333333333333333
+    },
+    "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "embedding_revision": "resolve_and_lock_before_collection",
+    "new_database": "observable_source_memory_v1.sqlite",
+    "global_read_only_at_test": true,
+    "append_target_cases": false,
+    "reset_short_term_each_episode": true,
+    "state_similarity": "exp(-RMS((x-y)/s))",
+    "state_vector_features": [
+      "weekly_diagnoses_per_person",
+      "daily_tests_per_person",
+      "daily_notifications_per_person",
+      "isolation_fraction",
+      "quarantine_fraction",
+      "union_fraction",
+      "school_activity_fraction",
+      "work_activity_fraction",
+      "community_activity_fraction",
+      "screening_capacity_per_person",
+      "growth",
+      "current_action_one_hot"
+    ],
+    "state_reference_scales": {
+      "weekly_diagnoses_per_person": 0.01,
+      "daily_tests_per_person": 0.12,
+      "daily_notifications_per_person": 0.1,
+      "isolation_fraction": 0.02,
+      "quarantine_fraction": 0.05,
+      "union_fraction": 0.05,
+      "activity_fraction": 1,
+      "screening_capacity_per_person": 0.1,
+      "growth": 1
+    },
+    "action_one_hot_scale": 1,
+    "trend_features": [
+      "delivered_diagnoses_per_person",
+      "daily_tests_per_person",
+      "daily_notifications_per_person",
+      "union_fraction",
+      "activity_fraction"
+    ],
+    "trend_constant_both": 1,
+    "trend_constant_one": 0.5,
+    "empty_similarity_component": "exclude_and_renormalize",
+    "collection_policies": [
+      "minimum",
+      "maximum_feasible",
+      "uniform_legal_independent_rng",
+      "tuned_threshold"
+    ],
+    "collection_worlds": 27,
+    "collection_trajectories": 108,
+    "feedback": "public_deliveries_d_to_d_plus_6_complete_at_next_decision",
+    "private_case_outcomes": false
+  },
+  "controllers": {
+    "methods": [
+      "llm_full",
+      "llm_no_explicit_memory",
+      "maskable_ppo",
+      "double_dqn",
+      "tuned_threshold",
+      "minimum",
+      "maximum_feasible"
+    ],
+    "llm": {
+      "primary_api_model": "deepseek-flash",
+      "primary_actual_family": "DeepSeek-V4.1-Flash_as_of_2026-10-12_official_route",
+      "secondary_api_model": "qwen3.5-plus-2026-02-15",
+      "secondary_experiments": [
+        "E1_medium",
+        "E3_city_A"
+      ],
+      "temperature": 0,
+      "max_output_tokens": 8192,
+      "input_token_budget": 8000,
+      "reason_max_chars": 120,
+      "thinking": true,
+      "secondary_thinking_budget": 4096,
+      "primary_effort": "high",
+      "primary_top_p": 0.95,
+      "primary_temperature_effective": "ignored_in_thinking_mode",
+      "ensemble_size": 1,
+      "max_attempts": 3,
+      "timeout_seconds": 120,
+      "retry_delays_seconds": [
+        2,
+        4
+      ],
+      "repair_model_calls": 0,
+      "primary_sdk_retries": 0,
+      "json_fields": [
+        "action",
+        "reason"
+      ],
+      "same_prompt_across_memory_modes": true,
+      "record_request_and_returned_model": true,
+      "detect_provider_change_and_separate_batch": true,
+      "tools_enabled": false
+    },
+    "ppo": {
+      "policy": "MlpPolicy",
+      "policy_hidden": [
+        128,
+        128
+      ],
+      "value_hidden": [
+        128,
+        128
+      ],
+      "activation": "Tanh",
+      "optimizer": "Adam",
+      "learning_rate": 0.0003,
+      "n_envs": 1,
+      "n_steps": 256,
+      "batch_size": 64,
+      "n_epochs": 10,
+      "gamma": 1,
+      "gae_lambda": 0.95,
+      "clip_range": 0.2,
+      "ent_coef": 0.01,
+      "vf_coef": 0.5,
+      "max_grad_norm": 0.5,
+      "target_kl": 0.03,
+      "normalize_advantage": true,
+      "vec_normalize": false,
+      "reward_normalize": false,
+      "eval_deterministic": true,
+      "action_mask_inside_env": true
+    },
+    "ddqn": {
+      "hidden": [
+        128,
+        128
+      ],
+      "activation": "ReLU",
+      "optimizer": "Adam",
+      "learning_rate": 0.0003,
+      "replay_capacity": 50000,
+      "batch_size": 64,
+      "warmup_steps": 512,
+      "train_frequency": 1,
+      "gradient_steps": 1,
+      "target_update_steps": 512,
+      "soft_update": false,
+      "gamma": 1,
+      "epsilon_initial": 1,
+      "epsilon_final": 0.05,
+      "epsilon_linear_fraction": 0.5,
+      "loss": "SmoothL1",
+      "max_grad_norm": 10,
+      "eval_epsilon": 0,
+      "mask_random_greedy_and_bootstrap": true,
+      "terminal_bootstrap": false,
+      "time_limit_as_task_terminal": true
+    },
+    "threshold": {
+      "base_thresholds_per_1000_per_week": {
+        "T": [
+          1,
+          5
+        ],
+        "S": [
+          0.5,
+          3,
+          10
+        ],
+        "C": [
+          0.5,
+          3
+        ],
+        "E": [
+          5,
+          15
+        ],
+        "A": [
+          3,
+          10
+        ]
+      },
+      "indicator": "weekly_delivered_diagnoses_per_1000 * clip(2^(growth/2),.5,2)",
+      "independent_dimension_scale_loguniform": [
+        0.5,
+        2
+      ],
+      "hysteresis_candidates": [
+        0.5,
+        0.75
+      ],
+      "downgrade_confirmation_weeks": 2,
+      "upgrade_unrestricted": true,
+      "candidate_count": 32,
+      "candidate_generator_seed": 82001,
+      "screen_validation_A": true,
+      "finalists": 4,
+      "select_validation_B": true,
+      "selection_objective": "minimize_mean_undiscounted_positive_cost",
+      "tie_break": "smaller_expected_activity_burden_then_fixed_candidate_id"
+    }
+  },
+  "experiments": {
+    "E1": {
+      "beta_scales": [
+        0.9,
+        1,
+        1.12
+      ],
+      "screening_capacity_ratio": 0.05,
+      "worlds_per_condition": 20
+    },
+    "E2": {
+      "beta_scale": 1,
+      "screening_capacity_ratio": 0.05,
+      "memory_modes": [
+        "none",
+        "short",
+        "global",
+        "both"
+      ],
+      "reuse_E1": true,
+      "expert_ablation": "only_if_retaining_stability_claim"
+    },
+    "E3": {
+      "beta_scale": 1,
+      "screening_capacity_ratio": 0.05,
+      "pop_size": 12000,
+      "resource_events": false,
+      "public_disease_semantics": "same_beta_prior_and_abstract_setting_weights",
+      "city_A": {
+        "age_data": [
+          [
+            0,
+            16,
+            0.2
+          ],
+          [
+            17,
+            23,
+            0.15
+          ],
+          [
+            24,
+            30,
+            0.15
+          ],
+          [
+            31,
+            60,
+            0.4
+          ],
+          [
+            61,
+            99,
+            0.1
+          ]
+        ],
+        "contacts": {
+          "h": 3,
+          "s": 20,
+          "w": 16,
+          "c": 12
+        }
+      },
+      "city_B": {
+        "age_data": [
+          [
+            0,
+            16,
+            0.15
+          ],
+          [
+            17,
+            23,
+            0.1
+          ],
+          [
+            24,
+            30,
+            0.1
+          ],
+          [
+            31,
+            60,
+            0.4
+          ],
+          [
+            61,
+            99,
+            0.25
+          ]
+        ],
+        "contacts": {
+          "h": 2,
+          "s": 16,
+          "w": 12,
+          "c": 16
+        }
+      },
+      "beta_layer": {
+        "h": 2,
+        "s": 1,
+        "w": 0.8,
+        "c": 0.35
+      },
+      "dynam_layer": {
+        "h": 0,
+        "s": 0,
+        "w": 0,
+        "c": 1
+      },
+      "iso_factor": {
+        "h": 0.3,
+        "s": 0.1,
+        "w": 0.1,
+        "c": 0.1
+      },
+      "quar_factor": {
+        "h": 0.6,
+        "s": 0.2,
+        "w": 0.2,
+        "c": 0.2
+      }
+    },
+    "E4": {
+      "beta_scale": 1,
+      "shared_pre_control_action": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "shared_takeover_day": 28,
+      "primary_unlock_day": 42,
+      "secondary_unlock_day": 56,
+      "low_capacity_ratio": 0.02,
+      "high_capacity_ratio": 0.1,
+      "protocols": [
+        "remain_low_from_takeover",
+        "low_then_high_at_hidden_unlock",
+        "remain_high_from_takeover"
+      ],
+      "high_arm_change_day_rule": "day_28_not_day_zero",
+      "future_event_time_visible": false,
+      "post_takeover_primary_metrics": true,
+      "drop_extinct_worlds": false,
+      "event_effect_primary_pair": "low_then_high_vs_remain_low_same_method_world_and_pre_unlock_actions",
+      "low_arm_prefix": "replay_same_method_actions_until_unlock_and_verify_pre_unlock_state",
+      "fork_controller_state": [
+        "short_term_memory",
+        "action_durations",
+        "threshold_hysteresis",
+        "controller_RNG",
+        "retrieval_snapshot",
+        "frozen_global_memory_version"
+      ],
+      "pre_unlock_LLM_responses": "run_once_and_reuse_same_prefix_responses",
+      "reuse_low_and_high_references_for_secondary_unlock": true
+    },
+    "sensitivity": {
+      "lambda_values": [
+        0.5,
+        1,
+        2
+      ],
+      "condition": "E1_medium_only",
+      "retrain_source_for_each_lambda": true,
+      "separate_budget": true,
+      "worlds": 20,
+      "freeze_before_reading_any_reused_final_test": true
+    }
+  },
+  "horizon_gate": {
+    "initial_days": 112,
+    "candidate_days": [
+      112,
+      140,
+      168
+    ],
+    "source_only": true,
+    "last_window_days": 14,
+    "last_window_infections_threshold_ratio": 0.002,
+    "terminal_active_infection_threshold_ratio": 0.005,
+    "affected_validation_fraction": 0.2,
+    "apply_same_horizon_all_methods_scenarios": true,
+    "persistently_active_at_168": "report_finite_horizon_limit_no_real_world_long_term_optimality"
+  },
+  "statistics": {
+    "bootstrap_replicates": 10000,
+    "bootstrap_seed": 83001,
+    "confidence": 0.95,
+    "paired_world_blocks": true,
+    "resample_RL_train_seeds": true,
+    "repeat_LLM_across_RL_training_seeds_is_not_independent": true,
+    "time_points_are_not_independent": true,
+    "primary_comparisons": [
+      "llm_full_vs_ppo",
+      "llm_full_vs_ddqn"
+    ],
+    "report": [
+      "mean",
+      "95_percent_interval",
+      "raw_metrics",
+      "paired_differences"
+    ],
+    "cpbu_ranking": false,
+    "failed_calls_use_logged_fallback": true,
+    "infrastructure_failed_episodes_retry_same_identity_and_keep_failure_records": true
+  },
+  "development": {
+    "python_executable": "D:/programfile/miniconda3/envs/simulation/python.exe",
+    "python_version_observed": "3.11.14",
+    "device": "cpu_first",
+    "parallelism": "independent_processes_after_single_env_verified",
+    "dependency_installation": false,
+    "code_mutation": false,
+    "executed_training": false,
+    "resolved_engine_manifest_required": true,
+    "implementation_order": [
+      "shared_protocol_and_ledgers",
+      "joint_actions_and_resources",
+      "weekly_environment_and_fixed_references",
+      "observable_memory",
+      "controllers_and_source_validation",
+      "freeze",
+      "final_E1_E2",
+      "frozen_E3_E4",
+      "statistics_and_paper"
+    ]
+  }
+}
