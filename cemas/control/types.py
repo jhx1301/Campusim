@@ -228,6 +228,35 @@ class PublicCost:
 
 
 @dataclass(frozen=True, slots=True)
+class PublicDailyRecord:
+    """One completed day of delivered public events and executed burden."""
+
+    day: int
+    delivered_diagnoses: int
+    cost: PublicCost
+    executed_action: ActionVector
+    resources: PublicResources
+    known_isolated: int
+    known_quarantined: int
+    known_union: int
+
+    def __post_init__(self) -> None:
+        _counts(day=self.day, delivered_diagnoses=self.delivered_diagnoses,
+                known_isolated=self.known_isolated, known_quarantined=self.known_quarantined,
+                known_union=self.known_union)
+        _instance(self.cost, PublicCost, "cost")
+        _instance(self.executed_action, ActionVector, "executed_action")
+        _instance(self.resources, PublicResources, "resources")
+        if not (max(self.known_isolated, self.known_quarantined) <= self.known_union
+                <= self.known_isolated + self.known_quarantined):
+            raise ValueError("known_union must describe the known isolation/quarantine union")
+        if (self.cost.isolation_person_days != self.known_isolated
+                or self.cost.quarantine_person_days != self.known_quarantined
+                or self.cost.union_person_days != self.known_union):
+            raise ValueError("daily disposition person-days must match end-of-day counts")
+
+
+@dataclass(frozen=True, slots=True)
 class PublicWeeklyRecord:
     """Delivered and executed data in an inclusive model-day window."""
 
@@ -348,6 +377,25 @@ class PublicWeekFeedback:
             _instance(self.previous_week, PublicWeeklyRecord, "previous_week")
             if self.previous_week.end_day >= self.week.start_day:
                 raise ValueError("previous feedback must precede the completed window")
+
+
+@dataclass(frozen=True, slots=True)
+class PrivateDailyMetrics:
+    """Daily true disease counts for the private analysis branch only."""
+
+    day: int
+    new_infections: int
+    initial_infections: int
+    cumulative_infections: int
+    active_infections: int
+
+    def __post_init__(self) -> None:
+        _counts(day=self.day, new_infections=self.new_infections,
+                initial_infections=self.initial_infections,
+                cumulative_infections=self.cumulative_infections,
+                active_infections=self.active_infections)
+        if self.cumulative_infections < self.initial_infections + self.new_infections:
+            raise ValueError("cumulative infections must include initial and daily infections")
 
 
 @dataclass(frozen=True, slots=True)

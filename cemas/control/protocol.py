@@ -36,6 +36,16 @@ class ControlProtocol:
     source_path: Path
     source_sha256: str
 
+    def __deepcopy__(self, memo):
+        """The frozen protocol is safe to share across simulator copies.
+
+        Its recursively frozen definition contains ``MappingProxyType`` objects,
+        which are intentionally not deepcopyable.  Covasim copies intervention
+        parameters during construction; returning this immutable object keeps
+        that engine operation from mutating or re-materializing protocol state.
+        """
+        return self
+
     @property
     def objective_status(self) -> str:
         """Phase 0 preserves objective recommendations without freezing them."""

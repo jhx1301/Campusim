@@ -1,12 +1,12 @@
 {
   "protocol_id": "cemas-control-v1",
-  "status": "phase1_action_space_frozen_execution_pending",
+  "status": "phase2_public_private_pipeline_implemented",
   "authored_date": "2026-10-12",
   "reviewed_date": "2026-10-13",
   "experiment_scope": "partially_observable_campus_control_and_frozen_synthetic_transfer",
   "architecture_constraints": {
     "schema_version": "cemas-control-schema-v1",
-    "implementation_phase": 1,
+    "implementation_phase": 2,
     "controller_interface": [
       "reset() -> None",
       "decide(PublicObservation) -> ActionProposal",

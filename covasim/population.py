@@ -114,6 +114,7 @@ def make_people(sim, popdict=None, die=True, reset=False, recreate=False, verbos
         people.class_groups_ug = popdict.get('class_groups_ug', [])
         people.class_groups_gr = popdict.get('class_groups_gr', [])
         people.lab_groups = popdict.get('lab_groups', [])
+        people.campus_registry_metadata = popdict.get('campus_registry_metadata', {})
 
         people.contacts['clu'] = CampusClassroomLayer(
             people.contacts['clu'],
@@ -273,6 +274,7 @@ def make_randpop(pars, use_age_data=True, use_household_data=True, sex_ratio=0.5
         ages = age_data_min[age_bins] + age_data_range[age_bins] * np.random.random(pop_size)
         popdict['age'] = ages
 
+        registry_metadata = {}
         contacts, role, student_level, class_groups_ug, class_groups_gr, lab_groups = make_campus_contacts(
             pop_size=pop_size,
             ages=ages,
@@ -290,12 +292,14 @@ def make_randpop(pars, use_age_data=True, use_household_data=True, sex_ratio=0.5
             class_size_min=pop_pars.get('campus_class_size_min', 30),
             class_size_max=pop_pars.get('campus_class_size_max', 55),
             teachers_per_class=pop_pars.get('campus_teachers_per_class', 1),
+            registry_metadata=registry_metadata,
         )
         popdict['role'] = role
         popdict['student_level'] = student_level
         popdict['class_groups_ug'] = class_groups_ug
         popdict['class_groups_gr'] = class_groups_gr
         popdict['lab_groups'] = lab_groups
+        popdict['campus_registry_metadata'] = registry_metadata
     else: # pragma: no cover
         errormsg = f'Microstructure type "{microstructure}" not found; choices are random, hybrid, or campus'
         raise NotImplementedError(errormsg)
@@ -625,7 +629,7 @@ def make_campus_contacts(pop_size, ages, sexes, contacts,
                          class_size_std=6,
                          class_size_min=30,
                          class_size_max=55,
-                         teachers_per_class=1):
+                         teachers_per_class=1, *, registry_metadata=None):
     contacts = sc.mergedicts({'d': 6, 'clu': 25, 'clg': 12, 'of': 6, 'ta': 3, 'cm': 12}, contacts)
 
     if teacher_ratio < 0 or staff_ratio < 0 or teacher_ratio + staff_ratio > 1:
@@ -653,6 +657,12 @@ def make_campus_contacts(pop_size, ages, sexes, contacts,
     remain_pool = np.setdiff1d(worker_pool, teacher_inds).astype(cvd.default_int)
     n_staff = min(n_staff_target, len(remain_pool))
     staff_inds = np.random.choice(remain_pool, size=n_staff, replace=False).astype(cvd.default_int) if n_staff > 0 else np.empty(0, dtype=cvd.default_int)
+
+    # Export existing registration draws without changing network generation or RNG.
+    if registry_metadata is not None:
+        registry_metadata.update(student_indices=student_inds.copy(),
+                                 teacher_indices=teacher_inds.copy(),
+                                 staff_indices=staff_inds.copy())
 
     role_out = np.full(pop_size, 2, dtype=cvd.default_int)  # default non-student role
     role_out[student_inds] = 0
