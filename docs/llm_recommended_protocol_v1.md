@@ -2,9 +2,9 @@
 
 一致性审查完成日期：2026-10-13。以下数值是推荐设计，不是已经执行的实验结果。
 
-2026-10-13 Phase 0 架构补充见[接口/schema 约束](control_phase0_contracts.md)：所有控制器共享公共接口；奖励逻辑由独立 RewardCalculator 承担，本文第5节的公式/权重作为 Phase 3 源域确认起点，不在 Phase 0 固化。当前仅实现接口、schema 和验证，尚未实现控制环境或后续算法。
+2026-10-13 Phase 0 架构补充见[接口/schema 约束](control_phase0_contracts.md)：所有控制器共享公共接口；奖励逻辑由独立 RewardCalculator 承担，本文第5节的公式/权重作为 Phase 3 源域确认起点，不在 Phase 0 固化。Phase 0 实现范围为接口、schema 和验证，后续阶段以[工程计划](cemas_v1_implementation_plan.md)和相应阶段契约为准。
 
-本协议将[确认清单](llm_preimplementation_checklist.md)中的待定设计收敛为具体建议。配套[机器可读配置](control_protocol_v1.json)是研究方案数据，现有控制器尚不能直接执行。用户已授权由助手设定动作维度和离散强度，原 plan 的“已商定档位”由本文参数表替代。
+本协议将原确认清单中的待定设计收敛为具体建议；2026-10-14 整理后，必要实施检查集中在第14节，参数清点保存在附录 A。配套[机器可读配置](control_protocol_v1.json)作为各阶段实现与验收的依据。用户已授权由助手设定动作维度和离散强度，原 plan 的“已商定档位”由本文参数表替代。
 
 采用原则：复用现有疾病内核；公平的部分可观测控制任务；中等规模联合动作；公共信息与私有奖励隔离；使用原始结果讨论权衡。容量、档位及活动人天是公开的**合成基准设定**，不宣称真实单位成本、医学最优方案或现实政策建议。未经拟合、计时或调用取得的结果不填成已完成事实。
 
@@ -39,7 +39,7 @@ H在最终测试前通过第12节源域终点检查，若需统一延长到140/1
 | iso_factor | 0.3 | 0.1 | 0.1 | 0.1 | 0.2 | 0.1 |
 | quar_factor | 0.6 | 0.2 | 0.2 | 0.2 | 0.4 | 0.2 |
 
-beta中心必须读取E0校准产物及hash。0.016只供闭环smoke使用，不得把硬编码0.016的正式结果称为校准后实验。初始易感比例1，rel_beta=1，按年龄的病程/严重度开启，无住院/ICU容量限制。其他病程、传染性、病毒载量和年龄严重度参数使用当前引擎默认；生成运行配置时完整导出75项解析值和派生值、版本及来源，后续代码默认漂移不能静默改变它们。
+beta中心必须读取E0校准产物及hash。0.016只供闭环smoke使用，不得把硬编码0.016的正式结果称为校准后实验。初始易感比例1，rel_beta=1，按年龄的病程/严重度开启，无住院/ICU容量限制。其他病程、传染性、病毒载量和年龄严重度参数使用当前引擎默认；生成运行配置时完整导出解析值和派生值、版本及来源（基础参数清点见附录 A），后续代码默认漂移不能静默改变它们。
 
 12,000是**合成基准总人口**。原校园报告约12,000指学生数量，两者不能混称精确真实校园人口。[CDC原报告](https://www.cdc.gov/mmwr/volumes/70/wr/mm7004a3.htm) E0保留既有t18人口生成配置作为单独拟合设置，导出实际学生/教职工人数；合成控制校园使用上面的配置。校准中心作为源域参数的经验锚点，不证明所有合成网络与真实校园一致。
 
@@ -281,9 +281,9 @@ LLM失败使用同协议回退并纳入指标。基础设施故障保留记录�
 
 第一阶段必验：324组合编解码、162/243/324 mask、公共记录不变时隐藏真值变化不影响观察、报告/通知延迟、同日检测去重和两预算边界、通知/处置/活动人天、日周终点对账含初始项、day0/尾周/reset/finalize、同world前缀重放、两参照实际生效与完整日志。后续加记忆隔离/DDQN目标mask/城市人群/E4前缀与冻结检查。
 
-**14．确认清单到本协议的映射**
+**14．实施检查与待产物**
 
-| 清单类别 | 推荐决定的位置 |
+| 实施检查类别 | 推荐决定的位置 |
 |---|---|
 | 1 参数清点 | 第1–2节、JSON engine/source/experiments；未独立调参的引擎默认也导出冻结 |
 | 2 观察 | 第4节、JSON observation |
@@ -300,9 +300,40 @@ LLM失败使用同协议回退并纳入指标。基础设施故障保留记录�
 | 13 统计 | 第12节、JSON statistics |
 | 14 日志/复现 | 第13节、JSON development |
 | 15 工程边界 | 第10、13节、JSON development |
-| 16 验收 | 第12–13节；清单勾选必须以实现和运行证据为依据 |
+| 16 验收 | 第12–13节；通过验收必须以实现和运行证据为依据 |
 
-P1–P10已有推荐设计，后续需要**通过实际工作产生的值**只有：E0 beta校准产物、完整引擎解析快照、服务返回版本/调用验收、embedding revision、依赖lock、pilot耗时与源域预算/H验收。这些由拟合、安装/调用和源域验证产生，不留给用户猜，也不能在本轮设计文档中虚构为已完成。
+参数登记须包含名称、含义、单位、最终值或范围、来源、固定或随机、抽样分布、适用场景、在线公开性与冻结阶段。统一实验入口保存解析后的完整配置及覆盖来源，区分公开基准与本回合隐藏抽样值；基础参数清点见附录 A，不能只记录 JSON 中显式设置的值。数据/人口文件及配置记录版本与 hash；运行 manifest 不传给控制器，配置及日志不得包含 API 密钥。
 
-本轮未安装依赖、调用付费模型、修改传播/控制器代码或运行训练；交付的是可供实施的推荐协议和配置。
+后续阶段还须验收：
+
+- Phase 5：验证空检索、零向量及 embedding 不可用时的明确处理；记录并冻结处理规则，不得静默改变检索定义。相似度的常数和不足长度规则仍以第8节为准。
+- Phase 7：固定导出 schema、字段单位和汇总脚本版本；最终论文表图须能追溯到对应 manifest 与原始记录，保留原始失败记录。
+
+本协议已给出推荐设计，后续需要**通过实际工作产生的值**包括：E0 beta校准产物、完整引擎解析快照、服务返回版本/调用验收、embedding revision、依赖lock、pilot耗时与源域预算/H验收。这些由拟合、安装/调用和源域验证产生，不能将设计值写成已完成结果。
+
+本协议原始设计交付时未安装依赖、调用付费模型、修改传播/控制器代码或运行训练；这属于历史交付状态，后续实施以对应阶段契约及验收记录为准。
+
+**附录 A．基础引擎参数清点与完整配置登记**
+
+以下为 2026-10 原确认清单对 `make_pars()` 中 `pars["固定键"]` 直接赋值的静态清点；同名重复赋值只计一次，各组互不重复，合计 75 项。不包含嵌套子键、动态 `kwargs`、插件自定义参数或构造器非 pars 字段。此表作为历史清点索引，正式冻结以运行时完整解析快照为准，不将 75 项作为后续版本的固定数量约束。
+
+| 组 | 数量 | 顶层参数名 |
+|---|---:|---|
+| 人口、时间、缩放、运行 | 15 | pop_size, pop_infected, pop_type, location, start_day, end_day, n_days, rand_seed, verbose, pop_scale, scaled_pop, rescale, rescale_threshold, rescale_factor, frac_susceptible |
+| 网络 | 3 | contacts, dynam_layer, beta_layer |
+| 校园生成 | 18 | campus_age_data, campus_undergrad_age_window, campus_grad_age_window, campus_worker_age_window, campus_teacher_ratio, campus_staff_ratio, campus_p_ug_in_lab, campus_p_grad_in_class, campus_class_size_mean, campus_class_size_std, campus_class_size_min, campus_class_size_max, campus_teachers_per_class, campus_k_ts, campus_k_ss, campus_cl_stability, campus_k_ls, campus_lab_stability |
+| 传播及输入 | 7 | beta_dist, viral_dist, beta, asymp_factor, n_imports, n_variants, rel_beta |
+| 免疫及再感染 | 9 | use_waning, nab_init, nab_decay, nab_kin, nab_boost, nab_eff, rel_imm_symp, immunity, trans_redux |
+| 病程及严重度 | 7 | dur, rel_symp_prob, rel_severe_prob, rel_crit_prob, rel_death_prob, prog_by_age, prognoses |
+| 固定处置 | 3 | iso_factor, quar_factor, quar_period |
+| 医疗资源 | 4 | n_beds_hosp, n_beds_icu, no_hosp_factor, no_icu_factor |
+| 干预与分析挂载 | 4 | interventions, analyzers, timelimit, stopping_func |
+| 疫苗与变异映射 | 5 | vaccine_pars, vaccine_map, variants, variant_map, variant_pars |
+
+嵌套字段和非 `pars` 设置也须登记：
+
+- `contacts/dynam_layer/beta_layer/iso_factor/quar_factor` 按校园六层或 hybrid 四层展开，基础传播/效果值与政策乘数分开。实际边数、课堂/实验室动态接触及生成的人口结构须核查，不能只用 `contacts` 字典代替。
+- `dur` 的 exp2inf、inf2sym、sym2sev、sev2crit、asym2rec、mild2rec、sev2rec、crit2rec、crit2die 分别记录分布名、par1、par2；按实际采样器解释，不统一称为均值/标准差。`prognoses` 记录 age_cutoffs、sus_ORs、trans_ORs、comorbidities、symp_probs、severe_probs、crit_probs、death_probs，明确严重度是绝对还是条件概率。
+- `beta_dist` 记录 dist、par1、par2、step，`viral_dist` 记录 frac_time、load_ratio、high_cap；免疫、变异和选用疫苗的嵌套字段完整展开。`nab_kin`、映射和初始化派生数组记录来源/版本，不作为独立调优自由度。
+- `make_pars` 的 set_prognoses、prog_by_age、version、kwargs，以及 `Sim` 的数据/人口文件、label、保存信息等非 `pars` 构造设置一起记录；文件保留版本与 hash。
 
