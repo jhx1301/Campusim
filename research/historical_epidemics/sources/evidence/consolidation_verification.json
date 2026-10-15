@@ -1,0 +1,19 @@
+{
+  "checked_date": "2026-10-15",
+  "status": "verified",
+  "source_records_preserved": 85,
+  "legacy_source_records_field_checked_before_removal": 58,
+  "retained_data_and_input_files_sha256_unchanged": 63,
+  "raw_files_sha256_unchanged": 14,
+  "observation_files_sha256_unchanged": 40,
+  "context_tables_sha256_unchanged": 4,
+  "observation_rows": 2007056,
+  "source_record_changes": [
+    "review_file and local Markdown links relocated; all source facts and original URLs preserved",
+    "Duke's superseded early access description retained as access_at_initial_review"
+  ],
+  "local_document_links_checked": 36,
+  "standalone_offline_build_and_verify": "passed using copied inputs and scripts, with Python -I -S; no reports or project imports",
+  "standalone_outputs_equal_baseline": true,
+  "unrelated_user_document_sha256_unchanged": true
+}

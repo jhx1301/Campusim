@@ -1,0 +1,1063 @@
+{
+  "schema_version": "historical-epidemics-v1",
+  "checked_date": "2026-10-15",
+  "purpose": "Historical aggregate observations and documented event context; no modeled infections or policy optimization",
+  "observation_columns": [
+    "dataset_id",
+    "entity_id",
+    "population_group",
+    "observation_scope",
+    "date_start",
+    "date_end",
+    "time_basis",
+    "frequency",
+    "metric",
+    "value",
+    "unit",
+    "quality",
+    "source_id",
+    "source_url",
+    "source_locator",
+    "raw_value"
+  ],
+  "metric_definitions": {
+    "new_positive_tests": "Published positive-test/case count in the campus table; not inferred infections or automatically deduplicated diagnoses.",
+    "new_tests": "Published tests performed/reported; repeated tests are not unique people.",
+    "cumulative_tests": "Source cumulative test count; original baseline and corrections retained.",
+    "cumulative_people_tested": "Source cumulative tested-person count; distinct from test count.",
+    "new_reported_cases": "Source-reported cases in the stated day/interval; case definitions differ across datasets.",
+    "cumulative_reported_cases": "Source cumulative reported cases at the observation endpoint; no differencing or baseline reset.",
+    "new_confirmed_cases": "Laboratory-confirmed case count using the source case-date definition.",
+    "new_probable_cases": "Probable cases, kept separately from confirmed cases.",
+    "hospitalized_cases_by_admission_date": "NYC hospitalized cases counted by admission date; not current occupancy or every repeat admission.",
+    "hospitalized_current": "Reported hospital occupancy/stock at the observation date, not new admissions.",
+    "icu_current": "Reported ICU occupancy/stock, not admissions.",
+    "new_icu_admissions": "Source-reported new ICU admissions.",
+    "new_deaths": "Source-reported deaths by death date.",
+    "cumulative_deaths": "Source cumulative deaths; corrections retained.",
+    "active_reported_cases": "Source current/active case stock at the reporting interval endpoint.",
+    "reported_cases_14_day_window": "Source two-week case-window statistic; original reporting interval retained, not daily incidence.",
+    "new_ili_cases": "Symptom-defined influenza-like illness by onset date, not laboratory-confirmed infections.",
+    "university_cohort_cases_figure2c": "Sum of published Figure2c upper-panel categories for each of nine term weeks; paper cohort statistic, not proof of complete campus ascertainment."
+  },
+  "source_registry_count": 85,
+  "raw_manifest": "download_manifest.json",
+  "datasets": [
+    {
+      "id": "bigten_raw",
+      "title": "Big Ten 14 university dashboard archive",
+      "observations_file": "observations/bigten_raw.csv.gz",
+      "research_source_id": "US-CAMPUS-02",
+      "source_id": "bigten_raw",
+      "scope": "14 US universities; cumulative reports, irregular observation dates",
+      "license_note": "MPL-2.0 repository; consult original university sources",
+      "rows": 2084,
+      "sha256": "44a2ba24747b96271b9c4895ef20abd2b778433d466db2f44b8c48088351696c",
+      "bytes": 28839,
+      "entity_count": 14,
+      "metrics": [
+        "cumulative_reported_cases",
+        "cumulative_tests"
+      ],
+      "date_start": "2020-03-14",
+      "date_end": "2020-12-20",
+      "quality_counts": {
+        "quality:observed": 2013,
+        "quality:missing": 71
+      }
+    },
+    {
+      "id": "uw_madison_2020",
+      "title": "UW-Madison 2020 dashboard snapshot",
+      "observations_file": "observations/uw_madison_2020.csv.gz",
+      "research_source_id": "REVIEW-X01",
+      "source_id": "uw_madison_2020",
+      "scope": "Students/employees; on-campus testing; 2020 snapshot",
+      "license_note": "University public statistics; no separate data license identified",
+      "rows": 548,
+      "sha256": "e63753783a4654eb961498926a5b134339125632b145e80fad27bef337034b69",
+      "bytes": 6584,
+      "entity_count": 1,
+      "metrics": [
+        "new_positive_tests",
+        "new_tests"
+      ],
+      "date_start": "2020-08-17",
+      "date_end": "2020-12-31",
+      "quality_counts": {
+        "quality:observed": 548
+      }
+    },
+    {
+      "id": "uw_madison_2021_spring",
+      "title": "UW-Madison through 2021 spring snapshot",
+      "observations_file": "observations/uw_madison_2021_spring.csv.gz",
+      "research_source_id": "REVIEW-X01",
+      "source_id": "uw_madison_2021_spring",
+      "scope": "Students/employees; on/off-campus results; overlaps 2020 snapshot",
+      "license_note": "University public statistics; no separate data license identified",
+      "rows": 1656,
+      "sha256": "0127c942931c2cb7a15a8300d68d3bd10c72fd93ad101f4b75b2b164269f054f",
+      "bytes": 17220,
+      "entity_count": 1,
+      "metrics": [
+        "new_positive_tests",
+        "new_tests"
+      ],
+      "date_start": "2020-08-07",
+      "date_end": "2021-05-09",
+      "quality_counts": {
+        "quality:observed": 1656
+      }
+    },
+    {
+      "id": "shanghai_2022",
+      "title": "Shanghai 2022 author-defined geographic aggregates",
+      "observations_file": "observations/shanghai_2022.csv.gz",
+      "research_source_id": "CN03",
+      "source_id": "shanghai_2022",
+      "scope": "Two author-defined areas; reported symptomatic plus asymptomatic cases; not administrative districts",
+      "license_note": "Paper and supplementary data CC BY 4.0; Git repository has no separate license",
+      "rows": 200,
+      "sha256": "81f408e78b27a8304fe426fb7115db970c9c00587b35546d9bb745f4eb88a364",
+      "bytes": 2990,
+      "entity_count": 2,
+      "metrics": [
+        "new_reported_cases"
+      ],
+      "date_start": "2022-03-19",
+      "date_end": "2022-06-26",
+      "quality_counts": {
+        "quality:observed": 200
+      }
+    },
+    {
+      "id": "nyc_daily",
+      "title": "NYC and five boroughs historical outcomes",
+      "observations_file": "observations/nyc_daily.csv.gz",
+      "research_source_id": "PH01",
+      "source_id": "nyc_daily",
+      "scope": "NYC and borough residents; metric-specific diagnosis/admission/death dates",
+      "license_note": "Public official repository; no separate data license identified",
+      "rows": 49296,
+      "sha256": "995353db4965dedad28e02513e66f3c09f2e5bbde2a606f8fb5bd70adfb4b8b4",
+      "bytes": 507947,
+      "entity_count": 6,
+      "metrics": [
+        "hospitalized_cases_by_admission_date",
+        "new_confirmed_cases",
+        "new_deaths",
+        "new_probable_cases"
+      ],
+      "date_start": "2020-02-29",
+      "date_end": "2025-10-13",
+      "quality_counts": {
+        "quality:observed": 49128,
+        "quality:source_incomplete_flag=61030": 168
+      }
+    },
+    {
+      "id": "italy_national",
+      "title": "Italy national historical surveillance",
+      "observations_file": "observations/italy_national.csv.gz",
+      "research_source_id": "PH09",
+      "source_id": "italy_national",
+      "scope": "Italy national reports; cases, deaths, hospital stocks and testing totals",
+      "license_note": "CC BY 4.0",
+      "rows": 16029,
+      "sha256": "ea396a0b432177e4ed631c18c906c5c8032ca87a6ffa0908de13de1f86144c0a",
+      "bytes": 221829,
+      "entity_count": 1,
+      "metrics": [
+        "active_reported_cases",
+        "cumulative_deaths",
+        "cumulative_people_tested",
+        "cumulative_reported_cases",
+        "cumulative_tests",
+        "hospitalized_current",
+        "icu_current",
+        "new_icu_admissions",
+        "new_reported_cases"
+      ],
+      "date_start": "2020-02-24",
+      "date_end": "2025-01-08",
+      "quality_counts": {
+        "quality:observed": 15691,
+        "quality:missing": 338
+      }
+    },
+    {
+      "id": "tianjin_2014",
+      "title": "Tianjin one-school 2014 ILI outbreak",
+      "observations_file": "observations/tianjin_2014.csv.gz",
+      "research_source_id": "REVIEW-S03",
+      "source_id": "tianjin_2014",
+      "scope": "One school and one outbreak; symptom-defined ILI, not all infections",
+      "license_note": "PLOS paper and supplementary material CC BY",
+      "rows": 63,
+      "sha256": "582ed215b278e95969491fa84c114191f93f470735131791e9b4acd081bfea6e",
+      "bytes": 952,
+      "entity_count": 1,
+      "metrics": [
+        "new_ili_cases"
+      ],
+      "date_start": "2014-10-26",
+      "date_end": "2014-12-27",
+      "quality_counts": {
+        "quality:observed": 63
+      }
+    },
+    {
+      "id": "cambridge_2020",
+      "title": "Cambridge published weekly aggregate panels",
+      "observations_file": "observations/cambridge_2020.csv.gz",
+      "research_source_id": "UK-CAM-2020",
+      "source_id": "cambridge_2020",
+      "scope": "University Figure2c cohort aggregate and separate Cambridgeshire community weeks; no individual tables normalized",
+      "license_note": "Nature Communications paper/source data CC BY 4.0",
+      "rows": 23,
+      "sha256": "795a9b800adc567c7f85f0e1e2d3159dfb066e4195d707d43c66b1136c61ce0f",
+      "bytes": 931,
+      "entity_count": 2,
+      "metrics": [
+        "new_reported_cases",
+        "university_cohort_cases_figure2c"
+      ],
+      "date_start": "2020-09-21",
+      "date_end": "2020-12-27",
+      "quality_counts": {
+        "quality:observed": 14,
+        "quality:derived_sum_figure_cohort_not_full_campus": 9
+      }
+    },
+    {
+      "id": "csdh_cases_ar_covid_districts",
+      "title": "CSDH_AR_COVID_Districts",
+      "observations_file": "observations/csdh_cases_ar_covid_districts.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 17412,
+      "sha256": "31048771cb0906709ef8337757444e0860deaf0708b16633617a2c1b97f3bd02",
+      "bytes": 248659,
+      "entity_count": 237,
+      "metrics": [
+        "active_reported_cases",
+        "cumulative_reported_cases"
+      ],
+      "date_start": "2020-10-19",
+      "date_end": "2021-05-27",
+      "quality_counts": {
+        "quality:observed": 17412
+      }
+    },
+    {
+      "id": "csdh_cases_co_covid_schools",
+      "title": "CSDH_CO_COVID_Schools",
+      "observations_file": "observations/csdh_cases_co_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 5,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 1952,
+      "sha256": "4e6bfadb3adad9d3dadae0770b95fa039ca9068a81269ca6950b0e846740c143",
+      "bytes": 34962,
+      "entity_count": 555,
+      "metrics": [
+        "new_reported_cases"
+      ],
+      "date_start": "2020-08-25",
+      "date_end": "2021-07-08",
+      "quality_counts": {
+        "quality:observed": 1952
+      }
+    },
+    {
+      "id": "csdh_cases_ct_covid_schools",
+      "title": "CSDH_CT_COVID_Schools",
+      "observations_file": "observations/csdh_cases_ct_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 40774,
+      "sha256": "e8d8ed5ae530e27facb5917e6e2a680ce8448f1bfd43f514d62ad41f0837f2fe",
+      "bytes": 400862,
+      "entity_count": 1010,
+      "metrics": [
+        "active_reported_cases"
+      ],
+      "date_start": "2020-10-14",
+      "date_end": "2021-06-23",
+      "quality_counts": {
+        "quality:observed": 29064,
+        "quality:suppressed_or_bounded": 11710
+      }
+    },
+    {
+      "id": "csdh_cases_dc_covid_districts",
+      "title": "CSDH_DC_COVID_Districts",
+      "observations_file": "observations/csdh_cases_dc_covid_districts.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 32,
+      "sha256": "71a60aa3ea02d2582984004ea991d5a8ffcc8e756f26a5e9e0ace4052404e58e",
+      "bytes": 1012,
+      "entity_count": 1,
+      "metrics": [
+        "new_reported_cases"
+      ],
+      "date_start": "2020-11-18",
+      "date_end": "2021-06-18",
+      "quality_counts": {
+        "quality:observed": 32
+      }
+    },
+    {
+      "id": "csdh_cases_de_covid_districts",
+      "title": "CSDH_DE_COVID_Districts",
+      "observations_file": "observations/csdh_cases_de_covid_districts.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 1954,
+      "sha256": "8ec18a641b15086712e2c4242892b5f866f6912297ed7f6e888a3ea48fb7adfe",
+      "bytes": 28655,
+      "entity_count": 19,
+      "metrics": [
+        "active_reported_cases",
+        "cumulative_reported_cases"
+      ],
+      "date_start": "2020-10-02",
+      "date_end": "2021-06-18",
+      "quality_counts": {
+        "quality:observed": 1232,
+        "quality:suppressed_or_bounded": 722
+      }
+    },
+    {
+      "id": "csdh_cases_fl_covid_schools",
+      "title": "CSDH_FL_COVID_Schools",
+      "observations_file": "observations/csdh_cases_fl_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "requires_source_date_review",
+      "rows": 179230,
+      "sha256": "067ddb330df73df3bb064b8990b83e0c4a1521c6504c8e7459115c25187e2dcc",
+      "bytes": 1497659,
+      "entity_count": 3408,
+      "metrics": [
+        "active_reported_cases"
+      ],
+      "date_start": "2020-01-18",
+      "date_end": "2020-12-14",
+      "quality_counts": {
+        "quality:observed;source_date_review_required": 133140,
+        "quality:observed": 46090
+      }
+    },
+    {
+      "id": "csdh_cases_hi_covid_districts",
+      "title": "CSDH_HI_COVID_Districts",
+      "observations_file": "observations/csdh_cases_hi_covid_districts.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 260,
+      "sha256": "f922d213506c6103c877b00c2e8df20ea89576d27b8a866aed64589e216ca7c7",
+      "bytes": 3932,
+      "entity_count": 18,
+      "metrics": [
+        "new_reported_cases"
+      ],
+      "date_start": "2020-10-30",
+      "date_end": "2021-06-04",
+      "quality_counts": {
+        "quality:observed": 260
+      }
+    },
+    {
+      "id": "csdh_cases_ia_covid_districts",
+      "title": "CSDH_IA_COVID_Districts",
+      "observations_file": "observations/csdh_cases_ia_covid_districts.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 267967,
+      "sha256": "178a256d079917264c743d87de2743796101172b21421630d31e8aebe09f4bdc",
+      "bytes": 2929737,
+      "entity_count": 328,
+      "metrics": [
+        "active_reported_cases",
+        "cumulative_reported_cases"
+      ],
+      "date_start": "2020-10-26",
+      "date_end": "2021-06-16",
+      "quality_counts": {
+        "quality:observed": 267967
+      }
+    },
+    {
+      "id": "csdh_cases_ia_covid_schools",
+      "title": "CSDH_IA_COVID_Schools",
+      "observations_file": "observations/csdh_cases_ia_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 338019,
+      "sha256": "d5600087ab2675261afa46d8b2571616e12789b4d4a223f7d0d01f66a616f2a5",
+      "bytes": 3604437,
+      "entity_count": 457,
+      "metrics": [
+        "active_reported_cases",
+        "cumulative_reported_cases"
+      ],
+      "date_start": "2020-10-26",
+      "date_end": "2021-06-16",
+      "quality_counts": {
+        "quality:observed": 338019
+      }
+    },
+    {
+      "id": "csdh_cases_id_covid_schools",
+      "title": "CSDH_ID_COVID_Schools",
+      "observations_file": "observations/csdh_cases_id_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 18376,
+      "sha256": "6cf51a6087bbae84c9db74fce0d4bdc812e0ce130d1d4907c5627d6b8592f416",
+      "bytes": 216660,
+      "entity_count": 510,
+      "metrics": [
+        "cumulative_reported_cases",
+        "new_reported_cases"
+      ],
+      "date_start": "2020-09-25",
+      "date_end": "2021-06-06",
+      "quality_counts": {
+        "quality:observed": 15212,
+        "quality:suppressed_or_bounded": 3164
+      }
+    },
+    {
+      "id": "csdh_cases_il_covid_schools",
+      "title": "CSDH_IL_COVID_Schools",
+      "observations_file": "observations/csdh_cases_il_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 310,
+      "sha256": "8a50fe429bc87104b576c61846e0012a51bd3b5a736181223c753fba6f73e71f",
+      "bytes": 4315,
+      "entity_count": 76,
+      "metrics": [
+        "active_reported_cases"
+      ],
+      "date_start": "2020-11-06",
+      "date_end": "2021-06-25",
+      "quality_counts": {
+        "quality:suppressed_or_bounded": 310
+      }
+    },
+    {
+      "id": "csdh_cases_in_covid_schools",
+      "title": "CSDH_IN_COVID_Schools",
+      "observations_file": "observations/csdh_cases_in_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 127726,
+      "sha256": "e6a9d92357bf3a6b4f42260895ecb1e99ab01443739e5df318d9c275f73ae749",
+      "bytes": 1334172,
+      "entity_count": 1715,
+      "metrics": [
+        "cumulative_reported_cases"
+      ],
+      "date_start": "2020-10-26",
+      "date_end": "2021-06-28",
+      "quality_counts": {
+        "quality:suppressed_or_bounded": 67973,
+        "quality:observed": 59753
+      }
+    },
+    {
+      "id": "csdh_cases_ks_covid_schools",
+      "title": "CSDH_KS_COVID_Schools",
+      "observations_file": "observations/csdh_cases_ks_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 66,
+      "sha256": "12ce0e66139db533b6811b536d5b2c66bdd4651c76e1aafaff198a22124c2929",
+      "bytes": 1502,
+      "entity_count": 27,
+      "metrics": [
+        "new_reported_cases"
+      ],
+      "date_start": "2020-10-21",
+      "date_end": "2021-05-12",
+      "quality_counts": {
+        "quality:observed": 66
+      }
+    },
+    {
+      "id": "csdh_cases_ky_covid_districts",
+      "title": "CSDH_KY_COVID_Districts",
+      "observations_file": "observations/csdh_cases_ky_covid_districts.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 35544,
+      "sha256": "952ddc4d78f2b74cc5b68f2c6d2ba252a00a4aa3fdbd670d354c90aa220a1520",
+      "bytes": 324182,
+      "entity_count": 170,
+      "metrics": [
+        "cumulative_reported_cases",
+        "new_reported_cases",
+        "reported_cases_14_day_window"
+      ],
+      "date_start": "2020-10-26",
+      "date_end": "2020-12-15",
+      "quality_counts": {
+        "quality:observed": 35544
+      }
+    },
+    {
+      "id": "csdh_cases_ky_covid_schools",
+      "title": "CSDH_KY_COVID_Schools",
+      "observations_file": "observations/csdh_cases_ky_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 185814,
+      "sha256": "0dc5e9df2affff5fa2440d6b55d31f120cb86389530a65acd51a6e264130bbd9",
+      "bytes": 1594855,
+      "entity_count": 1141,
+      "metrics": [
+        "cumulative_reported_cases",
+        "new_reported_cases",
+        "reported_cases_14_day_window"
+      ],
+      "date_start": "2020-10-26",
+      "date_end": "2020-12-15",
+      "quality_counts": {
+        "quality:observed": 185814
+      }
+    },
+    {
+      "id": "csdh_cases_la_covid_districts",
+      "title": "CSDH_LA_COVID_Districts",
+      "observations_file": "observations/csdh_cases_la_covid_districts.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 8188,
+      "sha256": "5061b7b322fa597f1d84724f3fac8d7defff2b53a141ee18e3bfaea01832c870",
+      "bytes": 118183,
+      "entity_count": 64,
+      "metrics": [
+        "cumulative_reported_cases",
+        "new_reported_cases"
+      ],
+      "date_start": "2020-10-11",
+      "date_end": "2021-05-30",
+      "quality_counts": {
+        "quality:suppressed_or_bounded": 1380,
+        "quality:observed": 6808
+      }
+    },
+    {
+      "id": "csdh_cases_ma_covid_districts",
+      "title": "CSDH_MA_COVID_Districts",
+      "observations_file": "observations/csdh_cases_ma_covid_districts.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 27860,
+      "sha256": "917647bebd46a1851e244945a0c2ab2efdcddaa9677e1f358647369fed0803c9",
+      "bytes": 264586,
+      "entity_count": 398,
+      "metrics": [
+        "new_reported_cases"
+      ],
+      "date_start": "2020-09-23",
+      "date_end": "2021-06-16",
+      "quality_counts": {
+        "quality:observed": 27860
+      }
+    },
+    {
+      "id": "csdh_cases_md_covid_schools",
+      "title": "CSDH_MD_COVID_Schools",
+      "observations_file": "observations/csdh_cases_md_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 1,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 379,
+      "sha256": "e1810d0aba183422fa8adf18473f6aeae3795a7ee02d12c4cbf0f6cb3cc3b637",
+      "bytes": 5554,
+      "entity_count": 152,
+      "metrics": [
+        "active_reported_cases"
+      ],
+      "date_start": "2020-10-29",
+      "date_end": "2021-06-16",
+      "quality_counts": {
+        "quality:observed": 379
+      }
+    },
+    {
+      "id": "csdh_cases_me_covid_schools",
+      "title": "CSDH_ME_COVID_Schools",
+      "observations_file": "observations/csdh_cases_me_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 9386,
+      "sha256": "3634043af160369215f22736140ea23d1ca3df14f34ef9f027f80cf0141e9fdb",
+      "bytes": 103324,
+      "entity_count": 527,
+      "metrics": [
+        "active_reported_cases"
+      ],
+      "date_start": "2020-10-27",
+      "date_end": "2021-06-24",
+      "quality_counts": {
+        "quality:suppressed_or_bounded": 8493,
+        "quality:observed": 893
+      }
+    },
+    {
+      "id": "csdh_cases_mt_covid_schools",
+      "title": "CSDH_MT_COVID_Schools",
+      "observations_file": "observations/csdh_cases_mt_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 40144,
+      "sha256": "9990f4f11b10bcb3a63478374d2871eab2578332711d63a2c7a22f8a902145cb",
+      "bytes": 531961,
+      "entity_count": 618,
+      "metrics": [
+        "active_reported_cases"
+      ],
+      "date_start": "2020-10-09",
+      "date_end": "2021-05-27",
+      "quality_counts": {
+        "quality:observed": 40144
+      }
+    },
+    {
+      "id": "csdh_cases_nc_covid_schools",
+      "title": "CSDH_NC_COVID_Schools",
+      "observations_file": "observations/csdh_cases_nc_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 5583,
+      "sha256": "b20349784fa49b5de9520dac6ad266a1b2bd7e7956a641ddc6f28637c19e0401",
+      "bytes": 69142,
+      "entity_count": 150,
+      "metrics": [
+        "active_reported_cases"
+      ],
+      "date_start": "2020-10-20",
+      "date_end": "2021-06-29",
+      "quality_counts": {
+        "quality:observed": 5583
+      }
+    },
+    {
+      "id": "csdh_cases_nh_covid_schools",
+      "title": "CSDH_NH_COVID_Schools",
+      "observations_file": "observations/csdh_cases_nh_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 75123,
+      "sha256": "ee6aee23704bb787a6fc74e238bc94e4f64311fe37d8c559d5927b46e136f3f2",
+      "bytes": 1054954,
+      "entity_count": 488,
+      "metrics": [
+        "active_reported_cases"
+      ],
+      "date_start": "2020-10-26",
+      "date_end": "2021-06-29",
+      "quality_counts": {
+        "quality:observed": 75123
+      }
+    },
+    {
+      "id": "csdh_cases_nv_covid_schools",
+      "title": "CSDH_NV_COVID_Schools",
+      "observations_file": "observations/csdh_cases_nv_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 30293,
+      "sha256": "7b729fad202c2a80511b3c8f7b0d6b69cdd53e453e3621ecff5e951a15c68953",
+      "bytes": 394810,
+      "entity_count": 447,
+      "metrics": [
+        "cumulative_reported_cases"
+      ],
+      "date_start": "2020-10-07",
+      "date_end": "2021-06-30",
+      "quality_counts": {
+        "quality:observed": 30293
+      }
+    },
+    {
+      "id": "csdh_cases_ny_covid_schools",
+      "title": "CSDH_NY_COVID_Schools",
+      "observations_file": "observations/csdh_cases_ny_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 149724,
+      "sha256": "231afbbaf8d696b7f16266293f47a70226041c098d67d7d6ff863d80bbec2165",
+      "bytes": 1321427,
+      "entity_count": 4730,
+      "metrics": [
+        "new_reported_cases"
+      ],
+      "date_start": "2020-10-12",
+      "date_end": "2021-06-20",
+      "quality_counts": {
+        "quality:observed": 149724
+      }
+    },
+    {
+      "id": "csdh_cases_oh_covid_districts",
+      "title": "CSDH_OH_COVID_Districts",
+      "observations_file": "observations/csdh_cases_oh_covid_districts.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 1,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 131556,
+      "sha256": "a244fd03def44b62e000e3aaff5f2e34923a4b8f607882abbfa8f18bbaf2c873",
+      "bytes": 1756079,
+      "entity_count": 938,
+      "metrics": [
+        "cumulative_reported_cases",
+        "new_reported_cases"
+      ],
+      "date_start": "2020-10-11",
+      "date_end": "2021-06-19",
+      "quality_counts": {
+        "quality:observed": 131556
+      }
+    },
+    {
+      "id": "csdh_cases_or_covid_schools",
+      "title": "CSDH_OR_COVID_Schools",
+      "observations_file": "observations/csdh_cases_or_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 8430,
+      "sha256": "537e70bf1aa0a711ad5041c89d8b6d6f75ab71e8c4c78ebd1c79c425be6898cf",
+      "bytes": 102732,
+      "entity_count": 749,
+      "metrics": [
+        "active_reported_cases"
+      ],
+      "date_start": "2020-10-21",
+      "date_end": "2021-06-30",
+      "quality_counts": {
+        "quality:observed": 8430
+      }
+    },
+    {
+      "id": "csdh_cases_ri_covid_schools",
+      "title": "CSDH_RI_COVID_Schools",
+      "observations_file": "observations/csdh_cases_ri_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 42304,
+      "sha256": "7b51e03b8cac5ac130f17167b6bd6726b3fddd9c8f0d8fc8de6b84e6f7ed4084",
+      "bytes": 542882,
+      "entity_count": 297,
+      "metrics": [
+        "cumulative_reported_cases",
+        "new_reported_cases"
+      ],
+      "date_start": "2020-10-10",
+      "date_end": "2021-06-26",
+      "quality_counts": {
+        "quality:suppressed_or_bounded": 24914,
+        "quality:observed": 17390
+      }
+    },
+    {
+      "id": "csdh_cases_tx_covid_schools",
+      "title": "CSDH_TX_COVID_Schools",
+      "observations_file": "observations/csdh_cases_tx_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 166283,
+      "sha256": "ff29a844038a82962d42f72923db05c3712cb28522ae2e3341147e4eac4d5e03",
+      "bytes": 1735249,
+      "entity_count": 8035,
+      "metrics": [
+        "cumulative_reported_cases",
+        "new_reported_cases"
+      ],
+      "date_start": "2020-11-30",
+      "date_end": "2021-05-09",
+      "quality_counts": {
+        "quality:observed": 166283
+      }
+    },
+    {
+      "id": "csdh_cases_ut_covid_districts",
+      "title": "CSDH_UT_COVID_Districts",
+      "observations_file": "observations/csdh_cases_ut_covid_districts.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 3168,
+      "sha256": "a9d0a9ef5629d6343393b0d666b0a53dfa8711a9988e0486d82745c7c5a02a85",
+      "bytes": 34702,
+      "entity_count": 44,
+      "metrics": [
+        "active_reported_cases",
+        "cumulative_reported_cases"
+      ],
+      "date_start": "2021-05-05",
+      "date_end": "2021-06-29",
+      "quality_counts": {
+        "quality:observed": 2679,
+        "quality:suppressed_or_bounded": 489
+      }
+    },
+    {
+      "id": "csdh_cases_va_covid_schools",
+      "title": "CSDH_VA_COVID_Schools",
+      "observations_file": "observations/csdh_cases_va_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 76,
+      "sha256": "2ba2ac522420d3570671e1c734e2a3a4a14578063fcad74ca356a4faceec8ae7",
+      "bytes": 2208,
+      "entity_count": 71,
+      "metrics": [
+        "new_reported_cases"
+      ],
+      "date_start": "2020-08-28",
+      "date_end": "2021-06-27",
+      "quality_counts": {
+        "quality:observed": 76
+      }
+    },
+    {
+      "id": "csdh_cases_vt_covid_schools",
+      "title": "CSDH_VT_COVID_Schools",
+      "observations_file": "observations/csdh_cases_vt_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 0,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 22340,
+      "sha256": "029750ac8ac088140a3f9bcefe315f679528d5da679a94d5330e4734ee84c7c0",
+      "bytes": 285651,
+      "entity_count": 299,
+      "metrics": [
+        "cumulative_reported_cases",
+        "new_reported_cases"
+      ],
+      "date_start": "2020-10-16",
+      "date_end": "2021-06-23",
+      "quality_counts": {
+        "quality:observed": 22340
+      }
+    },
+    {
+      "id": "csdh_cases_wv_covid_schools",
+      "title": "CSDH_WV_COVID_Schools",
+      "observations_file": "observations/csdh_cases_wv_covid_schools.csv.gz",
+      "research_source_id": "REVIEW-S01",
+      "source_id": "csdh_cases",
+      "scope": "US K-12 institution aggregates; source school/district level preserved",
+      "license_note": "CSDH attribution requested; consult original state source terms",
+      "quarantined_cells_or_rows": 1,
+      "calendar_alignment_status": "source_dates_preserved",
+      "rows": 884,
+      "sha256": "c029989a560fc6be7842afdcb8ea22189afe058da19b47e3ad9514105b7339f4",
+      "bytes": 13805,
+      "entity_count": 198,
+      "metrics": [
+        "active_reported_cases"
+      ],
+      "date_start": "2020-10-13",
+      "date_end": "2021-06-06",
+      "quality_counts": {
+        "quality:observed": 884
+      }
+    }
+  ],
+  "context_tables": {
+    "events.csv.gz": {
+      "rows": 336966,
+      "sha256": "1c8d8fa18eda869ab983fecb039878b1c8d7822164da22f97fab2ef3a4443ece",
+      "bytes": 3464154,
+      "entity_count": 12338,
+      "metrics": [],
+      "date_start": null,
+      "date_end": "2021-12-07",
+      "quality_counts": {
+        "quality:official_announced_schedule": 1,
+        "quality:official_announced_schedule_open_end": 4,
+        "quality:official_retrospective_record": 4,
+        "quality:primary_outbreak_report_retrospective": 2,
+        "quality:primary_outbreak_report_retrospective_open_end": 1,
+        "quality:primary_research_historical_context": 3,
+        "quality:recorded_period_state": 313945,
+        "quality:effective_date_not_reported": 22260,
+        "quality:recorded_policy": 746
+      }
+    },
+    "populations.csv.gz": {
+      "rows": 322239,
+      "sha256": "0ec2293ee0dd2aa660ab1c088ca3305201b7c1359786a4ebc68ca650d657ea1e",
+      "bytes": 2646567,
+      "entity_count": 6791,
+      "metrics": [],
+      "date_start": "2020-08-01",
+      "date_end": "2021-06-30",
+      "quality_counts": {
+        "quality:official_registration_snapshot": 3,
+        "quality:official_institutional_population": 1,
+        "quality:official_dashboard_denominator": 1,
+        "quality:primary_study_cohort_population": 1,
+        "quality:approximate_primary_report_population": 1,
+        "quality:author_defined_census_aggregation": 2,
+        "quality:official_census_snapshot": 1,
+        "quality:observed": 322229
+      }
+    },
+    "entities.csv.gz": {
+      "rows": 29215,
+      "sha256": "f10ad2a773d09a928ff940bbecde5e754a06f6789a95bd44bdcdf36b1e6759fe",
+      "bytes": 629439,
+      "entity_count": 29215,
+      "metrics": [],
+      "date_start": null,
+      "date_end": null,
+      "quality_counts": {}
+    },
+    "quality_issues.csv.gz": {
+      "rows": 8,
+      "sha256": "29eadeab92431ab0d275e10401491c0166fb9d238ea1f64268439567f960510f",
+      "bytes": 377,
+      "entity_count": 0,
+      "metrics": [],
+      "date_start": null,
+      "date_end": null,
+      "quality_counts": {}
+    }
+  },
+  "limitations": [
+    "Datasets can share upstream observations; do not treat archive copies as independent outbreaks.",
+    "Population registration, tested cohorts, and residential populations are not interchangeable.",
+    "Missing/suppressed cells are not zero; bounded source strings are retained in raw_value.",
+    "NCES numeric identifiers are padded to their standard widths; original IDs are retained in entities.csv.gz.",
+    "CSDH school and district statistics must not be copied or summed across nested geographic levels.",
+    "Raw sources and normalized files retain original case definitions; explicit mapping is required for model comparison."
+  ]
+}
