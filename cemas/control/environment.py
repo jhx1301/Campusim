@@ -85,6 +85,7 @@ class WeeklyControlEnvironment:
     _SCENARIO_KEYS = frozenset({
         "population", "execution_days", "initial_infections", "beta",
         "screening_capacity_ratio", "calibration_artifact", "beta_scale",
+        "calibration_data_path",
     })
 
     def __init__(self, protocol: ControlProtocol, *, mode="evaluation", purpose="smoke",
@@ -181,12 +182,13 @@ class WeeklyControlEnvironment:
     def _resolve_calibration(self, settings):
         settings = dict(settings)
         artifact = settings.pop("calibration_artifact", None)
+        data_path = settings.pop("calibration_data_path", None)
         scale = settings.pop("beta_scale", 1.0)
         if type(scale) not in (int, float) or not isfinite(scale) or scale <= 0:
             raise ValueError("beta_scale must be finite and positive")
         if self.purpose == "smoke":
-            if artifact is not None or scale != 1:
-                raise ValueError("calibration_artifact and beta_scale require scientific purpose")
+            if artifact is not None or data_path is not None or scale != 1:
+                raise ValueError("calibration_artifact, calibration_data_path and beta_scale require scientific purpose")
             return settings, None
         if artifact is None or "beta" in settings:
             raise ValueError("scientific environments require a verified calibration artifact, not a bare beta")
@@ -196,7 +198,7 @@ class WeeklyControlEnvironment:
                 raise ValueError(f"scientific {key} must match the calibrated protocol")
         from .calibration import load_calibration_artifact
 
-        verified = load_calibration_artifact(artifact, self.protocol)
+        verified = load_calibration_artifact(artifact, self.protocol, data_path=data_path)
         settings["beta"] = verified.beta * scale
         return settings, {"artifact_sha256": verified.sha256, "beta_center": verified.beta,
                           "beta_scale": scale, "beta": settings["beta"]}

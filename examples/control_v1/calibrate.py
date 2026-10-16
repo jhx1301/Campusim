@@ -9,7 +9,8 @@ def main(argv=None):
     root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--protocol", type=Path, default=root / "docs/control_protocol_v1.json")
-    parser.add_argument("--data", type=Path, default=root / "data/notre_dame_2020_early.csv")
+    parser.add_argument("--data", type=Path,
+                        help="CSV path relative to the project root (default: data/notre_dame_2020_early.csv)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--window", choices=("primary", "exploratory"), default="primary")
     args = parser.parse_args(argv)

@@ -153,7 +153,8 @@ def test_cli_modules_are_inert_on_import_and_help_needs_no_simulation(monkeypatc
 @pytest.mark.parametrize("split,seed,scale,capacity", [
     ("A", 20001, .9, .02), ("A", 20005, 1, .05), ("B", 20103, .9, .05),
 ])
-def test_reference_cli_verifies_e0_and_maps_source_worlds(tmp_path, monkeypatch, split, seed, scale, capacity):
+@pytest.mark.parametrize("data_path", [None, "data/relocated.csv"])
+def test_reference_cli_verifies_e0_and_maps_source_worlds(tmp_path, monkeypatch, split, seed, scale, capacity, data_path):
     from examples.control_v1 import run_references
     import cemas.control.calibration as calibration
     import cemas.control.runner as runner
@@ -162,8 +163,11 @@ def test_reference_cli_verifies_e0_and_maps_source_worlds(tmp_path, monkeypatch,
     calls = []
     artifact = tmp_path / "artifact.json"
 
-    def load(path, protocol, *, require_evaluation):
+    expected_data = None if data_path is None else Path(data_path)
+
+    def load(path, protocol, *, require_evaluation, data_path):
         assert require_evaluation is True
+        assert data_path == expected_data
         verified.append(path)
 
     def run(protocol, controller, output_dir, world_seed, **kwargs):
@@ -173,12 +177,16 @@ def test_reference_cli_verifies_e0_and_maps_source_worlds(tmp_path, monkeypatch,
 
     monkeypatch.setattr(calibration, "load_calibration_artifact", load)
     monkeypatch.setattr(runner, "run_episode", run)
-    assert run_references.main(["--artifact", str(artifact), "--output", str(tmp_path / "runs"),
-                                "--validation-split", split, "--seed", str(seed)]) == 0
+    args = ["--artifact", str(artifact), "--output", str(tmp_path / "runs"),
+            "--validation-split", split, "--seed", str(seed)]
+    if data_path is not None:
+        args.extend(["--data", data_path])
+    assert run_references.main(args) == 0
     assert [call[0] for call in calls] == ["minimum", "maximum_feasible"]
     for _, world_seed, kwargs in calls:
         assert world_seed == seed and kwargs["purpose"] == "scientific"
         assert kwargs["scenario_options"] == {"calibration_artifact": artifact,
+                                               "calibration_data_path": expected_data,
                                                "beta_scale": scale, "screening_capacity_ratio": capacity}
 
 

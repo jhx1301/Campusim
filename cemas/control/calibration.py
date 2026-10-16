@@ -29,8 +29,16 @@ from .scenarios import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_DATA_PATH = Path("data/notre_dame_2020_early.csv")
 ARTIFACT_SCHEMA = "cemas-e0-artifact-v1"
 REPORT_SCHEMA = "cemas-e0-report-v1"
+# The audited pre-portability implementation (CRLF/LF) has identical fit and
+# simulation semantics. Every other source and compatibility field stays exact.
+# Re-audit/remove this bridge when fitting or simulation semantics change.
+_LEGACY_CALIBRATION_SOURCES = frozenset({
+    "c2656931b635b998da2d390b050b49b51dbf6349664d9a05c4339797dfb34fc9",
+    "cb0e8347837b729149a44f5009ce9f22141ea38a71856a186afc279eaf6d91b4",
+})
 
 
 def _freeze(value):
@@ -91,8 +99,10 @@ def _trial_records(study):
             for trial in study.trials]
 
 
-def read_calibration_data(path: str | Path) -> CalibrationData:
-    path = Path(path).resolve()
+def read_calibration_data(path: str | Path | None = None) -> CalibrationData:
+    """Resolve inputs from the project root; persist only a portable source label."""
+    path = DEFAULT_DATA_PATH if path is None else Path(path)
+    path = (ROOT / path).resolve()
     raw = path.read_bytes()
     rows = list(csv.DictReader(raw.decode("utf-8-sig").splitlines()))
     if not rows:
@@ -115,7 +125,10 @@ def read_calibration_data(path: str | Path) -> CalibrationData:
         diagnoses.append(diagnosis)
         tests.append(test)
         previous = day
-    return CalibrationData(str(path), hashlib.sha256(raw).hexdigest(),
+    # External files have no project-relative location; retain their name for
+    # provenance and require an explicit data_path when loading custom inputs.
+    source = path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else path.name
+    return CalibrationData(source, hashlib.sha256(raw).hexdigest(),
                            tuple(dates), tuple(diagnoses), tuple(tests))
 
 
@@ -231,7 +244,7 @@ def _evaluation_seeds(protocol, window):
     return tuple(range(interval["start"], interval["end"] + 1))
 
 
-def fit_beta(protocol: ControlProtocol, reconstructed_data: str | Path, *, window="primary") -> CalibrationArtifact:
+def fit_beta(protocol: ControlProtocol, reconstructed_data: str | Path | None = None, *, window="primary") -> CalibrationArtifact:
     """Fit the prescribed scalar using fixed worlds and an independent TPE RNG."""
     try:
         import optuna
@@ -317,10 +330,21 @@ def _read_envelope(path: Path, schema: str):
     return payload, digest
 
 
-def _validate_fit_payload(payload, protocol):
+def _compatible(recorded, current):
+    recorded = resolved_snapshot(recorded)
+    if not isinstance(recorded, dict) or not isinstance(recorded.get("engine_sources"), dict):
+        return False
+    source = "cemas/control/calibration.py"
+    source_hash = recorded["engine_sources"].get(source)
+    if isinstance(source_hash, str) and source_hash in _LEGACY_CALIBRATION_SOURCES:
+        recorded["engine_sources"][source] = current["engine_sources"][source]
+    return recorded == current
+
+
+def _validate_fit_payload(payload, protocol, *, data_path=None):
     spec = protocol.definition["calibration"]
     if (payload["method_version"] != spec["method_version"]
-            or payload["compatibility"] != _compatibility(protocol)
+            or not _compatible(payload["compatibility"], _compatibility(protocol))
             or payload["calibration_spec"] != resolved_snapshot(spec)):
         raise ValueError("calibration population, base model, method or fit configuration is incompatible")
     beta = payload["beta"]
@@ -332,8 +356,13 @@ def _validate_fit_payload(payload, protocol):
     seeds = _fit_seeds(protocol, window)
     if tuple(payload["fit_seeds"]) != seeds or payload["optimizer_seed"] != spec["optimizer_seed"]:
         raise ValueError("calibration seed purpose mismatch")
-    data = read_calibration_data(payload["data"]["source_path"])
-    if data.snapshot() != payload["data"]:
+    try:
+        data = read_calibration_data(data_path)
+    except OSError as exc:
+        raise ValueError(f"cannot read calibration data; set data_path/--data: {exc}") from exc
+    snapshot = data.snapshot()
+    if any(snapshot[key] != payload["data"][key]
+           for key in ("source_sha256", "dates", "diagnoses", "tests")):
         raise ValueError("calibration data or its source hash have changed")
     first, stop = _indices(data, *payload["fit_window"])
     if payload["execution_days"] != stop - first or payload["n_days"] != stop - first - 1:
@@ -354,25 +383,28 @@ def _validate_fit_payload(payload, protocol):
     loss = normalized_diagnosis_mse([run["diagnoses"] for run in runs], data.diagnoses[first:stop])
     if not isclose(loss, payload["best_loss"], rel_tol=1e-12, abs_tol=1e-12):
         raise ValueError("fit loss does not match recorded per-world diagnoses")
+    return data
 
 
 def load_calibration_artifact(path: str | Path, protocol: ControlProtocol, *,
-                              require_evaluation=True) -> CalibrationArtifact:
+                              require_evaluation=True, data_path: str | Path | None = None) -> CalibrationArtifact:
+    """Verify evidence against current data, independently of historical paths."""
     path = Path(path).resolve()
     payload, digest = _read_envelope(path, ARTIFACT_SCHEMA)
     try:
-        _validate_fit_payload(payload, protocol)
+        data = _validate_fit_payload(payload, protocol, data_path=data_path)
         if require_evaluation:
             if payload["window"] != "primary":
                 raise ValueError("scientific control requires the primary E0 fit")
             report, _ = _read_envelope(path.with_name("fit_report.json"), REPORT_SCHEMA)
-            _validate_report(report, payload, digest, protocol)
+            _validate_report(report, payload, digest, protocol, data)
     except (KeyError, TypeError, IndexError, ValueError) as exc:
         raise ValueError(f"calibration evidence is incompatible or incomplete: {exc}") from exc
     return CalibrationArtifact(_freeze(payload), digest)
 
 
-def evaluate_beta(artifact: CalibrationArtifact, evaluation_seeds=None, *, protocol=None) -> FitReport:
+def evaluate_beta(artifact: CalibrationArtifact, evaluation_seeds=None, *, protocol=None,
+                  data_path: str | Path | None = None) -> FitReport:
     """Evaluate fixed beta on disjoint worlds, continuing auxiliary holdout state."""
     payload = artifact.payload
     if _digest(payload) != artifact.sha256:
@@ -380,12 +412,11 @@ def evaluate_beta(artifact: CalibrationArtifact, evaluation_seeds=None, *, proto
     if protocol is None:
         from .protocol import load_protocol
         protocol = load_protocol(payload["protocol_path"])
-    _validate_fit_payload(resolved_snapshot(payload), protocol)
+    data = _validate_fit_payload(resolved_snapshot(payload), protocol, data_path=data_path)
     expected = _evaluation_seeds(protocol, payload["window"])
     seeds = expected if evaluation_seeds is None else tuple(evaluation_seeds)
     if seeds != expected:
         raise ValueError("evaluation must use the complete prescribed independent seed set")
-    data = read_calibration_data(payload["data"]["source_path"])
     auxiliary = payload["window"] == "exploratory"
     runs = [_run_calibration(protocol, artifact.beta, seed, payload["window"], data,
                              through_holdout=auxiliary) for seed in seeds]
@@ -431,14 +462,13 @@ def _report_statistics(curves, observed, seeds, quantiles):
             "normalized_mse": loss}
 
 
-def _validate_report(report, fit_payload, artifact_digest, protocol):
+def _validate_report(report, fit_payload, artifact_digest, protocol, data):
     if (report["artifact_sha256"] != artifact_digest or report["beta"] != fit_payload["beta"]
             or report["method_version"] != fit_payload["method_version"]
             or report["window"] != fit_payload["window"]):
         raise ValueError("independent report does not match the calibration artifact")
     if tuple(report["evaluation_seeds"]) != _evaluation_seeds(protocol, fit_payload["window"]):
         raise ValueError("independent evaluation worlds are incomplete or have wrong purpose")
-    data = read_calibration_data(fit_payload["data"]["source_path"])
     evaluation_window = (tuple(protocol.definition["calibration"]["exploratory_holdout"])
                          if fit_payload["window"] == "exploratory" else tuple(fit_payload["fit_window"]))
     if tuple(report["evaluation_window"]) != evaluation_window:

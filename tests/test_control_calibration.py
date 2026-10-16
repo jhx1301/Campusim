@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -203,3 +204,145 @@ def test_evaluation_can_use_current_compatible_protocol_after_source_file_moves(
     protocol.source_path.unlink()
     report = cal.evaluate_beta(artifact, protocol=load_protocol(new_path))
     assert len(report.payload["evaluation_seeds"]) == 20
+
+
+def test_data_paths_are_project_relative_and_independent_of_working_directory(tmp_path, monkeypatch):
+    expected = cal.read_calibration_data(DATA)
+    monkeypatch.chdir(tmp_path)
+    assert cal.read_calibration_data().snapshot() == expected.snapshot()
+    assert cal.read_calibration_data(cal.DEFAULT_DATA_PATH).snapshot() == expected.snapshot()
+    assert expected.source_path == "data/notre_dame_2020_early.csv"
+    external = tmp_path / "external.csv"
+    external.write_bytes(DATA.read_bytes())
+    assert not Path(cal.read_calibration_data(external).source_path).is_absolute()
+
+
+@pytest.mark.parametrize("window", ["primary", "exploratory"])
+def test_relocated_data_preserves_artifact_report_and_evaluation(protocol, tmp_path, monkeypatch, window):
+    monkeypatch.setattr(cal, "_run_calibration", fake_run)
+    original = tmp_path / "original.csv"
+    original.write_bytes(DATA.read_bytes())
+    artifact = cal.fit_beta(protocol, original, window=window)
+    path = cal.save_calibration_artifact(artifact, tmp_path / "fit")
+    report = cal.evaluate_beta(artifact, protocol=protocol, data_path=original)
+    report_path = cal.save_fit_report(report, path.parent)
+    before = path.read_bytes(), report_path.read_bytes()
+    moved = original.rename(tmp_path / "moved.csv")
+    reader = Mock(wraps=cal.read_calibration_data)
+    monkeypatch.setattr(cal, "read_calibration_data", reader)
+    loaded = cal.load_calibration_artifact(path, protocol, data_path=moved,
+                                         require_evaluation=window == "primary")
+    assert reader.call_count == 1
+    assert loaded.sha256 == artifact.sha256
+    assert cal.evaluate_beta(loaded, protocol=protocol, data_path=moved).sha256 == report.sha256
+    assert (path.read_bytes(), report_path.read_bytes()) == before
+    # The project default has identical bytes, so historical location is irrelevant.
+    assert cal.load_calibration_artifact(path, protocol, require_evaluation=False).sha256 == artifact.sha256
+
+
+def test_data_override_reaches_scientific_environment(protocol, fitted, tmp_path, monkeypatch):
+    from cemas.control.environment import WeeklyControlEnvironment
+
+    artifact, path = fitted
+    data = tmp_path / "moved.csv"
+    data.write_bytes(DATA.read_bytes())
+    cal.save_fit_report(cal.evaluate_beta(artifact, protocol=protocol), path.parent)
+    monkeypatch.setattr(cal, "DEFAULT_DATA_PATH", Path("missing-default.csv"))
+    env = WeeklyControlEnvironment(protocol, purpose="scientific",
+                                   scenario_options={"calibration_artifact": path,
+                                                     "calibration_data_path": data})
+    try:
+        env.reset(20005)
+        audit = env.audit_snapshot()
+        assert audit.manifest["calibration_verified"] is True
+        assert audit.manifest["calibration"]["artifact_sha256"] == artifact.sha256
+    finally:
+        env.close()
+
+
+@pytest.mark.parametrize("change", ["bytes_only", "diagnoses", "tests"])
+def test_override_rejects_changed_csv_bytes_or_values(protocol, fitted, tmp_path, change):
+    artifact, path = fitted
+    data = tmp_path / "changed.csv"
+    if change == "bytes_only":
+        data.write_bytes(DATA.read_bytes() + b"\n")
+    else:
+        lines = DATA.read_text(encoding="utf-8").splitlines()
+        row = lines[1].split(",")
+        index = lines[0].split(",").index("new_" + change)
+        row[index] = str(int(row[index]) + 1)
+        lines[1] = ",".join(row)
+        data.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="source hash"):
+        cal.load_calibration_artifact(path, protocol, require_evaluation=False, data_path=data)
+    with pytest.raises(ValueError, match="source hash"):
+        cal.evaluate_beta(artifact, protocol=protocol, data_path=data)
+
+
+def test_missing_default_or_override_does_not_fall_back_to_historical_path(protocol, fitted, tmp_path, monkeypatch):
+    artifact, path = fitted
+    missing = tmp_path / "missing.csv"
+    monkeypatch.setattr(cal, "DEFAULT_DATA_PATH", missing)
+    for override in (None, missing):
+        with pytest.raises(ValueError, match="data_path/--data"):
+            cal.load_calibration_artifact(path, protocol, require_evaluation=False, data_path=override)
+        with pytest.raises(ValueError, match="data_path/--data"):
+            cal.evaluate_beta(artifact, protocol=protocol, data_path=override)
+
+
+def test_evaluation_cli_uses_data_override_for_loading_and_evaluation(protocol, fitted, tmp_path, monkeypatch):
+    from examples.control_v1 import evaluate_calibration
+
+    artifact, path = fitted
+    moved = tmp_path / "moved.csv"
+    moved.write_bytes(DATA.read_bytes())
+    monkeypatch.setattr(cal, "DEFAULT_DATA_PATH", Path("missing-default.csv"))
+    assert evaluate_calibration.main(["--protocol", str(protocol.source_path), "--artifact", str(path),
+                                      "--data", str(moved)]) == 0
+    assert cal.load_calibration_artifact(path, protocol, data_path=moved).sha256 == artifact.sha256
+
+
+@pytest.mark.parametrize("field", ["dates", "diagnoses", "tests"])
+def test_parsed_data_must_match_even_with_recomputed_artifact_hash(protocol, fitted, field):
+    artifact, path = fitted
+    payload = cal.resolved_snapshot(artifact.payload)
+    payload["data"][field][0] = "1900-01-01" if field == "dates" else payload["data"][field][0] + 1
+    path.write_text(json.dumps({"payload": payload, "sha256": cal._digest(payload)}), encoding="utf-8")
+    with pytest.raises(ValueError, match="source hash"):
+        cal.load_calibration_artifact(path, protocol, require_evaluation=False)
+
+
+@pytest.mark.parametrize("source_hash", sorted(cal._LEGACY_CALIBRATION_SOURCES))
+def test_known_legacy_source_and_absolute_provenance_load_without_rewriting(protocol, fitted, source_hash):
+    artifact, path = fitted
+    payload = cal.resolved_snapshot(artifact.payload)
+    payload["data"]["source_path"] = "Z:/previous-machine/data.csv"
+    payload["compatibility"]["engine_sources"]["cemas/control/calibration.py"] = source_hash
+    digest = cal._digest(payload)
+    path.write_text(json.dumps({"payload": payload, "sha256": digest}), encoding="utf-8")
+    legacy = cal.CalibrationArtifact(cal._freeze(payload), digest)
+    report = cal.evaluate_beta(legacy, protocol=protocol)
+    cal.save_fit_report(report, path.parent)
+    before = path.read_bytes(), path.with_name("fit_report.json").read_bytes()
+    assert cal.load_calibration_artifact(path, protocol).sha256 == digest
+    assert (path.read_bytes(), path.with_name("fit_report.json").read_bytes()) == before
+
+
+@pytest.mark.parametrize("field", ["unknown_calibration", "engine", "scenarios", "runtime", "population"])
+def test_legacy_bridge_preserves_all_other_compatibility_gates(protocol, fitted, field):
+    artifact, path = fitted
+    payload = cal.resolved_snapshot(artifact.payload)
+    compatibility = payload["compatibility"]
+    compatibility["engine_sources"]["cemas/control/calibration.py"] = sorted(cal._LEGACY_CALIBRATION_SOURCES)[0]
+    if field == "unknown_calibration":
+        compatibility["engine_sources"]["cemas/control/calibration.py"] = "0" * 64
+    elif field in ("engine", "scenarios"):
+        source = "covasim/sim.py" if field == "engine" else "cemas/control/scenarios.py"
+        compatibility["engine_sources"][source] = "0" * 64
+    elif field == "runtime":
+        compatibility["runtime_versions"]["python"] = "0.0.0"
+    else:
+        compatibility["population_config_sha256"] = "0" * 64
+    path.write_text(json.dumps({"payload": payload, "sha256": cal._digest(payload)}), encoding="utf-8")
+    with pytest.raises(ValueError, match="incompatible"):
+        cal.load_calibration_artifact(path, protocol, require_evaluation=False)

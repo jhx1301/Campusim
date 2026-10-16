@@ -9,6 +9,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--protocol", type=Path, default=root / "docs/control_protocol_v1.json")
     parser.add_argument("--artifact", type=Path, required=True)
+    parser.add_argument("--data", type=Path,
+                        help="CSV path relative to the project root (default: data/notre_dame_2020_early.csv)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--validation-split", choices=("A", "B"), default="A")
     parser.add_argument("--seed", type=int, action="append",
@@ -27,7 +29,7 @@ def main(argv=None):
     if len(set(seeds)) != len(seeds) or any(not first <= seed <= last for seed in seeds):
         parser.error("seeds must be distinct worlds in the selected source validation split")
     # Loading verifies primary fitting evidence, independent report and compatibility.
-    load_calibration_artifact(args.artifact, protocol, require_evaluation=True)
+    load_calibration_artifact(args.artifact, protocol, require_evaluation=True, data_path=args.data)
     scales = protocol.definition["source"]["validation_scales"]
     capacities = protocol.definition["resources"]["screening_static_capacity_ratios"]
     combinations = len(scales) * len(capacities)
@@ -38,6 +40,7 @@ def main(argv=None):
     for seed in seeds:
         condition = (seed - first) // repeats
         options = {"calibration_artifact": args.artifact,
+                   "calibration_data_path": args.data,
                    "beta_scale": scales[condition // len(capacities)],
                    "screening_capacity_ratio": capacities[condition % len(capacities)]}
         for controller_class in (MinimumController, MaximumFeasibleController):

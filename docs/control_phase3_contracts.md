@@ -105,13 +105,13 @@ E0和后续校园控制使用同一套v1人口配置，以协议engine为唯一�
 E0安装 `test_num`，控制环境安装共同执行器，各自只初始化一次。E0检测敏感度.95、失访0、延迟0，控制环境延迟1，分别记录。12000是合成总人口，不等同于原报告约12000名学生；旧t18人口下的多参数结果不迁入新校准。
 
 ```text
-read_calibration_data(path) -> CalibrationData
+read_calibration_data(path=None) -> CalibrationData
 make_calibration_sim(protocol, beta, world_seed, window='primary', data=..., through_holdout=False)
-fit_beta(protocol, reconstructed_data, window='primary'|'exploratory') -> CalibrationArtifact
-evaluate_beta(artifact, evaluation_seeds=None, protocol=None) -> FitReport
+fit_beta(protocol, reconstructed_data=None, window='primary'|'exploratory') -> CalibrationArtifact
+evaluate_beta(artifact, evaluation_seeds=None, protocol=None, data_path=None) -> FitReport
 save_calibration_artifact(artifact, output_dir) -> artifact.json
 save_fit_report(report, output_dir) -> fit_report.json
-load_calibration_artifact(path, protocol, require_evaluation=True) -> CalibrationArtifact
+load_calibration_artifact(path, protocol, require_evaluation=True, data_path=None) -> CalibrationArtifact
 ```
 
 仅拟合beta∈[.005,.04]，固定层系数，100 trials、优化器seed84001、每候选三个固定校准世界。损失为逐世界日诊断MSE的平均，再除以 `(观测日均值+1)^2`；不是平均曲线MSE，不加累计诊断或R_e惩罚。
@@ -130,6 +130,10 @@ load_calibration_artifact(path, protocol, require_evaluation=True) -> Calibratio
 科学环境要求真实主窗 `artifact.json` 及同目录匹配的 `fit_report.json`，核对内容hash、校准设置、数据、规定世界、trial/最佳损失及人口/基础模型兼容性。`require_evaluation=False`仅供独立评价入口读取尚未评价的拟合，不作为科学运行绕过。拒绝裸beta、旧四参数文件、旧人口、缺失报告或损坏/不兼容证据。hash是完整性与版本检查，不是可信第三方认证；不能仅凭重新计算hash把手填数据解释成真实校准。
 
 人口、基础模型及实现来源用于兼容核验，完整协议hash用于追溯。控制H/奖励变化本身不触发E0重校准；人口或基础模型变化使旧产物不兼容。已核验E0与目标正式冻结是不同门禁：源域开发可使用候选目标，最终实验仍须后续冻结产物，不把科学参照运行等同于最终测试。
+
+数据默认位置为项目根目录下的 `data/notre_dame_2020_early.csv`；拟合、加载和独立评价均支持覆盖位置，所有相对数据路径以项目根目录为基准，与进程启动目录无关。`load_calibration_artifact()` / `evaluate_beta()` 使用 `data_path=`，科学环境使用 `scenario_options["calibration_data_path"]`，三个校准/参照 CLI 均使用 `--data`。绝对输入路径可用于本机定位；新数据快照只记录项目相对路径，项目外文件只记录文件名。`source_path` 是追溯标签，不参与数据身份比较，也不作为加载回退；每次仍读取当前 CSV，严格比较原始字节 SHA-256 以及 dates/diagnoses/tests。缺失或不一致即失败，不改写既有 artifact/report 或其关联hash。
+
+路径修复保留整个实现来源门禁，仅兼容已审计的修复前 `calibration.py` 指纹（CRLF `c2656931b635b998da2d390b050b49b51dbf6349664d9a05c4339797dfb34fc9`；LF `cb0e8347837b729149a44f5009ce9f22141ea38a71856a186afc279eaf6d91b4`），因为本次未改变拟合及仿真语义。其他源码、人口、基础模型、校准方法与运行版本仍须完全匹配。后续改变拟合或仿真语义时须重新审计并移除此兼容桥，不能扩大为任意旧源码通行。旧产物中的绝对路径可保留用于追溯，无需重写产物；其他兼容条件不满足时仍拒绝加载。
 
 ## 5. 验收与证据
 
