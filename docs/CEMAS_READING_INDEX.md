@@ -1,78 +1,71 @@
 # CEMAS v1 当前工作阅读索引
 
-交接日期：2026-10-14。此索引用于新 Codex 对话接续当前开发，集中阅读现行协议、阶段契约和当前代码。
+更新日期：2026-10-15。此索引用于接续 v1 开发，集中阅读现行协议、阶段契约和当前代码。
 
-## 1. 当前进度与接下来要做什么
+## 1. 当前进度
 
 项目目标是在同一个部分可观测疫情控制任务中，让各控制器共享观察、动作、执行器和评价口径。
 
-当前工作目录为 `E:/项目/毕业设计/code`，分支为 `feature/control-protocol-v1`。本索引的代码/契约基线为 `e94b037`；当前 Git 状态以新对话核对结果为准。新对话先核对实际分支和工作区，保留已有未提交改动。
+工作目录为 `D:/项目/毕业设计/code/Campusim`，v1 功能分支为 `feature/control-protocol-v1`，P3 实施前基线为 `8324a81`。当前提交和未提交改动以实际 Git 检查为准，保留已有 `docs/修改意见.md` 等用户文件。
 
-| 阶段 | 当前已有内容 |
+| 阶段 | 内容与状态 |
 |---|---|
-| Phase 0 | 协议加载与静态验证、不可变 schema、Controller/RewardCalculator 抽象接口、公共序列化和 DecisionRecord |
-| Phase 1 | `[T,S,C,E,A]` 的 324 动作编解码、公共筛查容量 mask、ActionResolution 数据契约 |
-| Phase 2 | campus 场景、动作解析和共同执行器、公共 ledger/观察、198 维 float32 编码及独立私有指标；实现提交 `bbccd20` |
+| Phase 0 | 协议加载/静态验证、不可变 schema、Controller/RewardCalculator 接口、公共序列化和 DecisionRecord |
+| Phase 1 | `[T,S,C,E,A]` 的 324 动作编解码、公共筛查容量 mask 和 ActionResolution |
+| Phase 2 | campus 场景、共同执行器、公共 ledger/观察、198 维编码和独立私有指标 |
+| Phase 3 | 已实现周环境、统一奖励、两个固定参照、日志/runner 和共享人口 E0；334项测试、完整smoke及主/辅助E0已验收，证据和拟合限制见 [P3 契约](control_phase3_contracts.md) |
 
-**下一阶段是 Phase 3：周环境、独立奖励、两个固定参照与 E0 校准，形成第一个完整运行闭环。** 当前没有完整周环境或 v1 E0 校准模块，奖励和控制器仍只有抽象契约，日志仍只有 schema/序列化。现有 Phase 2 集成测试手动推进模拟，不等于已实现周环境。
+P3 的公式和计数语义已确认，当前权重为可执行的 `development_candidate`。后续全部主方法的源域验证与 H 检查完成后再统一正式冻结；P3 闭环验收不代表权重验证、训练或最终实验完成。测试及实际 smoke/E0 结果只以契约中明确登记的证据为准，不能根据存在脚本就认定校准已经执行。
 
-本次进度判断来自代码、契约和 Git 检查，没有重跑已完成阶段的测试、模拟或训练。下一对话先阅读并确认 Phase 3 设计，再按用户后续指令实施。
-
-## 2. 按这个顺序阅读
+## 2. 按此顺序阅读
 
 | 顺序 | 文档 | 当前应关注的内容 |
 |---|---|---|
-| 1 | [软件工程实现计划](cemas_v1_implementation_plan.md) | 直接读 **C 节的 Phase 3**：文件范围、环境接口、时序、校准与验收。D 节是原始 Phase 0 任务清单，不是当前待办。 |
-| 2 | [Phase 2 契约](control_phase2_contracts.md) | 已实现的数据路径、执行器、公共/私有边界及可复用接口；确认 Phase 3 从哪里接入。 |
-| 3 | [推荐实施协议](llm_recommended_protocol_v1.md) | 优先读第 **4、5、6、7、12、13、14 节及附录 A**：观察时序、奖励建议、E0、种子隔离、终点、日志和待产物。 |
-| 4 | [机器可读协议](control_protocol_v1.json) | 核对 `engine`、`actions`、`resources`、`observation`、`activity`、`objective`、`calibration`、`seeds`、`horizon_gate`、`development`，避免在代码中另写一套数值。 |
-| 5 | [Phase 0 契约](control_phase0_contracts.md)、[Phase 1 契约](control_phase1_contracts.md) | 按需查 RewardCalculator、DecisionRecord、公共 schema、动作 mask 与 ActionResolution，保持现有接口。 |
+| 1 | [Phase 3 契约](control_phase3_contracts.md) | 设计选择、实际接口、生命周期、信息边界、E0 产物门禁和验收记录 |
+| 2 | [工程实现计划](cemas_v1_implementation_plan.md) | C 节 Phase 3 的实施顺序及后续边界；D 节为历史 P0 任务清单 |
+| 3 | [推荐协议](llm_recommended_protocol_v1.md)、[JSON](control_protocol_v1.json) | 第4–7、12–14节和附录 A；配置作为数值来源，勿另写常量 |
+| 4 | [Phase 2 契约](control_phase2_contracts.md) | 已有执行器、公共/私有数据路径及可复用接口 |
+| 5 | [Phase 0 契约](control_phase0_contracts.md)、[Phase 1 契约](control_phase1_contracts.md) | 按需查共享类型、奖励抽象接口、DecisionRecord、mask 和动作解析 |
+| 6 | [数据说明](../data/README.md) | E0 诊断序列及 daily tests 的重建数据口径，限定拟合证据范围 |
 
-工程计划负责“如何实现、做到哪里”；推荐协议和 JSON 负责“采用什么规则和参数”；阶段契约描述已交付接口。计划中的“新增文件”须与实际文件核对，不能据此覆盖已经存在的模块。归档材料和通用文档站点不在本次必读范围。
+推荐协议和 JSON 负责规则与参数，工程计划负责实施范围，阶段契约负责接口及验收证据。旧方案和旧测试结果是历史记录，不是当前安装、运行或实验完成的证明。
 
-实现 E0 时补读 [data/README.md](../data/README.md)，确认诊断序列与 daily tests 的重建数据口径；校准拟合不能描述为官方原始逐日数据验证。
+## 3. 代码入口
 
-## 3. 文档之后，只看这些代码入口
-
-| 已有文件 | 当前作用及 Phase 3 接入点 |
+| 文件 | 职责 |
 |---|---|
-| [protocol.py](../cemas/control/protocol.py)、[types.py](../cemas/control/types.py) | 加载/验证协议及共享数据类型；奖励状态仍为 `recommendation_pending_phase3`。 |
-| [scenarios.py](../cemas/control/scenarios.py) | `build_scenario()` 返回已初始化的 ScenarioBundle，复用其中实际挂接的 executor/analyzer。`scientific` 目前只要求显式 beta，尚未核验 E0 产物。 |
-| [actions.py](../cemas/control/actions.py)、[resolution.py](../cemas/control/resolution.py) | 复用 codec、mask、解析和回退；环境接收的 action_id 经共享路径进入执行器。 |
-| [execution.py](../cemas/control/execution.py)、[ledger.py](../cemas/control/ledger.py)、[metrics.py](../cemas/control/metrics.py) | 每日执行、公共日/周记录与反馈、私有 flow 聚合；用于周结算及日/周/终点对账。 |
-| [observation.py](../cemas/control/observation.py) | 纯公共观察 builder 与编码；mask 单独提供。 |
-| [controllers.py](../cemas/control/controllers.py)、[rewards.py](../cemas/control/rewards.py)、[logging.py](../cemas/control/logging.py) | 文件已经存在；分别补两个固定参照、具体独立奖励 calculator 和实际日志输出。 |
-| [test_control_integration.py](../tests/test_control_integration.py) | 阅读现有 Phase 2 调用示例及断言，不将其当作周环境实现。 |
+| [protocol.py](../cemas/control/protocol.py)、[types.py](../cemas/control/types.py) | 静态配置验证及独立公共/私有类型；`objective_status` 来自已校验配置 |
+| [scenarios.py](../cemas/control/scenarios.py) | `resolve_campus_parameters()` 为 E0 和控制场景提供独立参数容器；`build_scenario()` 返回已经初始化的 bundle |
+| [environment.py](../cemas/control/environment.py)、[rewards.py](../cemas/control/rewards.py) | `WeeklyControlEnvironment` 推进七日窗口；`V1RewardCalculator` 及 `RewardBreakdown` 计算统一目标 |
+| [actions.py](../cemas/control/actions.py)、[resolution.py](../cemas/control/resolution.py) | 共同编解码、mask、校验与回退，两种动作入口复用同一路径 |
+| [execution.py](../cemas/control/execution.py)、[ledger.py](../cemas/control/ledger.py)、[metrics.py](../cemas/control/metrics.py) | 每日执行、公共交付和运营记录、私有感染 flow；用于日/周/终点对账 |
+| [observation.py](../cemas/control/observation.py) | 纯公共观察构造与198维编码，mask 单独提供 |
+| [controllers.py](../cemas/control/controllers.py)、[runner.py](../cemas/control/runner.py)、[logging.py](../cemas/control/logging.py) | 两个固定参照、最小单回合编排、公共/私有日志及运行完成状态 |
+| [calibration.py](../cemas/control/calibration.py) | 共享人口 E0 的拟合、独立评价、产物保存及兼容性核验 |
+| [examples/control_v1/](../examples/control_v1/) | v1 薄入口：`smoke.py`、`calibrate.py`、`evaluate_calibration.py`、`run_references.py` |
 
-Phase 3 预计新增 `cemas/control/environment.py`、`cemas/control/calibration.py`、`examples/t23_control_protocol_v1.py` 及对应环境/校准测试。完整校准配置登记还需记录嵌套字段、派生值、版本与数据 hash。
+v1 所有后续实验入口也放在 `examples/control_v1/`，可复用逻辑只放在 `cemas/control/`。旧 t18 脚本和绘图保留，不创建 t23；旧四参数、旧人口产物不能作为 v1 E0 证明。
 
-## 4. Phase 3 的实施顺序与验收边界
+## 4. 接续时必须保持的边界
 
-1. **先确认最小设计。** 明确周环境生命周期、PublicInfo 白名单、训练/评估 reward 返回方式、奖励定义及版本化、CalibrationArtifact/FitReport 和日志产物契约。第5节奖励公式/权重仍是源域确认起点，不能当作已经冻结的可执行奖励。
-2. **实现周环境与独立奖励。** 使用不依赖 Gymnasium 的同形接口：`reset(seed, options)`、`step(action_id)`、`action_masks()`、`close()`。训练模式可返回私有 reward；评估模式返回占位值，真值进入独立私有记录。
-3. **接入两个固定参照与日志骨架。** 最低向量和当前最高资源合法向量都走同一个执行器。复用 DecisionRecord，公共输出与私有奖励分开保存；从此阶段开始记录实际执行量和运行用途。
-4. **先小人口验证，再做明确标记的 smoke。** 检查 day 0、reset、尾周、终点 pending 事件、单次 finalize、同世界同动作前缀重放，以及日量之和＝周量之和＝终点总量。随后按计划用 N=12000、H=112、beta=0.016 跑两个固定参照；smoke 用于闭环检查，不作为正式实验结果。
-5. **落实 v1 E0 与正式运行门禁。** 仅拟合 beta，固定层相对系数，100 trials、每候选三个固定校准世界，采用归一化日诊断 MSE；不加 R_e 惩罚。实现拟合、独立评价、完整产物保存及 hash/用途核验，正式运行加载真实 E0 产物。
+- 所有方法共用同一目标；λ=1、四类负担各0.25是开发起点。主敏感性为 λ=.5/1/2，内部权重扰动留作扩展；不能按最终测试或某方法优势选权重。
+- E0 和校园控制共用完整 v1 人口配置，各用途种子独立。人口或基础模型变化须重新校准；控制 H/奖励变化本身不触发 E0 重校准。
+- 控制器只接收公共观察和反馈。`PublicInfo` 仅含动作处理结果与公共周反馈；真值、reward、beta、seed、未来事件及完整审计/manifest 不进入控制器、prompt 或 memory。
+- 训练向学习器返回真实 reward；评估返回 `0.0`，真实值通过 runner 私有的 `audit_snapshot()` 写日志。两种模式不改变世界轨迹。
+- 保持五维动作、324组合和七日周期；公开 mask 只约束 S，T/C 的每日容量由 executor 处理。
+- day0 先决策，每步最多七个真实日步；尾段按实际天数结算。只把完整周放入观察历史，尾段通过反馈和日志交付。
+- `build_scenario()` 已初始化，环境不重复 initialize，周间不重新设 seed；完整回合只尝试 finalize 一次，close 幂等，进度独立于 finalize 后的 `sim.t`。
+- 到 H 不额外推进、不提前交付 pending 事件。初始感染、感染新增、累计、峰值和终点活动状态分别核对。
+- smoke 仅检查闭环；科学运行必须加载带独立评价的真实主窗 E0 产物，不能用裸 beta 或手填证明代替。最终实验还须通过后续统一冻结门禁。
+- Python 为 `D:/programfile/miniconda3/envs/simulation/python.exe`。依赖按当前实装和用户授权核对，不把旧快照当作现在的安装状态。
+- P3 不提前实现 LLM、PPO/DDQN、调优阈值、memory、训练或城市实验；后续按既定阶段推进。
 
-E0 接口为 `make_calibration_sim()`、`fit_beta()`、`evaluate_beta()`，详细窗口、种子和数据设置以协议第6节及 JSON 为准。计划涉及的 `examples/t18_campus_calibration.py`、`examples/t18_campus_validation.py` 是待迁移代码，当前四参数路径不能作为 v1 E0 证明；先明确迁移范围，再修改。
-
-## 5. 接续时必须保持的边界
-
-- 所有 controller 只接收公共观察和公共反馈。PublicInfo、prompt、memory 不包含私有 reward、感染真值、beta、seed、未来事件或 simulator；完整 DecisionRecord 和运行 manifest 留在 runner/日志侧。
-- 保持 `[T,S,C,E,A]`、324 动作及 level 0 的固定基线语义；公开 mask 只筛查 S，T/C 每日容量由 executor 处理。
-- `build_observation()` 只消费公共 ledger、登记人口、当前动作/资源和显式任务常量，不接收 Sim 或 People。
-- day 0 先决策，观察只包含前一日及以前已交付记录；一步最多推进七个真实日步。H112 对应 `n_days=111`，尾周照实际日数结算；累计感染含初始项，奖励新增感染不含初始项。
-- 一回合只完整 initialize 一次，周间不重设世界随机流；finalize 只调用一次，环境独立保存进度，不能依靠 finalize 后的 `sim.t` 判断是否还有日步。
-- Phase 3 聚焦校园闭环与 E0；Gymnasium 适配、LLM、PPO/DDQN、memory、城市实验分别按后续阶段推进。
-- Python 使用用户指定的 `E:/pytroch/anaconda3/envs/simulation/python.exe`。环境和依赖按当前实装情况核对，不把契约中的历史环境快照当作现在的安装状态。
-- 先保留现有工作区改动。Git 核对使用 `git branch --show-current`、`git status --short --branch` 和 `git log -5 --oneline`；发布操作按用户具体指令进行。
-
-## 6. 可直接发给下一对话的提示
+## 5. 下一次接续提示
 
 ```text
-请先阅读 docs/CEMAS_READING_INDEX.md，按其中顺序了解现行 CEMAS v1 文档和代码。
-当前 Phase 0–2 已有实现，下一阶段是 Phase 3：周环境、独立奖励、两个固定参照与 E0 校准。
-先核对当前分支和未提交改动，简要说明已有能力、Phase 3 设计及分步实施范围，再按我的后续指令编码。
-这次先做阅读和设计确认，不需要重跑 Phase 1/2 的已有验收，也不用阅读归档材料。
-保留公共/私有信息隔离、现有动作语义和已有工作区改动，使用索引中指定的 Python 环境。
+请先阅读 docs/CEMAS_READING_INDEX.md 及 P3 契约，核对当前分支和未提交改动。
+根据 P3 契约中的实际验收记录区分已有代码、测试、smoke 和 E0 证据，勿把脚本存在当作校准完成。
+保持统一奖励、共享 v1 人口、公共/私有隔离、单次 initialize/finalize 及日周终点对账。
+v1 脚本放在 examples/control_v1/，复用逻辑放在 cemas/control/，保留旧 t18 及用户文件。
+先说明已完成项和剩余门槛，再按本轮用户指令继续；使用指定 simulation Python。
 ```

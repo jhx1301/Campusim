@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from fractions import Fraction
+import hashlib
+import json
 from math import ceil, isfinite
 from types import MappingProxyType
 from typing import Any
@@ -114,6 +116,69 @@ def _positive_int(value, name: str, *, minimum: int = 1) -> int:
     return value
 
 
+def resolve_campus_parameters(protocol: ControlProtocol, world_seed: int, *, beta: float,
+                              population=None, execution_days=None, initial_infections=None) -> dict:
+    """Resolve an independent v1 parameter container without initializing a world."""
+    if type(protocol) is not ControlProtocol:
+        raise TypeError("protocol must be ControlProtocol")
+    if type(world_seed) is not int or not 0 <= world_seed < 2**32:
+        raise ValueError("world_seed must be an ordinary integer within [0, 2**32)")
+    if protocol.definition["engine"]["pop_type"] != "campus":
+        raise ValueError("v1 construction supports campus only")
+    population = _positive_int(protocol.population if population is None else population, "population")
+    execution_days = _positive_int(protocol.execution_days if execution_days is None else execution_days,
+                                   "execution_days", minimum=2)
+    initial_infections = _positive_int(
+        protocol.initial_infections if initial_infections is None else initial_infections,
+        "initial_infections", minimum=0)
+    if initial_infections > population:
+        raise ValueError("initial_infections cannot exceed population")
+    if type(beta) not in (int, float) or not isfinite(beta) or beta < 0:
+        raise ValueError("beta must be a finite nonnegative number")
+    import covasim as cv
+    pars = cv.make_pars(set_prognoses=True, prog_by_age=protocol.definition["engine"]["prog_by_age"])
+    pars.update({key: _thaw(value) for key, value in protocol.definition["engine"].items()
+                 if key in pars})
+    pars.update(pop_size=population, pop_infected=initial_infections,
+                n_days=execution_days - 1, end_day=None, beta=beta, rand_seed=world_seed, verbose=0,
+                iso_factor=dict(d=.3, clu=.1, clg=.1, of=.1, ta=.2, cm=.1),
+                quar_factor=dict(d=.6, clu=.2, clg=.2, of=.2, ta=.4, cm=.2))
+    return pars
+
+
+def _json_parameters(value):
+    if isinstance(value, Mapping):
+        return {key: _json_parameters(item) for key, item in value.items()}
+    if isinstance(value, np.ndarray):
+        return _json_parameters(value.tolist())
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, (list, tuple)):
+        return [_json_parameters(item) for item in value]
+    return value
+
+
+def configuration_sha256(configuration: Mapping) -> str:
+    payload = json.dumps(_json_parameters(configuration), sort_keys=True,
+                         separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def population_configuration(protocol: ControlProtocol) -> dict:
+    pars = resolve_campus_parameters(protocol, 0, beta=0)
+    keys = {"pop_type", "pop_size", "location", "contacts", "dynam_layer"}
+    return _json_parameters({key: value for key, value in pars.items()
+                             if key in keys or key.startswith("campus_")})
+
+
+def base_model_configuration(protocol: ControlProtocol) -> dict:
+    """Compatibility excludes control horizon, reward, world identity and fitted beta."""
+    pars = resolve_campus_parameters(protocol, 0, beta=0)
+    excluded = {"start_day", "end_day", "n_days", "rand_seed", "verbose", "beta",
+                "interventions", "analyzers", "timelimit", "stopping_func", "scaled_pop"}
+    return _json_parameters({key: value for key, value in pars.items() if key not in excluded})
+
+
 def build_scenario(protocol: ControlProtocol, world_seed: int, *, population=None,
                    execution_days=None, initial_infections=None, beta=None,
                    screening_capacity_ratio=None, purpose="smoke") -> ScenarioBundle:
@@ -167,12 +232,8 @@ def build_scenario(protocol: ControlProtocol, world_seed: int, *, population=Non
     from .ledger import PublicLedgerAnalyzer
     from .metrics import PrivateMetricsAnalyzer
 
-    supported = cv.make_pars()
-    pars = {key: _thaw(value) for key, value in engine.items() if key in supported}
-    pars.update(pop_size=population, pop_infected=initial_infections,
-                n_days=execution_days - 1, beta=beta, rand_seed=world_seed, verbose=0,
-                iso_factor=dict(d=.3, clu=.1, clg=.1, of=.1, ta=.2, cm=.1),
-                quar_factor=dict(d=.6, clu=.2, clg=.2, of=.2, ta=.4, cm=.2))
+    pars = resolve_campus_parameters(protocol, world_seed, beta=beta, population=population,
+                                     execution_days=execution_days, initial_infections=initial_infections)
     executor = JointActionExecutor(protocol, resources)
     public_analyzer = PublicLedgerAnalyzer(executor)
     private_analyzer = PrivateMetricsAnalyzer(initial_infections)

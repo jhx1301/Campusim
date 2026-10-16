@@ -380,6 +380,20 @@ class PublicWeekFeedback:
 
 
 @dataclass(frozen=True, slots=True)
+class PublicInfo:
+    """Only action handling and closed public feedback accompany a transition."""
+
+    resolution: ActionResolution | None = None
+    feedback: PublicWeekFeedback | None = None
+
+    def __post_init__(self) -> None:
+        if self.resolution is not None:
+            _instance(self.resolution, ActionResolution, "resolution")
+        if self.feedback is not None:
+            _instance(self.feedback, PublicWeekFeedback, "feedback")
+
+
+@dataclass(frozen=True, slots=True)
 class PrivateDailyMetrics:
     """Daily true disease counts for the private analysis branch only."""
 

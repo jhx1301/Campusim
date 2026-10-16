@@ -1,11 +1,12 @@
 """Load the v1 control definition without constructing a simulation.
 
 The complete definition belongs to the runner: it contains private configuration
-and must never be passed to a controller. Objective settings are recommendations
-pending Phase 3 source-domain confirmation, not an executable reward contract.
+and must never be passed to a controller. P3 validates an executable development
+objective; source validation and the horizon gate precede final parameter freeze.
 """
 
 from dataclasses import dataclass, field
+from datetime import date
 import hashlib
 import json
 import math
@@ -48,8 +49,8 @@ class ControlProtocol:
 
     @property
     def objective_status(self) -> str:
-        """Phase 0 preserves objective recommendations without freezing them."""
-        return "recommendation_pending_phase3"
+        """The verified configuration distinguishes development from final use."""
+        return self.definition["objective"]["status"]
 
 
 def _required(mapping: Mapping[str, Any], key: str, location: str) -> Any:
@@ -287,6 +288,99 @@ def _validate_world_seeds(definition: dict) -> None:
                 raise ProtocolValidationError(f"World seeds overlap: {use} and {other_use}")
 
 
+def _validate_objective(definition: Mapping[str, Any]) -> None:
+    objective = _section(definition, "objective", "protocol")
+    if objective.get("formula_version") != "cemas-reward-v1":
+        raise ProtocolValidationError("unsupported objective.formula_version")
+    if objective.get("status") not in ("development_candidate", "frozen"):
+        raise ProtocolValidationError("unsupported objective.status")
+    _text(objective.get("formula"), "objective.formula")
+    _number(objective.get("lambda"), "objective.lambda")
+    weights = _section(objective, "burden_weights", "objective")
+    if set(weights) != {"tests", "notifications", "union", "activity"}:
+        raise ProtocolValidationError("objective.burden_weights must contain the four v1 burdens")
+    for key, value in weights.items():
+        _number(value, f"objective.burden_weights.{key}")
+    if not math.isclose(sum(weights.values()), 1.0, rel_tol=0, abs_tol=1e-12):
+        raise ProtocolValidationError("objective.burden_weights must sum to one")
+    for key in ("test_reference_daily_ratio", "notification_reference_daily_ratio"):
+        _number(objective.get(key), f"objective.{key}", positive=True)
+    for key, expected in (("gamma", 1), ("switch_penalty", 0),
+                          ("reward_clip", False), ("initial_infections_in_reward", False)):
+        value = objective.get(key)
+        if type(value) is not type(expected) or value != expected:
+            raise ProtocolValidationError(f"objective.{key} must match v1 semantics")
+    architecture = _section(definition, "architecture_constraints", "protocol")
+    if (architecture.get("reward_formula_confirmation_phase") != 3
+            or architecture.get("reward_parameters_freeze_phase") != 6
+            or "reward_formula_freeze_phase" in architecture):
+        raise ProtocolValidationError("reward formula confirmation and parameter freeze phases must be explicit")
+
+
+def _validate_calibration(definition: Mapping[str, Any]) -> None:
+    spec = _section(definition, "calibration", "protocol")
+    for key, expected in (("method_version", "cemas-e0-v1"),
+                          ("primary_demography", "shared_v1_engine_population"),
+                          ("fit_parameter", "beta"), ("trials", 100),
+                          ("repeats_per_trial", 3), ("fixed_layer_weights", True),
+                          ("use_waning", False), ("r_eff_penalty", False),
+                          ("independent_fit_runs", 20),
+                          ("loss", "daily_diagnoses_MSE_normalized_by_observed_mean_plus_1_squared"),
+                          ("data_provenance", "reconstructed_aggregate_series")):
+        value = spec.get(key)
+        if type(value) is not type(expected) or value != expected:
+            raise ProtocolValidationError(f"calibration.{key} must match v1 semantics")
+    limits = spec.get("beta_range")
+    if not isinstance(limits, list) or len(limits) != 2:
+        raise ProtocolValidationError("calibration.beta_range must have two endpoints")
+    for value in limits:
+        _number(value, "calibration.beta_range", positive=True)
+    if limits[0] >= limits[1]:
+        raise ProtocolValidationError("calibration.beta_range must be increasing")
+    for window_key, execution_key, n_days_key in (
+            ("primary_window", "primary_execution_days", "primary_n_days"),
+            ("exploratory_fit_window", "exploratory_fit_execution_days", "exploratory_fit_n_days")):
+        window = spec.get(window_key)
+        try:
+            if not isinstance(window, list) or len(window) != 2:
+                raise ValueError()
+            start, end = (date.fromisoformat(item) for item in window)
+            days = (end - start).days + 1
+        except (TypeError, ValueError) as exc:
+            raise ProtocolValidationError(f"invalid calibration.{window_key}") from exc
+        if days <= 0 or spec.get(execution_key) != days or spec.get(n_days_key) != days - 1:
+            raise ProtocolValidationError(f"calibration.{window_key} actual days do not match n_days")
+    testing = _section(spec, "testing", "calibration")
+    expected_testing = {"symp_test": 80, "quar_test": 30, "sensitivity": 0.95,
+                        "loss_prob": 0, "test_delay": 0}
+    if set(testing) != set(expected_testing):
+        raise ProtocolValidationError("calibration.testing must explicitly specify test_num parameters")
+    for key, expected in expected_testing.items():
+        if type(testing[key]) is not type(expected) or testing[key] != expected:
+            raise ProtocolValidationError(f"calibration.testing.{key} must match v1")
+    if len(definition["seeds"]["calibration"]) != spec["repeats_per_trial"]:
+        raise ProtocolValidationError("calibration repeats must match the calibration world list")
+    if len(spec["exploratory_train_seeds"]) != spec["repeats_per_trial"]:
+        raise ProtocolValidationError("auxiliary calibration requires three fitting worlds")
+    primary_evaluation = definition["seeds"]["fit_evaluation"]
+    auxiliary_evaluation = spec["exploratory_holdout_seed_range_inclusive"]
+    if (primary_evaluation["end_inclusive"] - primary_evaluation["start_inclusive"] + 1 != 20
+            or auxiliary_evaluation["end"] - auxiliary_evaluation["start"] + 1 != 20):
+        raise ProtocolValidationError("independent calibration evaluation requires twenty worlds")
+    if spec.get("fit_band_quantiles") != [0.05, 0.95]:
+        raise ProtocolValidationError("calibration.fit_band_quantiles must be [0.05, 0.95]")
+    try:
+        auxiliary_start, auxiliary_end = map(date.fromisoformat, spec["exploratory_fit_window"])
+        holdout_start, holdout_end = map(date.fromisoformat, spec["exploratory_holdout"])
+        primary_start, primary_end = map(date.fromisoformat, spec["primary_window"])
+        if (auxiliary_start != primary_start or (holdout_start - auxiliary_end).days != 1
+                or holdout_end < holdout_start or holdout_end != primary_end):
+            raise ValueError()
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ProtocolValidationError("auxiliary holdout must continuously follow fitting through the primary end") from exc
+    _integer(spec.get("optimizer_seed"), "calibration.optimizer_seed")
+
+
 def _validate_v1(definition: Any) -> None:
     if not isinstance(definition, dict):
         raise ProtocolValidationError("Protocol must be a JSON object")
@@ -327,9 +421,7 @@ def _validate_v1(definition: Any) -> None:
         raise ProtocolValidationError("actions.joint_count must equal the product of actions.sizes (324)")
     _validate_action_semantics(definition)
 
-    objective = _section(definition, "objective", "protocol")
-    for key in ("test_reference_daily_ratio", "notification_reference_daily_ratio"):
-        _number(_required(objective, key, "objective"), f"objective.{key}", positive=True)
+    _validate_objective(definition)
     resources = _section(definition, "resources", "protocol")
     for key in ("clinical_tests_per_person_per_day", "screening_main_capacity_ratio", "tracing_index_cases_per_person_per_day"):
         _number(_required(resources, key, "resources"), f"resources.{key}")
@@ -345,6 +437,7 @@ def _validate_v1(definition: Any) -> None:
                 if key in experiment:
                     _number(experiment[key], f"experiments.{name}.{key}")
     _validate_world_seeds(definition)
+    _validate_calibration(definition)
 
 
 def _freeze(value: Any) -> Any:

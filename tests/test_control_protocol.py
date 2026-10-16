@@ -99,16 +99,41 @@ def test_zero_resources_are_valid_but_event_capacities_cannot_be_negative(tmp_pa
         load_protocol(write_protocol(tmp_path, definition))
 
 
-def test_objective_is_preserved_as_unexecuted_phase3_recommendation(tmp_path, definition):
+def test_objective_configuration_is_validated_without_evaluating_formula_text(tmp_path, definition):
     definition["objective"].update(
         formula="raise_if_evaluated()", **{"lambda": 7},
         burden_weights={"tests": 0.1, "notifications": 0.2, "union": 0.3, "activity": 0.4},
     )
     protocol = load_protocol(write_protocol(tmp_path, definition))
-    assert protocol.objective_status == "recommendation_pending_phase3"
+    assert protocol.objective_status == "development_candidate"
     assert protocol.definition["objective"]["lambda"] == 7
     assert protocol.definition["objective"]["formula"] == "raise_if_evaluated()"
     assert protocol.definition["objective"]["burden_weights"]["tests"] == 0.1
+
+
+@pytest.mark.parametrize("key,value", [
+    ("status", "recommendation_pending_phase3"), ("formula_version", "unknown"),
+    ("lambda", True), ("lambda", -1), ("gamma", .99),
+    ("switch_penalty", 1), ("reward_clip", True), ("initial_infections_in_reward", True),
+    ("burden_weights", {"tests": .5, "notifications": .5, "union": .5, "activity": .5}),
+    ("burden_weights", {"tests": .25, "notifications": .25, "union": .25}),
+])
+def test_executable_objective_rejects_inconsistent_configuration(tmp_path, definition, key, value):
+    definition["objective"][key] = value
+    with pytest.raises(ProtocolValidationError):
+        load_protocol(write_protocol(tmp_path, definition))
+
+
+@pytest.mark.parametrize("key,value", [
+    ("trials", 99), ("primary_demography", "legacy_t18"),
+    ("fit_parameter", "beta_and_layers"), ("r_eff_penalty", True),
+    ("primary_n_days", 16), ("beta_range", [.04, .005]),
+    ("fit_band_quantiles", [.1, .9]), ("exploratory_holdout", ["2020-08-14", "2020-08-18"]),
+])
+def test_e0_configuration_rejects_legacy_or_misaligned_definitions(tmp_path, definition, key, value):
+    definition["calibration"][key] = value
+    with pytest.raises(ProtocolValidationError):
+        load_protocol(write_protocol(tmp_path, definition))
 
 
 @pytest.mark.parametrize("change", ["purpose_overlap", "duplicate_list", "inclusive_boundary", "pilot_overlap", "calibration_overlap", "training_pool_overlap"])
@@ -184,7 +209,7 @@ sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 protocol = module.load_protocol(sys.argv[2])
 assert protocol.joint_count == 324
-assert protocol.objective_status == 'recommendation_pending_phase3'
+assert protocol.objective_status == 'development_candidate'
 """
     result = subprocess.run(
         [sys.executable, "-I", "-c", code, str(ROOT / "cemas" / "control" / "protocol.py"), str(PROTOCOL_PATH)],

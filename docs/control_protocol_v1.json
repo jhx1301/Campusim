@@ -1,12 +1,12 @@
 {
   "protocol_id": "cemas-control-v1",
-  "status": "phase2_public_private_pipeline_implemented",
+  "status": "phase3_weekly_control_and_e0_implemented",
   "authored_date": "2026-10-12",
   "reviewed_date": "2026-10-13",
   "experiment_scope": "partially_observable_campus_control_and_frozen_synthetic_transfer",
   "architecture_constraints": {
     "schema_version": "cemas-control-schema-v1",
-    "implementation_phase": 2,
+    "implementation_phase": 3,
     "controller_interface": [
       "reset() -> None",
       "decide(PublicObservation) -> ActionProposal",
@@ -18,7 +18,8 @@
     "private_metrics_uses": ["reward_calculation", "offline_analysis"],
     "private_metrics_in_controller_prompt_memory": false,
     "reward_interface": "RewardCalculator.compute(PrivateMetrics, PublicCost, ExecutedActionHistory) -> float",
-    "reward_formula_freeze_phase": 3,
+    "reward_formula_confirmation_phase": 3,
+    "reward_parameters_freeze_phase": 6,
     "decision_record_owner": "runner",
     "decision_record_in_controller_or_memory": false,
     "observation_hash": "SHA256_sorted_compact_UTF8_JSON_of_PublicObservation_only",
@@ -541,7 +542,8 @@
     "roster_from_reset_edges": false
   },
   "objective": {
-    "status": "recommendation_pending_phase3",
+    "formula_version": "cemas-reward-v1",
+    "status": "development_candidate",
     "lambda": 1,
     "burden_weights": {
       "tests": 0.25,
@@ -551,7 +553,7 @@
     },
     "test_reference_daily_ratio": 0.12,
     "notification_reference_daily_ratio": 0.1,
-    "formula": "-[dI/N + lambda/4*(dT/(.12*N*H)+dL/(.10*N*H)+dQ/(N*H)+dA/(N*H))]",
+    "formula": "-[dI/N + lambda*(w_T*dT/(.12*N*H)+w_L*dL/(.10*N*H)+w_Q*dQ/(N*H)+w_A*dA/(N*H))]",
     "switch_penalty": 0,
     "reward_clip": false,
     "gamma": 1,
@@ -559,6 +561,7 @@
     "initial_infections_in_reward": false
   },
   "calibration": {
+    "method_version": "cemas-e0-v1",
     "population_interpretation": "synthetic_total_not_notre_dame_student_census",
     "data_provenance": "reconstructed_aggregate_series",
     "primary_window": [
@@ -595,7 +598,14 @@
       "2020-08-15",
       "2020-08-18"
     ],
-    "primary_demography": "legacy_t18_demography_frozen_separately_from_synthetic_control_campus",
+    "primary_demography": "shared_v1_engine_population",
+    "testing": {
+      "symp_test": 80,
+      "quar_test": 30,
+      "sensitivity": 0.95,
+      "loss_prob": 0,
+      "test_delay": 0
+    },
     "tests": "fixed_observed_reconstructed_daily_schedule_test_num_sensitivity_.95_loss_0_delay_0",
     "reject_claims": [
       "unqualified_real_world_predictive_validation",
@@ -1140,7 +1150,7 @@
     "python_version_observed": "3.11.14",
     "device": "cpu_first",
     "parallelism": "independent_processes_after_single_env_verified",
-    "dependency_installation": false,
+    "dependency_installation": true,
     "code_mutation": true,
     "executed_training": false,
     "resolved_engine_manifest_required": true,

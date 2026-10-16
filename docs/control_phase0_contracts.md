@@ -17,7 +17,7 @@ ActionDecoder.decode(action_id: int) -> ActionVector
 
 `ActionVector.values` 固定为 `[T,S,C,E,A]`，长度5、档位范围 `[3,4,3,3,3]`。普通整数之外的布尔、浮点均拒绝；传入列表时复制成不可变 tuple。该类型统一用于控制器、日志、执行历史及后续 memory，不提供 P0–P4 转换。
 
-Controller 不能持有或接收 simulator、environment、PrivateMetrics、私有 reward 或完整 DecisionRecord。具体实现从 Phase 4/6 开始，Phase 0 的 ABC 无法直接实例化。
+Controller 不能持有或接收 simulator、environment、PrivateMetrics、私有 reward 或完整 DecisionRecord。Phase 3 增加两个固定参照，LLM/RL 等具体实现从 Phase 4/6 开始；Phase 0 的 ABC 无法直接实例化。
 
 ## 公共与私有 schema
 
@@ -48,7 +48,7 @@ RewardCalculator.compute(PrivateMetrics, PublicCost, ExecutedActionHistory) -> f
 
 reward 与 environment/controller 独立，calculator 不持有 simulator，动作历史使用实际执行动作。PPO/DDQN 使用相同定义，LLM 离线评价采用相同成本口径。私有 reward 只能进入源域学习器和离线分析，不进入观察、public info、prompt、检索或公共反馈。
 
-当前 JSON objective 保留原推荐参数供 Phase 3 源域确认，状态为 `recommendation_pending_phase3`。Phase 0 不计算reward，也不将推荐公式/权重复制成可执行默认值。Phase 3 确认后同步协议并版本化，最终测试前冻结，不能用目标测试选权重。
+Phase 0 原始交付只保留推荐参数，未计算 reward。后续已确认的 [Phase 3 契约](control_phase3_contracts.md)将公式和计数语义版本化，并提供 `development_candidate`：lambda=1、四类负担各占0.25。P3 确认公式结构不等于正式冻结权重；后续源域验证与 H 检查完成后统一冻结为 `frozen`。所有方法共用相同目标，不能按最终测试结果或某个方法的优势选择权重。`objective_status` 由已校验配置读取，不再固定为 Phase 0 的待确认状态。
 
 ## DecisionRecord
 

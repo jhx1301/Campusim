@@ -4,6 +4,8 @@
 
 2026-10-14 文档整理：原确认清单的必要内容已合并到推荐协议第14节及附录 A，旧架构讨论由 Git 历史保留。本文“实测工程基线”和 D 节的 Phase 0 任务清单均为原始计划记录；Phase 0 路线中的“四份文档”指原始依据文档（基线提交 `55b12f2`），不代表当前文件清单。当前完成范围以各阶段契约及验收记录为准。
 
+2026-10-15 P3实施补充：[Phase 3契约](control_phase3_contracts.md)记录已确认的奖励候选、共享v1人口、环境生命周期和真实E0产物门禁。所有v1实验入口统一放在 `examples/control_v1/`，旧t18及绘图保留。P3确认公式和计数语义，权重/H待后续源域验证后统一正式冻结。
+
 本轮已确认三项实施边界：
 
 - 以推荐 v1 为准；多角色候选、在线仿真检验和预测偏差降权留到后续版本。
@@ -24,7 +26,7 @@
 | [covasim/llm_policy.py](D:/项目/毕业设计/code/Campusim/covasim/llm_policy.py:379) | P0–P4、真值状态提取、prompt、API、旧评价 | 将新协议对应职责迁入独立模块；复用必要的传输、JSONL、hash 工具 |
 | [covasim/llm_memory.py](D:/项目/毕业设计/code/Campusim/covasim/llm_memory.py:129) | SQLite 双阶段写入、短期压缩、全局检索 | 复用持久化与相似度计算方式；公共 schema、特征和反馈重新实现 |
 | `examples/t15_*`、`t17_*`、`t20_*`、`t21_*` | 旧实验参数、种子、套餐、CPBU 汇总 | 保留历史入口，新增 v1 主入口；不直接扩写旧实验大脚本 |
-| `examples/t18_campus_calibration.py`、`t18_campus_validation.py` | 旧校准与展示 | 迁移到统一 v1 校准模块，消除优化与展示时域不一致 |
+| `examples/t18_campus_calibration.py`、`t18_campus_validation.py` | 旧校准与展示 | 保留历史脚本及绘图；v1在独立目录调用统一校准模块，不复用旧多参数产物 |
 | `tests/` | 引擎、校园、策略和记忆测试 | 保留适用的引擎测试；迁移控制用例，新增 v1 契约和隔离测试 |
 
 新实现统一放在 **`cemas/control/`**。这样可以明确区分控制任务与传播引擎，避免继续增加 `campus_policy_agent` 的职责。
@@ -277,76 +279,85 @@ encode_observation(PublicObservation) -> fixed_order_float32_features
 
 ### Phase 3：Gym-style 周环境、固定参照与 E0 校准
 
-**依赖：** Phase 2。该阶段形成第一个可运行功能里程碑。
+**依赖：** Phase 2。该阶段形成第一个可运行功能里程碑，具体交付接口和实际证据以[Phase 3契约](control_phase3_contracts.md)为准。
 
 **修改文件**
 
-- `cemas/control/protocol.py`
-- `examples/t18_campus_calibration.py`
-- `examples/t18_campus_validation.py`
+- `cemas/control/protocol.py`、`types.py`、`scenarios.py`、`__init__.py`：静态验证、PublicInfo、共享人口参数构造及导出。
+- 已有 `rewards.py`、`controllers.py`、`logging.py`：扩充具体奖励、两个固定参照和日志，不覆盖原有接口。
+- 协议JSON、推荐协议、P0奖励说明、工程计划及阅读索引；新增P3契约。
 
 **新增文件**
 
-- `cemas/control/environment.py`
-- `cemas/control/controllers.py`
-- `cemas/control/calibration.py`
-- `cemas/control/logging.py`
-- `examples/t23_control_protocol_v1.py`
-- `tests/test_control_environment.py`
-- `tests/test_control_calibration.py`
+- `cemas/control/environment.py`、`runner.py`、`calibration.py`。
+- `examples/control_v1/smoke.py`、`calibrate.py`、`evaluate_calibration.py`、`run_references.py`。
+- 环境、奖励、日志/runner和校准测试；补充协议、场景及集成测试。
+
+v1后续入口也位于 `examples/control_v1/`；可复用逻辑放在 `cemas/control/`。旧t18及绘图保留，不创建t23，不在薄入口重复实现校准或环境逻辑。
 
 **环境接口**
 
 ```text
+WeeklyControlEnvironment(protocol, mode='evaluation', purpose='smoke', scenario_options=None)
 reset(seed, options) -> (PublicObservation, PublicInfo)
-
-step(action_id)
-    -> (PublicObservation, reward, terminated, truncated, PublicInfo)
-
+step(action_id) -> (PublicObservation, reward, terminated, truncated, PublicInfo)
+step_proposal(proposal, fallback_reason=None) -> 同一返回
 action_masks() -> bool[324]
+audit_snapshot() -> EpisodeAuditSnapshot
 close()
 ```
 
-先实现不依赖 Gymnasium 的同形接口；Phase 6 增加薄 Gymnasium 适配器，复用相同环境实现。
+先实现不依赖Gymnasium的同形接口；Phase 6增加薄适配器。动作编号经共同decoder转为提案，两入口共用唯一resolve/执行主线。环境推进、独立奖励计算、控制器决策和logger写记录分别负责，runner仅编排单回合。
 
-- 训练模式返回私有训练 reward；评估模式返回占位值，真实指标进入独立私有记录。
-- runner 只将观察与 mask 传给冻结策略，不传 reward 或环境内部对象。
-- `PublicInfo` 不包含真值、累计回报、seed、未来资源日期或 simulator 引用。
+- 训练模式向学习器返回真实reward；评估返回 `0.0`，真实值通过私有审计写日志，两模式不改变世界轨迹。
+- Controller只接收公共观察和反馈。PublicInfo仅含resolution/feedback，reset时为空。
+- 真值、reward、beta、seed、未来事件、完整DecisionRecord和simulator不得进入控制器、prompt或memory。
+- `audit_snapshot()`仅供runner，返回不可变记录和配置，不返回simulator或可变runtime对象。
 
 **时序与奖励**
 
-- day 0 决策，历史为空；一个 step 推进最多七个真实日步。
-- 保持引擎原顺序：状态预更新、接触更新、干预、处置后更新、传播、日终记录。
-- 使用每日 flow 计算周量，不读取未 finalize 的累计差分。
-- H112 对应 `n_days=111`、16 次决策；尾周不足七天仍正确结算。
-- 达到任务 H 时 `terminated=True`，不 bootstrap；基础设施失败不伪装成正常结束。
-- finalize 只执行一次；环境独立保存进度，避免 finalize 后 `sim.t` 回退造成误判。
-- 固定参照为最低向量和当前最高资源合法向量，均走共同执行器。
+- reset新建已经初始化的ScenarioBundle，使用实际挂接executor/analyzer，不再次initialize，周间不设seed。
+- day0先决策，历史为空；每步直接调用最多七次sim.step，保留原引擎日内顺序；公共/私有量使用相同已完成闭区间。
+- H112为112个日步、n_days111、16次决策；尾段按实际日数结算，不放大，不进入完整周观察历史，通过反馈和日志交付。
+- 到H自然terminated，不bootstrap、不额外推进、不提前交付pending事件。环境独立保存进度和finalize_attempted，完整回合只尝试finalize一次，close幂等。
+- 未完成关闭或reset记aborted，日步/finalize等基础设施异常记failed，不伪装为完整结果。
+- `V1RewardCalculator`保留RewardCalculator.compute签名，RewardBreakdown同一分项供奖励/日志使用。统一I/N及T/.12NH、L/.10NH、Q/NH、A/NH，λ=1/四项各.25；N/H回合固定，不含初始感染，不裁剪，无切换/终点额外奖励。
+- P3记录cemas-reward-v1/development_candidate，后续源域及H验证后统一冻结。主敏感性λ=.5/1/2，内部扰动作为扩展，不能按最终测试或某方法优势选权重。
+- 最低参照 `[0,0,0,0,0]`，最高 `[2,Smax,2,2,2]`；Smax从公共mask取得，两者经过共同执行器。最低仍有例行基线。
 
 **E0 校准接口**
 
 ```text
-make_calibration_sim(beta, world_seed, window) -> Sim
-fit_beta(protocol, reconstructed_data) -> CalibrationArtifact
-evaluate_beta(artifact, evaluation_seeds) -> FitReport
+resolve_campus_parameters(protocol, world_seed, beta=..., ...) -> 独立参数容器
+make_calibration_sim(protocol, beta, world_seed, window='primary', data=...) -> 已初始化Sim
+fit_beta(protocol, reconstructed_data, window='primary'|'exploratory') -> CalibrationArtifact
+evaluate_beta(artifact, evaluation_seeds=None) -> FitReport
+save_calibration_artifact(artifact, output_dir) -> artifact.json
+save_fit_report(report, output_dir) -> fit_report.json
+load_calibration_artifact(path, protocol, require_evaluation=True) -> CalibrationArtifact
 ```
 
-迁移为仅拟合 beta、100 trials、每候选固定三个世界的归一化日诊断 MSE；删除新校准中的 `R_e` 惩罚。采用旧 t18 人口设置，主窗口 16 实际日、延迟 0；辅助留出从拟合起点连续推进。
+E0与后续校园控制共用协议engine的完整v1人口生成配置，包括N12000/初始感染30、三段年龄比例.60/.20/.20、全部校园参数和固定网络/病程。提取纯参数构造函数，两路径容器独立、用途seed分离。E0安装test_num延迟0，控制环境安装共同执行器延迟1，各自只初始化一次。
 
-产物包含 beta、数据与配置 hash、完整人口/引擎设置、trial、seed、独立误差及运行带。正式 runner 必须加载并核验产物，不能接受旧四参数文件作为 v1 校准证明。
+仅拟合beta∈[.005,.04]，固定层系数，100 trials、优化器seed84001、每候选三个固定世界。损失先逐世界计算日诊断MSE再平均，除以(观测均值+1)²；不使用平均曲线MSE，不加累计诊断或R_e惩罚。主窗16实际日/n_days15，独立20世界；辅助拟合12实际日/n_days11，独立留出从拟合起点连续推进，仅评价最后4日。
+
+保存beta、trial/失败、数据hash、完整解析配置及人口统计、种子、依赖/代码版本、独立误差和运行带。真实主窗artifact及匹配fit_report均核验后才允许科学环境；拒绝裸beta、旧人口/四参数文件、缺失或损坏证据。人口/基础模型用于兼容核验，完整协议hash用于追溯；控制H或奖励变化本身不要求重校准。
+
+数据只支持重建聚合诊断序列拟合与计数核查；daily tests为重建输入，不称官方原始逐日数据验证。E0核验与目标正式冻结分开：候选目标可做校准后源域开发，最终测试仍须后续完整冻结。
 
 **兼容与验证**
 
-已有每日模拟调用继续使用；新入口不调用旧 `campus_policy_agent`。日志骨架在此阶段启用，不等 Phase 7 才开始记录。
+已有每日模拟调用继续使用；新入口不调用旧campus_policy_agent，不重构传播核心。日志从首个闭环启用，保存公共日/周、DecisionRecord、私有日/周奖励、summary/manifest和失败；只有finalize、对账和落盘成功才登记completed。
 
-先用小人口做生命周期和对账测试，再以 N12000、H112、smoke seeds、beta 0.016 跑两个固定参照。明确标记 smoke，核对：
+实施顺序：契约/静态验证→奖励/共享参数→周环境→参照/日志/runner→小人口验收和完整smoke→E0/独立评价→加载E0的参照运行。使用指定simulation Python，先通过相关离线测试，再以N12000/H112、smoke世界、beta.016运行两个参照，明确标记smoke且calibration_verified=false，核对：
 
 ```text
-cum_infections = 30 + sum(daily_new_infections)
-日量之和 = 周量之和 = 终点总量
+cum_infections = initial_infections + sum(daily_new_infections) <= N
+各成本日量之和 = 周量之和 = 终点汇总
+-sum(真实周reward) = 终点positive_cost
 ```
 
-同时验证 reset、尾周、终点 pending 事件、同世界同动作前缀重放。正式源域开发必须等待真实 E0 产物。
+逐项核对两检测路径、通知、处置并集和三活动；累计量不逐周相加，峰值取max，终点状态取末值。覆盖H7/8/10/15、day0/reset/close/finalize、pending、同世界前缀重放、训练/评估轨迹一致、公共边界和失败记录。真实主/辅助窗拟合及独立评价成功后登记实际证据，不预填beta/通过数。两个参照不能替代后续全部主方法的H门禁。
 
 ---
 
@@ -512,7 +523,7 @@ H 若从112延长，统一更新全部方法的时域和尺度，重新开发、
 
 **修改文件**
 
-- `examples/t23_control_protocol_v1.py`
+- `examples/control_v1/` 中按用途命名的实验薄入口
 - `cemas/control/logging.py`
 - `cemas/control/scenarios.py`
 
@@ -565,7 +576,7 @@ manifest 保存完整解析引擎参数、版本/hash、用途、seed、配对�
 
 ## D. 第一阶段具体执行任务列表
 
-**下一次编码范围为 Phase 0。首个功能交付里程碑为 Phase 0–3：一个校园条件、两个固定参照、统一观察/动作/周环境和完整对账日志。**
+**本节为最初的Phase 0历史任务清单，不是当前待办。首个功能交付里程碑为Phase 0–3：一个校园条件、两个固定参照、统一观察/动作/周环境和完整对账日志；当前交付及验收状态查各阶段契约。**
 
 Phase 0 按以下顺序执行：
 
