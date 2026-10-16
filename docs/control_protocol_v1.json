@@ -1,16 +1,18 @@
 {
   "protocol_id": "cemas-control-v1",
-  "status": "phase3_weekly_control_and_e0_implemented",
+  "status": "phase4_offline_llm_implemented_provider_acceptance_pending",
   "authored_date": "2026-10-12",
-  "reviewed_date": "2026-10-13",
+  "reviewed_date": "2026-10-16",
   "experiment_scope": "partially_observable_campus_control_and_frozen_synthetic_transfer",
   "architecture_constraints": {
     "schema_version": "cemas-control-schema-v1",
-    "implementation_phase": 3,
+    "implementation_phase": 4,
     "controller_interface": [
       "reset() -> None",
-      "decide(PublicObservation) -> ActionProposal",
-      "observe(PublicWeekFeedback) -> None"
+      "decide(PublicObservation) -> ActionProposal | None",
+      "observe(PublicWeekFeedback) -> None",
+      "consume_failure_reason() -> str | None",
+      "drain_call_audits() -> tuple[LLMCallAudit, ...]"
     ],
     "rl_output_boundary": "internal_action_id_decoded_by_shared_ActionDecoder_before_ActionProposal",
     "controller_simulator_access": false,
@@ -802,6 +804,8 @@
       "maximum_feasible"
     ],
     "llm": {
+      "prompt_template": "cemas/control/prompts/public_v1.json",
+      "token_count_method": "official_local_chat_template_v1",
       "primary_api_model": "deepseek-flash",
       "primary_actual_family": "DeepSeek-V4.1-Flash_as_of_2026-10-12_official_route",
       "secondary_api_model": "qwen3.5-plus-2026-02-15",

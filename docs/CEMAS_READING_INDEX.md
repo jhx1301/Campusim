@@ -1,12 +1,12 @@
 # CEMAS v1 当前工作阅读索引
 
-更新日期：2026-10-15。此索引用于接续 v1 开发，集中阅读现行协议、阶段契约和当前代码。
+更新日期：2026-10-16。此索引用于接续 v1 开发，集中阅读现行协议、阶段契约和当前代码。
 
 ## 1. 当前进度
 
 项目目标是在同一个部分可观测疫情控制任务中，让各控制器共享观察、动作、执行器和评价口径。
 
-工作目录为 `D:/项目/毕业设计/code/Campusim`，v1 功能分支为 `feature/control-protocol-v1`，P3 实施前基线为 `8324a81`。当前提交和未提交改动以实际 Git 检查为准，保留已有 `docs/修改意见.md` 等用户文件。
+当前工作目录为 `E:/项目/毕业设计/code`，v1 功能分支为 `feature/control-protocol-v1`。P3实施前基线及历史环境路径仍保留在P3契约；当前提交和未提交改动以实际Git检查为准。
 
 | 阶段 | 内容与状态 |
 |---|---|
@@ -14,6 +14,7 @@
 | Phase 1 | `[T,S,C,E,A]` 的 324 动作编解码、公共筛查容量 mask 和 ActionResolution |
 | Phase 2 | campus 场景、共同执行器、公共 ledger/观察、198 维编码和独立私有指标 |
 | Phase 3 | 已实现周环境、统一奖励、两个固定参照、日志/runner 和共享人口 E0；334项测试、完整smoke及主/辅助E0已验收，证据和拟合限制见 [P3 契约](control_phase3_contracts.md) |
+| Phase 4 | 已实现公共prompt、严格解析、本地计数适配/验收门禁、transport、重试、共同回退和调用审计；472项回归及完整离线闭环通过，真实provider/tokenizer验收待完成，见 [P4 契约](control_phase4_contracts.md) |
 
 P3 的公式和计数语义已确认，当前权重为可执行的 `development_candidate`。后续全部主方法的源域验证与 H 检查完成后再统一正式冻结；P3 闭环验收不代表权重验证、训练或最终实验完成。测试及实际 smoke/E0 结果只以契约中明确登记的证据为准，不能根据存在脚本就认定校准已经执行。
 
@@ -21,8 +22,8 @@ P3 的公式和计数语义已确认，当前权重为可执行的 `development_
 
 | 顺序 | 文档 | 当前应关注的内容 |
 |---|---|---|
-| 1 | [Phase 3 契约](control_phase3_contracts.md) | 设计选择、实际接口、生命周期、信息边界、E0 产物门禁和验收记录 |
-| 2 | [工程实现计划](cemas_v1_implementation_plan.md) | C 节 Phase 3 的实施顺序及后续边界；D 节为历史 P0 任务清单 |
+| 1 | [Phase 4 契约](control_phase4_contracts.md)、[Phase 3 契约](control_phase3_contracts.md) | 当前LLM接口/离线证据/真实验收门禁；P3生命周期、信息边界及E0历史证据 |
+| 2 | [工程实现计划](cemas_v1_implementation_plan.md) | C节Phase 4–5的当前边界；D节为历史P0任务清单 |
 | 3 | [推荐协议](llm_recommended_protocol_v1.md)、[JSON](control_protocol_v1.json) | 第4–7、12–14节和附录 A；配置作为数值来源，勿另写常量 |
 | 4 | [Phase 2 契约](control_phase2_contracts.md) | 已有执行器、公共/私有数据路径及可复用接口 |
 | 5 | [Phase 0 契约](control_phase0_contracts.md)、[Phase 1 契约](control_phase1_contracts.md) | 按需查共享类型、奖励抽象接口、DecisionRecord、mask 和动作解析 |
@@ -40,9 +41,10 @@ P3 的公式和计数语义已确认，当前权重为可执行的 `development_
 | [actions.py](../cemas/control/actions.py)、[resolution.py](../cemas/control/resolution.py) | 共同编解码、mask、校验与回退，两种动作入口复用同一路径 |
 | [execution.py](../cemas/control/execution.py)、[ledger.py](../cemas/control/ledger.py)、[metrics.py](../cemas/control/metrics.py) | 每日执行、公共交付和运营记录、私有感染 flow；用于日/周/终点对账 |
 | [observation.py](../cemas/control/observation.py) | 纯公共观察构造与198维编码，mask 单独提供 |
-| [controllers.py](../cemas/control/controllers.py)、[runner.py](../cemas/control/runner.py)、[logging.py](../cemas/control/logging.py) | 两个固定参照、最小单回合编排、公共/私有日志及运行完成状态 |
+| [controllers.py](../cemas/control/controllers.py)、[runner.py](../cemas/control/runner.py)、[logging.py](../cemas/control/logging.py) | 公共控制器及可选失败/审计出口、公共配置工厂、单回合编排、私有LLM调用日志和完成状态 |
+| [llm.py](../cemas/control/llm.py)、[public_v1.json](../cemas/control/prompts/public_v1.json) | 无显式记忆LLM、纯公共两条消息、严格parser、固定本地计数资源及provider验收、transport/重试 |
 | [calibration.py](../cemas/control/calibration.py) | 共享人口 E0 的拟合、独立评价、产物保存及兼容性核验 |
-| [examples/control_v1/](../examples/control_v1/) | v1 薄入口：`smoke.py`、`calibrate.py`、`evaluate_calibration.py`、`run_references.py` |
+| [examples/control_v1/](../examples/control_v1/) | 固定参照/E0薄入口，以及 `smoke_llm.py`（离线fixture）、`run_llm.py`（真实验收与E0双门禁） |
 
 v1 所有后续实验入口也放在 `examples/control_v1/`，可复用逻辑只放在 `cemas/control/`。旧 t18 脚本和绘图保留，不创建 t23；旧四参数、旧人口产物不能作为 v1 E0 证明。
 
@@ -57,14 +59,14 @@ v1 所有后续实验入口也放在 `examples/control_v1/`，可复用逻辑只
 - `build_scenario()` 已初始化，环境不重复 initialize，周间不重新设 seed；完整回合只尝试 finalize 一次，close 幂等，进度独立于 finalize 后的 `sim.t`。
 - 到 H 不额外推进、不提前交付 pending 事件。初始感染、感染新增、累计、峰值和终点活动状态分别核对。
 - smoke 仅检查闭环；科学运行必须加载带独立评价的真实主窗 E0 产物，不能用裸 beta 或手填证明代替。最终实验还须通过后续统一冻结门禁。
-- Python 为 `D:/programfile/miniconda3/envs/simulation/python.exe`。依赖按当前实装和用户授权核对，不把旧快照当作现在的安装状态。
-- P3 不提前实现 LLM、PPO/DDQN、调优阈值、memory、训练或城市实验；后续按既定阶段推进。
+- 当前指定Python为 `E:/pytroch/anaconda3/envs/simulation/python.exe`（本机3.10.20），P3旧环境快照作为历史保留。P4可选SDK/tokenizer依赖与版本闭包单独记录在 `requirements-control-llm-v1.in` / `.lock.txt`；测试工具使用本地隔离目录，不改共享环境。
+- P4仅实现无显式记忆LLM基础链；真实API验收本轮按用户决定暂缓。P5才增加记忆、检索、embedding及其裁剪/压缩，P6才做调优阈值、RL、训练和权重/H冻结。
 
 ## 5. 下一次接续提示
 
 ```text
-请先阅读 docs/CEMAS_READING_INDEX.md 及 P3 契约，核对当前分支和未提交改动。
-根据 P3 契约中的实际验收记录区分已有代码、测试、smoke 和 E0 证据，勿把脚本存在当作校准完成。
+请先阅读 docs/CEMAS_READING_INDEX.md 及 P4/P3 契约，核对当前分支和未提交改动。
+区分P4离线fixture结果、尚未完成的真实provider/tokenizer验收、P3历史E0证据；不能用离线通过来宣称真实LLM episode可用。
 保持统一奖励、共享 v1 人口、公共/私有隔离、单次 initialize/finalize 及日周终点对账。
 v1 脚本放在 examples/control_v1/，复用逻辑放在 cemas/control/，保留旧 t18 及用户文件。
 先说明已完成项和剩余门槛，再按本轮用户指令继续；使用指定 simulation Python。

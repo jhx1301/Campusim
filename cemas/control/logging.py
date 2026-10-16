@@ -97,6 +97,8 @@ class DecisionRecord:
     reasoning: str | None = None
     retrieved_case_ids: tuple[int, ...] = ()
     elapsed_ms: float = 0.0
+    llm_attempt_count: int = 0
+    llm_succeeded: bool | None = None
 
     def __post_init__(self) -> None:
         if (type(self.observation_hash) is not str or len(self.observation_hash) != 64
@@ -126,6 +128,10 @@ class DecisionRecord:
         if type(self.elapsed_ms) not in (int, float) or not 0 <= self.elapsed_ms < float("inf"):
             raise ValueError("elapsed_ms must be finite and nonnegative")
         object.__setattr__(self, "elapsed_ms", 0.0 if self.elapsed_ms == 0 else float(self.elapsed_ms))
+        if type(self.llm_attempt_count) is not int or self.llm_attempt_count < 0:
+            raise ValueError("llm_attempt_count must be a nonnegative ordinary integer")
+        if self.llm_succeeded is not None and type(self.llm_succeeded) is not bool:
+            raise TypeError("llm_succeeded must be boolean or None")
 
     def to_dict(self) -> dict:
         record = asdict(self)
@@ -212,6 +218,26 @@ class RunLogger:
         self._handles["decisions.jsonl"].write(
             json.dumps(payload, ensure_ascii=False, allow_nan=False) + "\n")
 
+    def write_llm_calls(self, audits, *, metadata=None) -> None:
+        """Durably deliver actual calls before advancing the environment."""
+        from .llm import LLMCallAudit
+
+        if self._closed:
+            raise RuntimeError("run logger is closed")
+        if type(audits) is not tuple or any(type(audit) is not LLMCallAudit for audit in audits):
+            raise TypeError("call audits must be an immutable tuple of LLMCallAudit")
+        if audits and "llm_calls.jsonl" not in self._handles:
+            self._handles["llm_calls.jsonl"] = (self.output_dir / "llm_calls.jsonl").open(
+                "x", encoding="utf-8", newline="\n")
+        for audit in audits:
+            self._handles["llm_calls.jsonl"].write(
+                json.dumps(resolved_snapshot(audit), ensure_ascii=False, allow_nan=False) + "\n")
+        if metadata is not None:
+            self._manifest["llm"] = resolved_snapshot(metadata)
+            self._write_json("manifest.json", self._manifest)
+        if audits:
+            self.flush()
+
     def write_snapshot(self, snapshot) -> None:
         if self._closed:
             raise RuntimeError("run logger is closed")
@@ -261,8 +287,10 @@ class RunLogger:
         self._manifest["status"] = "completed"
         self._write_json("manifest.json", self._manifest)
 
-    def fail(self, error: BaseException, snapshot=None) -> None:
-        failure = {"error_type": type(error).__name__, "error": str(error)}
+    def fail(self, error: BaseException, snapshot=None, *, safe_error=None, details=None) -> None:
+        failure = {"error_type": type(error).__name__, "error": str(error) if safe_error is None else safe_error}
+        if details is not None:
+            failure["details"] = resolved_snapshot(details)
         log_errors = []
         if snapshot is not None and not self._closed:
             try:

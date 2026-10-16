@@ -1,0 +1,97 @@
+# CEMAS control v1：Phase 4 公共 LLM 控制器契约
+
+本阶段实现 `llm_no_explicit_memory`，沿用 P3 的观察、动作、执行器、目标和 E0 门禁。配置数值以 [协议 JSON](control_protocol_v1.json) 为唯一来源；固定文案以 `cemas/control/prompts/public_v1.json` 为唯一来源。实施与实际验收记录分开登记。
+
+## 1. 输入、接口与阶段边界
+
+`build_public_messages(observation, prompt_config, *, memory_context=None)` 只接受精确的 `PublicObservation` 和不可变公共配置。runner 工厂白名单投影公共动作、资源、活动、目标、观察解释和固定检疫期限，不传完整协议、manifest、seed、beta、私有感染或奖励。N/H、容量和历史只从 observation 读取。
+
+每次决策仅发送 system/user 两条消息。user 是规范化 JSON，恰含 `observation` 和 `public_rates`。最近四个完整周以 observation 的顺序、左填充和有效标记为准；`observe()` 只校验公共反馈类型，不积累历史。非空 `memory_context` 明确拒绝，记忆、检索、裁剪和压缩属于 P5。
+
+`Controller.decide()` 返回 `ActionProposal | None`；`consume_failure_reason()` 默认 None，`drain_call_audits()` 默认空 tuple。LLM reset 清空失败原因及待交付审计，每次 decide 先清除旧失败原因。
+
+| 接口 | 职责 |
+|---|---|
+| `runner.make_public_prompt_config(protocol, template_path=None)` | 白名单投影、加载固定模板，返回嵌套不可变的 PublicPromptConfig |
+| `runner.make_llm_settings(protocol, provider, endpoint, api_key_env)` | 模型/预算/重试/采样参数取自协议；只接收凭据环境变量名，不接收密钥值 |
+| `runner.make_llm_controller(..., tokenizer_manifest, tokenizer_acceptance)` | 组装生产transport、配置和本地计数器；SDK/tokenizer不在包导入时加载 |
+| `LLMTransport(settings, client=None).complete(messages)` | 单次OpenAI兼容SDK请求；主模型thinking/effort/top_p，次模型enable_thinking/thinking_budget分别适配 |
+| `OfficialInputTokenCounter(resource_manifest, acceptance_path=None)` | candidate计数、正常运行validate、计数及服务身份校验 |
+| `runner.accept_llm_token_counter(transport, counter, config, observations, output_dir)` | 独立三种公开消息的候选计数验收，记录调用并生成匹配receipt；不推进实验episode |
+
+`observations` 的键固定为 `day0/four_weeks/long_numeric`，值必须是精确公共观察类型；后两者都有四个有效周，long_numeric的数值payload更长。验收原文、usage、响应id/模型/指纹和本地计数逐次持久化；任何失败保留调用及failure.json，不生成accepted receipt。
+
+## 2. 消息身份、解析和预算
+
+模板、公共规则快照、最终消息分别使用排序键、紧凑分隔符、UTF-8 JSON 的 SHA-256。消息数组保持顺序；完整协议 hash 仅留在 runner 私有元数据。
+
+响应只能是恰含 action/reason 的 JSON 对象。拒绝重复键、NaN/Infinity、围栏、额外正文和修补。action 是五个普通整数，范围由 ActionVector 检查；reason 非空、单行、至多协议规定的120字符，不截断。资源非法提案仍交共同 resolver。
+
+完整输入预算8000，输出上限8192，次模型推理预算4096，各自独立。官方本地 tokenizer 必须包含模型对应关系、文件内容 hash、消息模板、加载库版本和供应商计数验收身份；正常运行不下载、不估算。每次 decide 构造/计数一次，重试复用消息；输入超限零调用。实际 usage 与本地计数不一致或超限时终止。
+
+当前离线适配为 `official_local_chat_template_v1` / `hf_apply_chat_template_v1`：显式 `tokenize=True, add_generation_prompt=True, return_dict=False, truncation=False, padding=False`。资源manifest包含 `adapter/provider/model/official_source/library_versions/files/chat_template_file/template_kwargs/request_parameters_sha256`；files逐一锁原始字节hash，库版本锁transformers、tokenizers、jinja2、markupsafe。请求模式hash来自 `snapshot_sha256(settings.request_parameters())`。不接受覆写计数控制参数或未固定的加载资源。官方资源没有可核验消息模板、需要尚未实现的其他编码器或版本不符时直接阻止，不自行发明模板。
+
+正常运行还要求匹配 `tokenizer_acceptance.json`：核对资源身份、endpoint、请求参数、三个case的完整消息/hash/usage及返回服务身份。资源、receipt、返回型号或指纹发生变化时终止当前批次。hash用于完整性和关联，不代替官方资源来源核验或真实账户调用证据。
+
+独立 provider 验收必须覆盖 day0、完整四周及长数值消息，保存每次完整消息、本地计数、实际 usage、模型与服务指纹。验收不作为有效实验轨迹；缺少资源或匹配证据时阻止真实 episode，不能用 mock 通过来替代。
+
+## 3. 调用、失败与共同回退
+
+transport 单次请求，SDK 内部重试为0。controller 最多三次尝试，连续可重试失败恰好三次，间隔2/4秒；成功立即结束。重试覆盖临时连接/超时、408、限流429、临时5xx和严格解析失败。配置、鉴权、模型、参数、余额/硬配额、预算或计数器错误立即终止。先看结构化错误码再看HTTP状态，未知错误保留异常终止。
+
+耗尽返回 None，失败原因 `llm_retry_exhausted`。runner 将该原因传给 `step_proposal()`，沿用保持当前组合、必要时只投影S的共同回退。None 必须有失败原因；有效提案不得同时带失败原因。
+
+错误码按供应商解释：Qwen的429 `insufficient_quota` / `Throttling.AllocationQuota`可能表示临时token限流；明确余额、欠费、硬额度或免费额度耗尽仍立即终止，不把包含quota的错误一律归为同一种。只在内存中读取用于区分的已知结构化描述，日志保存稳定码和通用脱敏描述。[Qwen官方错误码](https://www.alibabacloud.com/help/en/model-studio/error-code)、[限流说明](https://www.alibabacloud.com/help/en/model-studio/rate-limit)
+
+## 4. runner、持久化和用途
+
+runner 在 decide 成功或异常后都先交付/落盘已产生的调用审计，再推进环境或处理失败。fatal 不推进当周、不制造正常决策；manifest failed，保留之前轨迹。调用前失败没有伪造 attempt，预算/配置证据进入 failure.json。
+
+私有 `llm_calls.jsonl` 逐次保存日/序号/UTC时间、供应商及endpoint、请求和返回模型、响应id/指纹、完整消息及三种hash、计数器身份和输入量/预算、usage、最终原文、finish reason、耗时、稳定错误及可重试性。不得保存认证头、密钥或原始供应商异常文本。DecisionRecord 新增默认值 `llm_attempt_count=0`、`llm_succeeded=None`。
+
+离线 smoke 使用既有 smoke 世界；真实 prompt 开发使用40001–40009，仅 runner 管理 seed，内部仍走 scientific 环境和真实 E0 门禁。最终测试池保持关闭。P6 才实现全方法源域开发、权重/H冻结和训练。
+
+manifest的 `run_purpose` 保存runner用途；环境内部purpose为scientific。LLM元数据额外记录 `live_provider`、transport类型、模板/公共快照hash、settings和计数器身份。生产transport只能用于prompt_development，离线替身只能用于smoke；固定参照继续使用既有用途。不可重试失败不制造回退；调用前失败保留可用的三类hash、输入计数与预算。
+
+薄入口为 `examples/control_v1/run_llm.py` 与 `smoke_llm.py`。真实入口显式要求endpoint、凭据变量名、资源manifest、计数验收receipt和真实E0产物；模型名仍由协议提供。`--help`不会启动模拟或加载SDK/tokenizer。P3既有入口和历史产物保留。
+
+## 5. 实际验收
+
+2026-10-16，基线 `feature/control-protocol-v1@4ad20f5`，使用用户指定的 `E:/pytroch/anaconda3/envs/simulation/python.exe`（Python3.10.20）完成离线实现和验收。用户本轮明确选择先完成离线工作，真实provider/tokenizer验收暂缓；没有付费模型调用，也没有把替身计数登记为模型token量。
+
+该解释器原先缺少pytest。pytest7.4.4及其依赖装入被Git忽略的 `results/control_v1_phase4/test_dependencies/`，未修改共享Python环境。SDK/tokenizer库原已存在，P4可选依赖声明及39项实际版本闭包分别为 `requirements-control-llm-v1.in`、`requirements-control-llm-v1.lock.txt`；P3历史环境快照未覆盖。
+
+- 全部 `tests/test_control_*.py` 加 `test_cemas_import.py`、`test_campusLayer.py`：**472 passed**；证据为 `results/control_v1_phase4/regression_final_compat.xml`。错误码专项**17 passed**（`error_mapping_verified.xml`）；最后保留原决策计时口径、排除审计落盘时间后，runner定向回归**35 passed**（`runner_verified.xml`）。这些专项与全量测试有重合，不相加计算唯一测试数。
+- 覆盖公共配置/三类hash、公共/私有隔离、唯一历史、严格parser、7999/8000/8001预算、缺失/不符/未验收计数器、精确重试及2/4秒等待、不同供应商参数与错误码、调用前失败零attempt、usage不一致、调用落盘顺序、S容量下降仅投影S、fatal和日志失败不推进当前周。P3固定参照及既有control回归继续通过。
+- 真实本地Transformers/tokenizers/Jinja加载路径使用**合成词表**测试，显式验证完整两条消息、角色、模板和生成前缀；它不代表DeepSeek/Qwen的官方资源或服务计数验收。当前Transformers5.13默认返回字典，适配已显式 `return_dict=False`；不截断、不填充。
+- 指定Python3.10没有 `BaseException.add_note()`，runner已兼容保存次级清理/日志故障到 `__notes__`，不掩盖原始异常；两种复合故障已纳入回归。DecisionRecord的elapsed_ms继续计量decide耗时，审计IO另属runner开销；单次调用耗时保留在LLMCallAudit中。
+- `compileall`、`pip check`、`git diff --check`通过。pytest仍有既有 `env` 配置未识别警告，没有为消除此警告更改项目设置。
+
+最终离线闭环位于 `results/control_v1_phase4/final_verified/`，全部显式标记 `live_provider=false`、`accepted_for_live=false`、`calibration_verified=false`。输入计数100是测试替身常量，不是估算值或真实模型计数。
+
+| 离线场景 | 世界 | N/H | 结果 | 决策数 | 模拟调用数 |
+|---|---:|---|---|---:|---:|
+| retry后成功 | 90001 | 12000/112 | completed，112条日记录 | 16 | 17 |
+| 三次耗尽后共同回退，后续成功 | 90002 | 12000/112 | completed，112条日记录；首周回退、下一周无旧失败状态 | 16 | 18 |
+| 首周成功，下一次fatal | 90001 | 12000/112 | failed，停在7个日步；保留第二次调用，不伪造第二周决策 | 1 | 2 |
+
+独立读取JSONL/CSV核对三类hash、每次消息数、重试消息一致、attempt/DecisionRecord对应、日/周/终点各项及reward，结果为 `results/control_v1_phase4/verification.json`，可复核脚本为同目录 `verify_offline.py`。较早运行和失败的测试尝试保留为本地诊断，表中只列最终final_verified闭环。
+
+本轮真实计算的模板hash为 `ae7e4ab1b8be642d0b4f410d6e466c11e1a7fcaa89b2486aa29e890ace9243f1`；公共规则快照hash为 `00d2c7f2f551ac6038faf26ef4e94bf846c9a06c27e1c228c7dd313bf6e4265b`。messages hash按每次实际消息记录，不预填单一全局值。官方tokenizer资源hash和真实usage目前没有验收记录。
+
+从仓库根目录复现（输出目录必须全新；Windows沙箱下pytest临时目录访问可能需要授权）：
+
+```powershell
+$python = 'E:/pytroch/anaconda3/envs/simulation/python.exe'
+$env:SCIRIS_BACKEND = 'agg'
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = '1'
+$env:PYTHONPATH = (Join-Path $PWD 'results/control_v1_phase4/test_dependencies')
+$tests = @(Get-ChildItem tests -Filter 'test_control_*.py' | ForEach-Object FullName)
+& $python -m pytest @tests tests/test_cemas_import.py tests/test_campusLayer.py -q -m 'not online' --basetemp results/new_p4_pytest
+& $python -m examples.control_v1.smoke_llm --case retry --seed 90001 --output results/new_p4_retry
+& $python -m examples.control_v1.smoke_llm --case exhaust --seed 90002 --output results/new_p4_exhaust
+& $python -m examples.control_v1.smoke_llm --case fatal --seed 90001 --output results/new_p4_fatal
+& $python results/control_v1_phase4/verify_offline.py
+```
+
+独立核对脚本读取本轮保留的final_verified目录；新命令输出的新目录需显式纳入复核。下一步真实验收须准备对应模型官方资源及模板，记录全部资源/库版本/请求模式身份，再用源域公共消息调用三种case，匹配实际usage后生成receipt。随后 `run_llm.py`仍要求真实主窗E0及匹配独立报告。不能将本轮离线完成等同于真实LLM episode可用、P5 memory完成或后续统一冻结实验完成。

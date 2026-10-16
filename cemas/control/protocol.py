@@ -440,6 +440,30 @@ def _validate_v1(definition: Any) -> None:
     _validate_calibration(definition)
 
 
+def _validate_llm(definition: Mapping[str, Any]) -> None:
+    llm = _section(_section(definition, "controllers", "protocol"), "llm", "controllers")
+    for key in ("primary_api_model", "secondary_api_model", "primary_effort", "prompt_template"):
+        _text(llm.get(key), f"controllers.llm.{key}")
+    template = Path(llm["prompt_template"])
+    if template.is_absolute() or ".." in template.parts:
+        raise ProtocolValidationError("controllers.llm.prompt_template must be project-relative")
+    if llm.get("token_count_method") != "official_local_chat_template_v1":
+        raise ProtocolValidationError("controllers.llm.token_count_method must use the official local chat template")
+    for key in ("input_token_budget", "max_output_tokens", "reason_max_chars", "secondary_thinking_budget"):
+        _integer(llm.get(key), f"controllers.llm.{key}", 1)
+    _number(llm.get("timeout_seconds"), "controllers.llm.timeout_seconds", positive=True)
+    _number(llm.get("temperature"), "controllers.llm.temperature")
+    _probability(llm.get("primary_top_p"), "controllers.llm.primary_top_p")
+    for key, expected in (("max_attempts", 3), ("primary_sdk_retries", 0), ("repair_model_calls", 0),
+                          ("ensemble_size", 1), ("tools_enabled", False)):
+        if type(llm.get(key)) is not type(expected) or llm[key] != expected:
+            raise ProtocolValidationError(f"controllers.llm.{key} must match Phase 4")
+    if llm.get("retry_delays_seconds") != [2, 4] or any(type(item) is not int for item in llm["retry_delays_seconds"]):
+        raise ProtocolValidationError("controllers.llm.retry_delays_seconds must be [2, 4]")
+    if type(llm.get("thinking")) is not bool or llm.get("json_fields") != ["action", "reason"]:
+        raise ProtocolValidationError("controllers.llm thinking/json_fields are invalid")
+
+
 def _freeze(value: Any) -> Any:
     if isinstance(value, dict):
         return MappingProxyType({key: _freeze(item) for key, item in value.items()})
@@ -461,6 +485,7 @@ def load_protocol(path: str | Path) -> ControlProtocol:
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ProtocolValidationError(f"Cannot decode protocol JSON: {exc}") from exc
     _validate_v1(definition)
+    _validate_llm(definition)
     engine = definition["engine"]
     actions = definition["actions"]
     return ControlProtocol(

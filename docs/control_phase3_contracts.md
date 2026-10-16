@@ -183,3 +183,5 @@ I_{final}=I_0+\sum_d I_d=I_0+\sum_k\Delta I_k\le N,
 这些命令的输出目录必须是新目录；独立评价报告不覆盖原报告。实际执行时协议快照保存在 `results/control_v1_phase3/protocol_used.json`，日志及artifact另外记录解析设置与hash。协议当前阶段元数据随后更新为P3，不改变人口/基础模型兼容核验。
 
 后续全部主方法源域开发与验证B的H门禁、奖励正式冻结、训练充分性和最终E1–E4均不属于本阶段闭环验收结论。
+
+P4接续接口与实际验收单独记录在 [Phase 4 契约](control_phase4_contracts.md)；本文件的P3测试、smoke及E0记录保留为历史证据。

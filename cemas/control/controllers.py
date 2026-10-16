@@ -1,6 +1,10 @@
 """Shared controller contracts and the two fixed v1 references."""
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .llm import LLMCallAudit
 
 from .types import ActionProposal, ActionVector, PublicObservation, PublicWeekFeedback
 
@@ -13,12 +17,20 @@ class Controller(ABC):
         """Clear controller-local episode state."""
 
     @abstractmethod
-    def decide(self, observation: PublicObservation) -> ActionProposal:
+    def decide(self, observation: PublicObservation) -> ActionProposal | None:
         """Propose an action without accessing a simulator or private reward."""
 
     @abstractmethod
     def observe(self, feedback: PublicWeekFeedback) -> None:
         """Accept a closed public execution window."""
+
+    def consume_failure_reason(self) -> str | None:
+        """Return and clear a decision failure for the common resolver."""
+        return None
+
+    def drain_call_audits(self) -> tuple["LLMCallAudit", ...]:
+        """Deliver pending private call records to the runner."""
+        return ()
 
 
 class ActionDecoder(ABC):

@@ -1,6 +1,7 @@
 # Run against the existing simulation environment; retain its engine packages.
 # P3 calibration dependencies were explicitly approved; no RL/embedding stack.
 # Actual installed distributions are recorded in requirements-control-v1.lock.txt.
+# Optional P4 SDK/tokenizer pins: requirements-control-llm-v1.in and its lock.
 pytest>=7.3
 optuna==4.9.0
 alembic==1.20.0

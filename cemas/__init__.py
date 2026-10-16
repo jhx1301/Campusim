@@ -17,6 +17,26 @@ QwenPolicyClient = llm_policy.QwenPolicyClient
 MemoryStore = llm_memory.MemoryStore
 EmbeddingProvider = llm_memory.EmbeddingProvider
 
+# v1 control is loaded only when requested; SDK/tokenizer libraries stay lazy.
+_CONTROL_EXPORTS = frozenset((
+    "LLMController", "LLMTransport", "LLMSettings", "LLMResponse", "LLMCallAudit",
+    "PublicPromptConfig", "ChatMessage", "OfficialInputTokenCounter", "PromptBudgetError",
+    "LLMConfigurationError", "ActionResponseError", "TokenCountMismatchError",
+    "build_public_messages", "parse_action_response", "make_llm_controller",
+    "make_llm_settings", "make_public_prompt_config",
+    "accept_llm_token_counter",
+))
+
+
+def __getattr__(name):
+    if name in _CONTROL_EXPORTS:
+        from . import control
+
+        value = getattr(control, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 __license__ = (
     f"CEMAS {__version__} ({__versiondate__}); derived from Covasim v3.1.7 "
     "and distributed under the MIT License"

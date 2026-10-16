@@ -143,7 +143,7 @@ def test_cli_modules_are_inert_on_import_and_help_needs_no_simulation(monkeypatc
         raise AssertionError("import unexpectedly started a run")
 
     monkeypatch.setattr(runner, "run_episode", forbidden)
-    for name in ("smoke", "calibrate", "evaluate_calibration", "run_references"):
+    for name in ("smoke", "calibrate", "evaluate_calibration", "run_references", "run_llm", "smoke_llm"):
         module = importlib.import_module(f"examples.control_v1.{name}")
         with pytest.raises(SystemExit) as exit_info:
             module.main(["--help"])

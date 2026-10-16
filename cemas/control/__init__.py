@@ -32,7 +32,16 @@ from .calibration import (
     load_calibration_artifact, make_calibration_sim, read_calibration_data,
     save_calibration_artifact, save_fit_report,
 )
-from .runner import RunResult, run_episode
+from .llm import (
+    ActionResponseError, ChatMessage, LLMCallAudit, LLMConfigurationError, LLMController,
+    LLMError, LLMResponse, LLMServiceError, LLMSettings, LLMTransport,
+    OfficialInputTokenCounter, PromptBudgetError, PublicPromptConfig, TokenCountMismatchError,
+    build_public_messages, parse_action_response,
+)
+from .runner import (
+    RunResult, accept_llm_token_counter, make_llm_controller, make_llm_settings,
+    make_public_prompt_config, run_episode,
+)
 
 
 __all__ = [
@@ -58,4 +67,10 @@ __all__ = [
     "load_calibration_artifact", "save_calibration_artifact", "save_fit_report",
     "MinimumController", "MaximumFeasibleController", "RunLogger", "RunResult", "run_episode",
     "resolved_snapshot", "CalibrationFitError",
+    "ActionResponseError", "ChatMessage", "LLMCallAudit", "LLMConfigurationError", "LLMController",
+    "LLMError", "LLMResponse", "LLMServiceError", "LLMSettings", "LLMTransport",
+    "OfficialInputTokenCounter", "PromptBudgetError", "PublicPromptConfig", "TokenCountMismatchError",
+    "build_public_messages", "parse_action_response", "make_llm_controller", "make_llm_settings",
+    "make_public_prompt_config",
+    "accept_llm_token_counter",
 ]

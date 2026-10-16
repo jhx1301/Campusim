@@ -42,6 +42,20 @@ def test_snapshot_rejects_silent_data_loss(value):
         resolved_snapshot(value)
 
 
+def test_decision_llm_summary_defaults_and_validation():
+    from datetime import datetime, timezone
+    from cemas.control.logging import DecisionRecord
+
+    args = ("a" * 64, 0, datetime.now(timezone.utc), "minimum", None, ActionVector((0,) * 5))
+    default = DecisionRecord(*args)
+    assert default.to_dict()["llm_attempt_count"] == 0
+    assert default.to_dict()["llm_succeeded"] is None
+    with pytest.raises(ValueError):
+        DecisionRecord(*args, llm_attempt_count=True)
+    with pytest.raises(TypeError):
+        DecisionRecord(*args, llm_succeeded=1)
+
+
 def audit_snapshot(status="completed"):
     action = ActionVector((0, 0, 0, 0, 0))
     cost = PublicCost(clinical_tests=2)

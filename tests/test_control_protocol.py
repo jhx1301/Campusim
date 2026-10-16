@@ -54,6 +54,19 @@ def test_definition_and_nested_values_are_read_only():
     assert "source_world_pools" not in repr(protocol)
 
 
+@pytest.mark.parametrize("key,value", [
+    ("prompt_template", "../private.json"), ("token_count_method", "characters_divided_by_four"),
+    ("max_attempts", 4), ("max_attempts", True), ("retry_delays_seconds", [2, 4, 8]),
+    ("primary_sdk_retries", 2), ("input_token_budget", 0), ("max_output_tokens", True),
+    ("reason_max_chars", 0), ("secondary_thinking_budget", -1), ("tools_enabled", True),
+    ("thinking", "true"), ("json_fields", ["action", "reason", "risk"]),
+])
+def test_phase4_rejects_inconsistent_call_configuration(tmp_path, definition, key, value):
+    definition["controllers"]["llm"][key] = value
+    with pytest.raises(ProtocolValidationError, match="controllers.llm"):
+        load_protocol(write_protocol(tmp_path, definition))
+
+
 @pytest.mark.parametrize("section,key,value,error", [
     (None, "protocol_id", "other-v1", "protocol_id"),
     ("engine", "pop_size", 0, "engine.pop_size"),

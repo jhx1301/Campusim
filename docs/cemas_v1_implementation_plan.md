@@ -385,7 +385,7 @@ cum_infections = initial_infections + sum(daily_new_infections) <= N
 
 ```text
 Controller.reset()
-Controller.decide(PublicObservation) -> ActionProposal
+Controller.decide(PublicObservation) -> ActionProposal | None
 Controller.observe(PublicWeekFeedback)
 ```
 
@@ -393,13 +393,14 @@ Controller.observe(PublicWeekFeedback)
 
 **核心实现**
 
-- `LLMController`：单控制器，保留共同四周原始历史。
-- `build_public_messages()`：只序列化公共对象，使用 v1 专家知识和目标。
+- `LLMController`：`llm_no_explicit_memory` 单控制器；observation 是唯一历史来源，observe 只校验类型。
+- `build_public_messages()`：仅两条 system/user 消息，公共配置由 runner 白名单投影；固定模板为 `cemas/control/prompts/public_v1.json`，不传完整协议或私有元数据。P4 拒绝非空 memory_context。
 - `parse_action_response()`：仅接受 `action/reason`；五个普通整数，reason 非空、单行、≤120 字，拒绝额外字段。
 - `LLMTransport`：独立供应商参数适配及可注入 mock client。
-- 三次总尝试、固定 2/4 秒间隔、SDK 内部重试关闭、timeout120秒；解析失败用相同公共 prompt 重试。
-- 输入预算 8000 token：先削减检索案例，再压缩附加短期总结；共同历史和任务字段不随记忆消融删减。
-- 保存各次调用的请求/返回型号、响应、usage、延迟和错误；最终失败交共同回退器。
+- 最多三次总尝试、固定 2/4 秒间隔、SDK 内部重试关闭、timeout120秒；仅临时服务及解析失败复用原 prompt 重试。配置/鉴权/余额/硬配额/未知异常立即终止。
+- 输入预算8000 token，完整消息使用对应模型的官方本地 tokenizer/消息模板；固定文件hash、库版本、请求模式及模型对应关系。缺少资源或供应商计数验收则阻止真实 episode。输出8192和次模型推理4096独立生效；P4 不裁剪、不压缩。
+- runner-owned `llm_calls.jsonl` 保存各次请求/返回型号、完整消息、三类hash、计数器身份、输入计数、usage、响应、耗时和脱敏错误。fatal 也先落盘，不推进当前周；超限零调用，实际 usage 不符终止。
+- 耗尽返回 `None + llm_retry_exhausted`，runner 交共同 resolver；DecisionRecord 记录调用次数及是否成功。离线只用smoke池，真实开发只用prompt_development池并保留真实E0门禁。
 
 模型参数沿用 v1。真实服务是否接受请求、实际返回版本和 token 计数方式通过源域 API 验收取得，不能提前宣称成功。
 
@@ -409,7 +410,7 @@ Controller.observe(PublicWeekFeedback)
 
 **验证**
 
-使用 mock 验证 schema、重试次数、供应商参数、预算裁剪、审计字段和共同回退；检查隐藏真值不影响 prompt。真实付费验收单独进行，不进入默认单元测试。
+使用 mock 验证 schema、精确重试/等待次数、供应商参数、完整输入预算、审计持久化和共同回退；检查私有变化及observe不影响prompt。真实provider/tokenizer验收覆盖day0、完整四周及长数值消息，单独进行，不进入默认单元测试。最终接口、命令及实际证据见 [P4 契约](control_phase4_contracts.md)。
 
 ---
 
@@ -452,6 +453,7 @@ organize_short_term(completed_public_weeks) -> PublicMemoryContext
 - 删除层相似度，权重为 `.4 / 4⁄15 / 1⁄3`；top_k6，同执行组合最多两例，同分按 case_id 排序。
 - embedding 固定 revision 和本地 hash，正式评估禁止下载或静默替换。
 - 四种消融只开关短期组织/全局检索，共同原始历史、专家和模型参数一致。
+- 在完整输入预算下先裁剪检索案例，再压缩附加短期总结；不删除基础四周历史或公共任务字段。这些预算裁剪只在P5实现。
 - 来源 seed 等追溯信息独立存放，不进入案例展示或检索返回对象。
 
 **建库依赖**
