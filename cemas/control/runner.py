@@ -86,7 +86,7 @@ def make_llm_settings(protocol: ControlProtocol, *, provider="deepseek", endpoin
     llm = protocol.definition["controllers"]["llm"]
     keys = ("input_token_budget", "max_output_tokens", "reason_max_chars", "max_attempts",
             "retry_delays_seconds", "timeout_seconds", "temperature", "thinking", "primary_effort",
-            "primary_top_p", "secondary_thinking_budget", "token_count_method")
+            "primary_top_p", "token_count_method")
     model_key = "primary_api_model" if provider == "deepseek" else "secondary_api_model"
     return LLMSettings(provider=provider, model=llm[model_key], endpoint=endpoint,
                        api_key_env=api_key_env, **{key: llm[key] for key in keys})
@@ -294,6 +294,7 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
     manifest["run_purpose"] = purpose
     logger = RunLogger(output_dir, manifest)
     environment = None
+    call_audit_error = None
     try:
         from .environment import WeeklyControlEnvironment
 
@@ -308,13 +309,25 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
             decision_time = datetime.now(timezone.utc)
             started = perf_counter()
             call_audits = ()
+            decision_error = None
             try:
                 proposal = controller.decide(observation)
+            except BaseException as error:
+                decision_error = error
+                raise
             finally:
                 elapsed_ms = (perf_counter() - started) * 1000
-                call_audits = controller.drain_call_audits()
-                logger.write_llm_calls(call_audits, metadata=controller.run_metadata()
-                                       if controller_type == "llm" else None)
+                try:
+                    call_audits = controller.drain_call_audits()
+                    logger.write_llm_calls(call_audits, metadata=controller.run_metadata()
+                                           if controller_type == "llm" else None)
+                except Exception as audit_error:
+                    if decision_error is None:
+                        raise
+                    call_audit_error = {"stage": "call_audit_delivery", "error_type": type(audit_error).__name__,
+                                        "error": "Call audit delivery failed"}
+                    _add_error_note(decision_error,
+                                    f"Call audit delivery also failed ({type(audit_error).__name__})")
             failure_reason = controller.consume_failure_reason()
             if proposal is None and (type(failure_reason) is not str or not failure_reason.strip()):
                 raise ValueError("a missing proposal requires a nonempty controller failure reason")
@@ -359,16 +372,21 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
                 environment.close()
                 snapshot = environment.audit_snapshot()
             except Exception as close_error:
-                _add_error_note(error, f"Environment cleanup also failed: {close_error}")
+                description = type(close_error).__name__ if call_audit_error is not None else close_error
+                _add_error_note(error, f"Environment cleanup also failed: {description}")
         try:
             from .llm import LLMError
 
+            details = {"error_code": error.code, **error.details} if isinstance(error, LLMError) else {}
+            if call_audit_error is not None:
+                details["call_audit_error"] = call_audit_error
             logger.fail(error, snapshot, safe_error=(str(error) if isinstance(error, LLMError)
                                                     else "LLM run failed; inspect the raised exception locally")
                         if controller_type == "llm" else None,
-                        details={"error_code": error.code, **error.details} if isinstance(error, LLMError) else None)
+                        details=details or None)
         except Exception as log_error:
-            _add_error_note(error, f"Failure audit could not be completed: {log_error}")
+            description = type(log_error).__name__ if call_audit_error is not None else log_error
+            _add_error_note(error, f"Failure audit could not be completed: {description}")
         raise
     finally:
         active_error = sys.exc_info()[1]
@@ -377,4 +395,5 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         except Exception as close_error:
             if active_error is None:
                 raise
-            _add_error_note(active_error, f"Log cleanup also failed: {close_error}")
+            description = type(close_error).__name__ if call_audit_error is not None else close_error
+            _add_error_note(active_error, f"Log cleanup also failed: {description}")

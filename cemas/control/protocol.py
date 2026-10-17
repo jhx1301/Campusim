@@ -96,6 +96,27 @@ def _probability(value: Any, location: str) -> None:
         raise ProtocolValidationError(f"{location} must be in [0, 1]")
 
 
+def validate_activity_config(activity_config: Mapping[str, Any]) -> None:
+    """Validate the shared nominal daily budgets without changing their values."""
+    if not isinstance(activity_config, Mapping):
+        raise ProtocolValidationError("activity must be an object")
+    for key in ("daily_budget_school_or_work", "daily_budget_community",
+                "dual_school_work_each", "neither_school_nor_work_community"):
+        _probability(_required(activity_config, key, "activity"), f"activity.{key}")
+    community = activity_config["daily_budget_community"]
+    totals = (
+        (activity_config["daily_budget_school_or_work"] + community,
+         "daily_budget_school_or_work + daily_budget_community"),
+        (2 * activity_config["dual_school_work_each"] + community,
+         "2 * dual_school_work_each + daily_budget_community"),
+        (activity_config["neither_school_nor_work_community"],
+         "neither_school_nor_work_community"),
+    )
+    for total, fields in totals:
+        if not math.isclose(total, 1, rel_tol=0, abs_tol=1e-12):
+            raise ProtocolValidationError(f"activity.{fields} must equal 1")
+
+
 def _validate_action_dimension(actions: Mapping[str, Any], name: str, size: int) -> None:
     levels = _required(actions, name, "actions")
     if not isinstance(levels, list) or len(levels) != size:
@@ -422,6 +443,7 @@ def _validate_v1(definition: Any) -> None:
     _validate_action_semantics(definition)
 
     _validate_objective(definition)
+    validate_activity_config(_required(definition, "activity", "protocol"))
     resources = _section(definition, "resources", "protocol")
     for key in ("clinical_tests_per_person_per_day", "screening_main_capacity_ratio", "tracing_index_cases_per_person_per_day"):
         _number(_required(resources, key, "resources"), f"resources.{key}")
@@ -449,7 +471,7 @@ def _validate_llm(definition: Mapping[str, Any]) -> None:
         raise ProtocolValidationError("controllers.llm.prompt_template must be project-relative")
     if llm.get("token_count_method") != "official_local_chat_template_v1":
         raise ProtocolValidationError("controllers.llm.token_count_method must use the official local chat template")
-    for key in ("input_token_budget", "max_output_tokens", "reason_max_chars", "secondary_thinking_budget"):
+    for key in ("input_token_budget", "max_output_tokens", "reason_max_chars"):
         _integer(llm.get(key), f"controllers.llm.{key}", 1)
     _number(llm.get("timeout_seconds"), "controllers.llm.timeout_seconds", positive=True)
     _number(llm.get("temperature"), "controllers.llm.temperature")

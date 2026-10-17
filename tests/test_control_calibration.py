@@ -85,8 +85,12 @@ def test_e0_and_control_share_population_without_control_interventions(protocol)
         assert cal.resolved_snapshot(sim[key]) == cal.resolved_snapshot(control.sim[key])
 
 
-def test_real_small_calibration_world_executes_exactly_the_requested_days(protocol):
+def test_real_small_calibration_world_executes_exactly_the_requested_days(protocol, monkeypatch):
+    registry = Mock(wraps=cal.build_population_registry)
+    monkeypatch.setattr(cal, "build_population_registry", registry)
     run = cal._run_calibration(protocol, .016, 10001, "primary", cal.read_calibration_data(DATA))
+    assert registry.call_count == 1
+    assert registry.call_args.kwargs["activity_config"] is protocol.definition["activity"]
     assert len(run["diagnoses"]) == 16
     assert run["resolved_parameters"]["n_days"] == 15
     assert run["population"]["population"] == 100

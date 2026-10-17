@@ -52,7 +52,7 @@ def world(monkeypatch):
         screening_groups=(tuple(range(6)), tuple(range(6, 10)), tuple(range(10, 12))),
         school_weights=school, work_weights=work, community_weights=community,
         layer_groups=LAYERS)
-    monkeypatch.setattr(scenarios, "build_population_registry", lambda people: registry)
+    monkeypatch.setattr(scenarios, "build_population_registry", lambda people, *, activity_config: registry)
     executor = JointActionExecutor(protocol, PublicResources(12, 12, 12))
     executor.initialize(sim)
     return sim, executor, definition
@@ -265,6 +265,53 @@ def test_activity_absolute_application_restoration_weights_and_union(world):
     assert executor.action_duration_days == (7, 7, 7, 0, 0)
     assert run_day(sim, executor, 7).cost.school_restriction_person_days == 0
     assert all(value == 1.2 for value in sim["beta_layer"].values())
+
+
+@pytest.mark.parametrize("education,activity,expected", [(2, 0, 420), (0, 2, 140)])
+def test_configured_activity_budget_matches_prompt_execution_and_reward(tmp_path, education, activity, expected):
+    from cemas.control.actions import legal_action_mask
+    from cemas.control.ledger import PublicLedger
+    from cemas.control.llm import build_public_messages
+    from cemas.control.rewards import V1RewardCalculator
+    from cemas.control.runner import make_public_prompt_config
+    from cemas.control.types import ExecutedAction, PrivateMetrics, PublicObservation
+
+    definition = json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
+    definition["engine"].update(pop_size=100, pop_infected=0, execution_days=7, n_days=6)
+    definition["activity"].update(daily_budget_school_or_work=.6, daily_budget_community=.4,
+                                  dual_school_work_each=.3, neither_school_nor_work_community=1)
+    path = tmp_path / "activity_protocol.json"
+    path.write_text(json.dumps(definition), encoding="utf-8")
+    protocol = load_protocol(path)
+    sim = cv.Sim(pop_size=100, pop_infected=0, n_days=6, pop_type="random",
+                 rand_seed=9102, verbose=0, rescale=False)
+    sim.initialize()
+    sim.people.age[:] = 20
+    sim.people.class_groups_ug = [dict(students=np.arange(100), teachers=[])]
+    sim.people.class_groups_gr = []
+    sim.people.lab_groups = []
+    sim.people.contacts = cv.Contacts(layer_keys=[name for group in LAYERS.values() for name in group])
+    sim["beta_layer"] = {name: 1.2 for group in LAYERS.values() for name in group}
+    executor = JointActionExecutor(protocol, PublicResources(0, 0, 0))
+    executor.initialize(sim)
+    observation = PublicObservation(
+        0, 7, 0, executor.registry.public_population, executor.resources,
+        executor.current_action, executor.action_duration_days,
+        legal_action_mask(executor.resources, 100, protocol.definition["actions"]))
+    messages = build_public_messages(observation, make_public_prompt_config(protocol))
+    assert "只参加学校者：学校0.6、社区0.4" in messages[0].content
+    executor.set_action(resolution((0, 0, 0, education, activity)))
+    ledger = PublicLedger()
+    for day in range(7):
+        ledger.append(run_day(sim, executor, day))
+    cost = ledger.aggregate_week(0, 6).cost
+    assert (cost.school_restriction_person_days + cost.work_restriction_person_days
+            + cost.community_restriction_person_days) == pytest.approx(expected)
+    calculator = V1RewardCalculator(protocol, 100, 7)
+    breakdown = calculator.breakdown(PrivateMetrics(0, 6, 0, 0, 0, 0, 0), cost,
+                                     (ExecutedAction(0, 6, executor.current_action),))
+    assert breakdown.normalized[-1] == pytest.approx(expected / 700)
+    assert breakdown.reward == pytest.approx(-.25 * expected / 700)
 
 
 def test_illegal_resolution_and_out_of_order_calls_raise_without_fallback(world):

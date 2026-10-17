@@ -29,9 +29,9 @@ def registered_people():
     )
 
 
-def test_persistent_rosters_partition_population_and_fix_nominal_budgets():
+def test_persistent_rosters_partition_population_and_fix_nominal_budgets(protocol):
     people = registered_people()
-    registry = build_population_registry(people)
+    registry = build_population_registry(people, activity_config=protocol.definition["activity"])
     assert registry.school_indices == (0, 1, 2)
     assert registry.work_indices == (1, 3)
     assert registry.screening_groups == ((0, 1, 2), (3,), (4, 5))
@@ -54,21 +54,84 @@ def test_persistent_rosters_partition_population_and_fix_nominal_budgets():
         registry.layer_groups["school"] = ()
 
 
+def test_registry_uses_configured_budgets_for_all_membership_groups(protocol):
+    activity = dict(protocol.definition["activity"])
+    activity.update(daily_budget_school_or_work=.6, daily_budget_community=.4,
+                    dual_school_work_each=.3, neither_school_nor_work_community=1)
+    registry = build_population_registry(registered_people(), activity_config=activity)
+    np.testing.assert_array_equal(registry.school_weights, [.6, .3, .6, 0, 0, 0])
+    np.testing.assert_array_equal(registry.work_weights, [0, .3, 0, .6, 0, 0])
+    np.testing.assert_array_equal(registry.community_weights, [.4, .4, .4, .4, 1, 1])
+
+
+ACTIVITY_BUDGET_KEYS = (
+    "daily_budget_school_or_work", "daily_budget_community", "dual_school_work_each",
+    "neither_school_nor_work_community",
+)
+
+
+@pytest.mark.parametrize("key", ACTIVITY_BUDGET_KEYS)
+def test_registry_requires_each_activity_budget(protocol, key):
+    activity = dict(protocol.definition["activity"])
+    del activity[key]
+    with pytest.raises(ValueError, match="activity"):
+        build_population_registry(registered_people(), activity_config=activity)
+
+
+@pytest.mark.parametrize("activity", [None, [], "activity"])
+def test_registry_rejects_nonmapping_activity(activity):
+    with pytest.raises(ValueError, match="activity"):
+        build_population_registry(registered_people(), activity_config=activity)
+
+
+@pytest.mark.parametrize("key", ACTIVITY_BUDGET_KEYS)
+@pytest.mark.parametrize("value", [True, "0.2", -.1, 1.1, float("nan"), float("inf")])
+def test_registry_rejects_invalid_activity_budget_values(protocol, key, value):
+    activity = dict(protocol.definition["activity"])
+    activity[key] = value
+    with pytest.raises(ValueError, match="activity"):
+        build_population_registry(registered_people(), activity_config=activity)
+
+
+@pytest.mark.parametrize("key,value", [
+    ("daily_budget_school_or_work", .7), ("dual_school_work_each", .35),
+    ("neither_school_nor_work_community", .9),
+    ("daily_budget_school_or_work", .8 + 5e-10),
+    ("dual_school_work_each", .4 + 5e-10),
+    ("neither_school_nor_work_community", 1 - 5e-10),
+])
+def test_registry_rejects_activity_budgets_that_do_not_conserve_one_day(protocol, key, value):
+    activity = dict(protocol.definition["activity"])
+    activity[key] = value
+    with pytest.raises(ValueError, match="activity"):
+        build_population_registry(registered_people(), activity_config=activity)
+
+
+def test_registry_preserves_activity_budgets_within_absolute_sum_tolerance(protocol):
+    activity = dict(protocol.definition["activity"])
+    activity["daily_budget_school_or_work"] += 5e-13
+    registry = build_population_registry(registered_people(), activity_config=activity)
+    assert registry.school_weights[0] == activity["daily_budget_school_or_work"]
+    assert registry.community_weights[0] == activity["daily_budget_community"]
+    assert registry.school_weights[0] + registry.community_weights[0] > 1
+
+
 @pytest.mark.parametrize("bad_age", [-1, 100, float("nan"), float("inf")])
-def test_registry_rejects_unrepresentable_ages(bad_age):
+def test_registry_rejects_unrepresentable_ages(protocol, bad_age):
     people = registered_people()
     people.age[0] = bad_age
     with pytest.raises(ValueError):
-        build_population_registry(people)
+        build_population_registry(people, activity_config=protocol.definition["activity"])
 
 
-def test_registry_requires_rosters_and_valid_indices():
+def test_registry_requires_rosters_and_valid_indices(protocol):
     with pytest.raises(ValueError):
-        build_population_registry(SimpleNamespace(age=np.array([20.])))
+        build_population_registry(SimpleNamespace(age=np.array([20.])),
+                                  activity_config=protocol.definition["activity"])
     people = registered_people()
     people.lab_groups[0]["teachers"] = np.array([6])
     with pytest.raises(ValueError):
-        build_population_registry(people)
+        build_population_registry(people, activity_config=protocol.definition["activity"])
 
 
 def assert_same_nested(actual, expected):

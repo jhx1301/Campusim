@@ -8,6 +8,10 @@
 
 每次决策仅发送 system/user 两条消息。user 是规范化 JSON，恰含 `observation` 和 `public_rates`。最近四个完整周以 observation 的顺序、左填充和有效标记为准；`observe()` 只校验公共反馈类型，不积累历史。非空 `memory_context` 明确拒绝，记忆、检索、裁剪和压缩属于 P5。
 
+年龄人数 `age_band_counts` 及其人口比例使用同一顺序。system 文案从协议的 `observation.age_bands_shared` 渲染五组区间，说明年龄向下取整且区间包含两个端点。`PublicPromptConfig` 要求边界为普通整数，形状、顺序及数值与现有 `AGE_BANDS` 一致；本轮不扩展年龄分组或观察 schema。模板版本保持 v1，内容变化由实际模板及消息 hash 标识。
+
+活动预算由协议的 `activity` 段统一提供给 prompt、人口登记及后续执行成本统计。公开登记接口调整为 `build_population_registry(people, *, activity_config)`；旧调用需显式补充当前协议的 `definition["activity"]`，执行器和 E0 标定均采用此方式，不读取隐式默认协议、不保留第二套数值默认值。四项预算须为有限的普通数值且位于 `[0,1]`；单一学校/工作预算加社区预算、两倍双重身份预算加社区预算，以及其他人口社区预算均须为1，比较使用 `rel_tol=0, abs_tol=1e-12`，不自动归一化。默认协议数值不变。
+
 `Controller.decide()` 返回 `ActionProposal | None`；`consume_failure_reason()` 默认 None，`drain_call_audits()` 默认空 tuple。LLM reset 清空失败原因及待交付审计，每次 decide 先清除旧失败原因。
 
 | 接口 | 职责 |
@@ -15,7 +19,7 @@
 | `runner.make_public_prompt_config(protocol, template_path=None)` | 白名单投影、加载固定模板，返回嵌套不可变的 PublicPromptConfig |
 | `runner.make_llm_settings(protocol, provider, endpoint, api_key_env)` | 模型/预算/重试/采样参数取自协议；只接收凭据环境变量名，不接收密钥值 |
 | `runner.make_llm_controller(..., tokenizer_manifest, tokenizer_acceptance)` | 组装生产transport、配置和本地计数器；SDK/tokenizer不在包导入时加载 |
-| `LLMTransport(settings, client=None).complete(messages)` | 单次OpenAI兼容SDK请求；主模型thinking/effort/top_p，次模型enable_thinking/thinking_budget分别适配 |
+| `LLMTransport(settings, client=None).complete(messages)` | 单次OpenAI兼容SDK请求；主模型thinking/effort/top_p，次模型enable_thinking；完整输出限制分别适配max_tokens/max_completion_tokens |
 | `OfficialInputTokenCounter(resource_manifest, acceptance_path=None)` | candidate计数、正常运行validate、计数及服务身份校验 |
 | `runner.accept_llm_token_counter(transport, counter, config, observations, output_dir)` | 独立三种公开消息的候选计数验收，记录调用并生成匹配receipt；不推进实验episode |
 
@@ -27,7 +31,7 @@
 
 响应只能是恰含 action/reason 的 JSON 对象。拒绝重复键、NaN/Infinity、围栏、额外正文和修补。action 是五个普通整数，范围由 ActionVector 检查；reason 非空、单行、至多协议规定的120字符，不截断。资源非法提案仍交共同 resolver。
 
-完整输入预算8000，输出上限8192，次模型推理预算4096，各自独立。官方本地 tokenizer 必须包含模型对应关系、文件内容 hash、消息模板、加载库版本和供应商计数验收身份；正常运行不下载、不估算。每次 decide 构造/计数一次，重试复用消息；输入超限零调用。实际 usage 与本地计数不一致或超限时终止。
+完整输入保护上限131072，完整输出保护上限65536，不单设次模型推理预算。输出包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens。上限是异常膨胀保护，不要求每次用满，修订依据见第7节。官方本地 tokenizer 必须包含模型对应关系、文件内容 hash、消息模板、加载库版本和供应商计数验收身份；正常运行不下载、不估算。每次 decide 构造/计数一次，重试复用消息；输入超限零调用。实际 usage 与本地计数不一致或超限时终止。
 
 当前离线适配为 `official_local_chat_template_v1` / `hf_apply_chat_template_v1`：显式 `tokenize=True, add_generation_prompt=True, return_dict=False, truncation=False, padding=False`。资源manifest包含 `adapter/provider/model/official_source/library_versions/files/chat_template_file/template_kwargs/request_parameters_sha256`；files逐一锁原始字节hash，库版本锁transformers、tokenizers、jinja2、markupsafe。请求模式hash来自 `snapshot_sha256(settings.request_parameters())`。不接受覆写计数控制参数或未固定的加载资源。官方资源没有可核验消息模板、需要尚未实现的其他编码器或版本不符时直接阻止，不自行发明模板。
 
@@ -46,6 +50,8 @@ transport 单次请求，SDK 内部重试为0。controller 最多三次尝试，
 ## 4. runner、持久化和用途
 
 runner 在 decide 成功或异常后都先交付/落盘已产生的调用审计，再推进环境或处理失败。fatal 不推进当周、不制造正常决策；manifest failed，保留之前轨迹。调用前失败没有伪造 attempt，预算/配置证据进入 failure.json。
+
+决策异常与审计交付异常同时发生时，runner 保留并抛出原始决策异常，将次级故障作为脱敏附注及 `failure.json` / `summary.json` 的 `details.call_audit_error` 保存。该可选摘要仅含 `stage="call_audit_delivery"`、异常类型和固定描述，不保存原始异常文本；原有错误码、计数与消息 hash 保留。持续 snapshot/flush/close 故障在安全失败日志中仅记录操作和类型，复合故障后续清理附注也不保存原始异常文本。决策成功而审计失败仍抛出审计异常并停止当前周，Python 3.10 沿用既有附注兼容路径。
 
 私有 `llm_calls.jsonl` 逐次保存日/序号/UTC时间、供应商及endpoint、请求和返回模型、响应id/指纹、完整消息及三种hash、计数器身份和输入量/预算、usage、最终原文、finish reason、耗时、稳定错误及可重试性。不得保存认证头、密钥或原始供应商异常文本。DecisionRecord 新增默认值 `llm_attempt_count=0`、`llm_succeeded=None`。
 
@@ -95,3 +101,30 @@ $tests = @(Get-ChildItem tests -Filter 'test_control_*.py' | ForEach-Object Full
 ```
 
 独立核对脚本读取本轮保留的final_verified目录；新命令输出的新目录需显式纳入复核。下一步真实验收须准备对应模型官方资源及模板，记录全部资源/库版本/请求模式身份，再用源域公共消息调用三种case，匹配实际usage后生成receipt。随后 `run_llm.py`仍要求真实主窗E0及匹配独立报告。不能将本轮离线完成等同于真实LLM episode可用、P5 memory完成或后续统一冻结实验完成。
+
+## 6. 三项修正的兼容性
+
+2026-10-16 后续修正统一了活动预算来源、保留决策与审计的复合故障、补齐年龄区间说明。上节验收数字、hash及产物是修正前的历史记录；修正后的验证单独保存在 `results/phase4_fixes_20261016/`。本次没有安装新依赖或进行真实 provider/tokenizer 验收，默认预算、动作、奖励公式和七日周期保持不变。
+
+E0 兼容性校验包含人口登记及标定源码的 hash。这两处源码修改后，已有 E0 产物预期被拒绝；本轮保留原产物、不扩展历史源码白名单、不重写 hash，也不重跑完整标定。后续科学运行前须重新生成并验收 E0；回归测试使用当次测试生成的独立小型产物。
+
+使用指定的 `D:/programfile/miniconda3/envs/simulation/python.exe`（Python 3.11.14），全部 `tests/test_control_*.py` 加 `test_cemas_import.py`、`test_campusLayer.py` 的非 online 回归为 **571 passed、1 failed**，16.12秒。唯一失败仍是本机缺少 `tokenizers` 导致既有合成词表测试无法导入；未安装依赖，也未将此结果登记为全量通过。最终证据为 `results/control_v1_phase4` 之外独立的 `results/phase4_fixes_20261016/regression_verified.log` 和同名 XML。新增验收包含100名仅学校成员的七日 E2/A0=420、E0/A2=140活动限制人天及对应奖励、预算两入口校验、年龄区间说明与严格类型检查、单次和持续审计故障脱敏、Python3.10附注回退；`compileall` 与 `git diff --check` 通过。历史E0读取按预期拒绝，证据为同目录 `compatibility_and_prompt.json`。
+
+## 7. 输入输出保护上限修订
+
+2026-10-16，按用户要求移除次模型单独的4096推理预算，将输入上限改为131072、完整输出上限改为65536。模型自主结束后立即返回，上限只拦截异常膨胀。最终action/reason结构及reason≤120字继续作为决策格式契约；输出空间同时考虑模型推理，不能只按最终JSON长度设置。
+
+本轮使用现有公共prompt构造器及离线测试的day0/four_weeks/long_numeric观察，测量两条完整消息的规范JSON体积；没有调用模型或安装依赖：
+
+| 结构 | 字符数 | UTF-8字节数 |
+|---|---:|---:|
+| P4 day0 | 12358 | 16792 |
+| P4 四个完整周 | 12612 | 17046 |
+| P4 长数值观察 | 12896 | 17330 |
+| P5结构预留示例 | 79849 | 84283 |
+
+P5示例按六条案例各带完整P4公共观察/比例及两周公共反馈、另附四个短期周反馈展开，用于保守预留，尚非已实现的P5提示词。131072输入上限相对这些结构留有较大空间；上述字符/字节不是官方token计数，不用于真实调用门禁。证据保存在 `results/llm_budget_review_20261016/payload_sizes.json`；P5实现后须重新测量实际四种记忆模式的完整官方token量，正常输入应有明显余量，再按结构需要调整。未实测模型推理长度，65536是可配置的宽松保护默认值，不是已验证的推理需求或最优值。
+
+[DeepSeek官方接口](https://api-docs.deepseek.com/api/create-chat-completion/)允许max_tokens覆盖推理及回答，当前thinking/high默认上限为64K；[Qwen官方接口](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)说明Qwen的max_tokens仅限制回答，max_completion_tokens限制推理及回答总量，支持Qwen3.5-Plus。[所选Qwen快照的模型卡](https://www.alibabacloud.com/help/en/model-studio/qwen3-5-plus)列出65536输出上限。因此Qwen请求改用max_completion_tokens，不传max_tokens或thinking_budget。请求模式变化后原tokenizer验收身份不再匹配，真实provider/tokenizer验收仍须按新参数完成，不以文档能力说明代替账户实测。
+
+指定simulation Python的本轮非online回归为 **572 passed、1 failed**，17.86秒；唯一失败仍为既有合成词表测试缺少tokenizers。证据为 `results/llm_budget_review_20261016/regression.log` 及同名XML。新增覆盖原8000上限以上输入可用、新上限前/等于/后边界、超限零调用；供应商完整输出参数、截断重试及共同回退回归通过。compileall与git diff --check通过。未安装依赖、未执行真实provider/tokenizer验收。

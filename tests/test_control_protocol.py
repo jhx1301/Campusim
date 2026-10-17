@@ -58,7 +58,7 @@ def test_definition_and_nested_values_are_read_only():
     ("prompt_template", "../private.json"), ("token_count_method", "characters_divided_by_four"),
     ("max_attempts", 4), ("max_attempts", True), ("retry_delays_seconds", [2, 4, 8]),
     ("primary_sdk_retries", 2), ("input_token_budget", 0), ("max_output_tokens", True),
-    ("reason_max_chars", 0), ("secondary_thinking_budget", -1), ("tools_enabled", True),
+    ("reason_max_chars", 0), ("max_output_tokens", 0), ("tools_enabled", True),
     ("thinking", "true"), ("json_fields", ["action", "reason", "risk"]),
 ])
 def test_phase4_rejects_inconsistent_call_configuration(tmp_path, definition, key, value):
@@ -122,6 +122,62 @@ def test_objective_configuration_is_validated_without_evaluating_formula_text(tm
     assert protocol.definition["objective"]["lambda"] == 7
     assert protocol.definition["objective"]["formula"] == "raise_if_evaluated()"
     assert protocol.definition["objective"]["burden_weights"]["tests"] == 0.1
+
+
+ACTIVITY_BUDGET_KEYS = (
+    "daily_budget_school_or_work", "daily_budget_community", "dual_school_work_each",
+    "neither_school_nor_work_community",
+)
+
+
+def test_activity_budgets_accept_a_conserving_configuration(tmp_path, definition):
+    definition["activity"].update(daily_budget_school_or_work=.6, daily_budget_community=.4,
+                                  dual_school_work_each=.3, neither_school_nor_work_community=1)
+    activity = load_protocol(write_protocol(tmp_path, definition)).definition["activity"]
+    assert tuple(activity[key] for key in ACTIVITY_BUDGET_KEYS) == (.6, .4, .3, 1)
+
+
+@pytest.mark.parametrize("key", ACTIVITY_BUDGET_KEYS)
+def test_activity_requires_each_budget(tmp_path, definition, key):
+    del definition["activity"][key]
+    with pytest.raises(ProtocolValidationError, match="activity"):
+        load_protocol(write_protocol(tmp_path, definition))
+
+
+@pytest.mark.parametrize("activity", [None, [], "activity"])
+def test_activity_configuration_must_be_a_mapping(tmp_path, definition, activity):
+    definition["activity"] = activity
+    with pytest.raises(ProtocolValidationError, match="activity"):
+        load_protocol(write_protocol(tmp_path, definition))
+
+
+@pytest.mark.parametrize("key", ACTIVITY_BUDGET_KEYS)
+@pytest.mark.parametrize("value", [True, "0.2", -.1, 1.1, float("nan"), float("inf")])
+def test_activity_rejects_invalid_budget_values(tmp_path, definition, key, value):
+    definition["activity"][key] = value
+    with pytest.raises(ProtocolValidationError, match="activity|not finite"):
+        load_protocol(write_protocol(tmp_path, definition))
+
+
+@pytest.mark.parametrize("key,value", [
+    ("daily_budget_school_or_work", .7), ("dual_school_work_each", .35),
+    ("neither_school_nor_work_community", .9),
+    ("daily_budget_school_or_work", .8 + 5e-10),
+    ("dual_school_work_each", .4 + 5e-10),
+    ("neither_school_nor_work_community", 1 - 5e-10),
+])
+def test_activity_budgets_must_conserve_one_day(tmp_path, definition, key, value):
+    definition["activity"][key] = value
+    with pytest.raises(ProtocolValidationError, match="activity"):
+        load_protocol(write_protocol(tmp_path, definition))
+
+
+def test_activity_sum_tolerance_preserves_values_without_normalizing(tmp_path, definition):
+    definition["activity"]["daily_budget_school_or_work"] += 5e-13
+    activity = load_protocol(write_protocol(tmp_path, definition)).definition["activity"]
+    assert activity["daily_budget_school_or_work"] == definition["activity"]["daily_budget_school_or_work"]
+    assert activity["daily_budget_community"] == .2
+    assert activity["daily_budget_school_or_work"] + activity["daily_budget_community"] > 1
 
 
 @pytest.mark.parametrize("key,value", [

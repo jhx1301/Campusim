@@ -131,6 +131,30 @@ def test_day0_padding_target_validity_and_memory_rejection(observation, prompt_c
         build_public_messages(resolved_snapshot(observation), prompt_config)
 
 
+def test_prompt_explains_age_counts_and_rates_in_registered_band_order(observation, prompt_config):
+    system = build_public_messages(observation, prompt_config)[0].content
+    assert "age_band_counts" in system and "age_band_counts_over_population" in system
+    assert "0–16、17–23、24–30、31–60、61–99" in system
+    assert "向下取整" in system and "包含两个端点" in system
+
+
+@pytest.mark.parametrize("age_bands", [
+    None, "age_bands", [[0, 16]] * 4, [[0, 16]] * 6,
+    [[0], [17, 23], [24, 30], [31, 60], [61, 99]],
+    [0, [17, 23], [24, 30], [31, 60], [61, 99]],
+    [[17, 23], [0, 16], [24, 30], [31, 60], [61, 99]],
+    [[0, 15], [17, 23], [24, 30], [31, 60], [61, 99]],
+    [[False, 16], [17, 23], [24, 30], [31, 60], [61, 99]],
+    [[0.0, 16], [17, 23], [24, 30], [31, 60], [61, 99]],
+])
+def test_prompt_config_rejects_incompatible_age_band_definitions(prompt_config, age_bands):
+    spec = resolved_snapshot(prompt_config.public_spec)
+    spec["observation"]["age_bands_shared"] = age_bands
+    with pytest.raises(LLMConfigurationError) as caught:
+        PublicPromptConfig(prompt_config.template, spec, prompt_config.reason_max_chars)
+    assert caught.value.code == "invalid_age_bands"
+
+
 def test_public_projection_hashes_and_reward_single_source(protocol, observation, tmp_path):
     config = make_public_prompt_config(protocol)
     data = resolved_snapshot(protocol.definition)
@@ -280,22 +304,24 @@ def test_failure_state_clears_on_next_decision_and_reset(settings, prompt_config
     assert controller.drain_call_audits() == ()
 
 
-@pytest.mark.parametrize("count", [7999, 8000, 8001])
-def test_input_budget_covers_complete_messages_and_is_separate_from_output(settings, prompt_config, observation, count):
+@pytest.mark.parametrize("case", ["above_old_limit", "below", "at", "above"])
+def test_input_budget_covers_complete_messages_and_is_separate_from_output(settings, prompt_config, observation, case):
+    count = {"above_old_limit": 8001, "below": settings.input_token_budget - 1,
+             "at": settings.input_token_budget, "above": settings.input_token_budget + 1}[case]
     transport, counter = ScriptedTransport([response()]), StubCounter(count)
     controller = LLMController(transport, prompt_config, settings, counter)
-    if count <= 8000:
+    if count <= settings.input_token_budget:
         controller.decide(observation)
         assert len(transport.messages) == 1
     else:
         with pytest.raises(PromptBudgetError) as caught:
             controller.decide(observation)
         assert caught.value.details["input_tokens"] == count
-        assert caught.value.details["input_token_budget"] == 8000
+        assert caught.value.details["input_token_budget"] == settings.input_token_budget
         assert len(caught.value.details["messages_sha256"]) == 64
         assert transport.messages == [] and controller.drain_call_audits() == ()
     assert len(counter.counted[0]) == 2
-    assert settings.request_parameters()["max_tokens"] == 8192
+    assert settings.request_parameters()["max_tokens"] == 65536
 
 
 @pytest.mark.parametrize("error", [LLMConfigurationError("auth", "invalid credentials"), RuntimeError("unknown bug")])
@@ -310,7 +336,7 @@ def test_fatal_errors_abort_without_fallback_after_prior_retry(settings, prompt_
     assert controller.drain_call_audits()[-1].retryable is False
 
 
-@pytest.mark.parametrize("actual", [99, 8001, True, "100"])
+@pytest.mark.parametrize("actual", [99, 131073, True, "100"])
 def test_usage_mismatch_stops_instead_of_retrying(settings, prompt_config, observation, actual):
     transport = ScriptedTransport([response(usage={"prompt_tokens": actual})])
     controller = LLMController(transport, prompt_config, settings, StubCounter(100))
@@ -341,12 +367,15 @@ def test_transport_sdk_parameters_and_only_final_content(settings, observation, 
     for candidate in (settings, replace(settings, provider="qwen", model="secondary")):
         result = LLMTransport(candidate, client=client).complete(build_public_messages(observation, prompt_config))
         assert result.content == response().content and "reasoning_content" not in resolved_snapshot(result)
-        assert calls[-1]["max_tokens"] == 8192 and calls[-1]["stream"] is False
+        output_parameter = "max_tokens" if candidate.provider == "deepseek" else "max_completion_tokens"
+        other_parameter = "max_completion_tokens" if candidate.provider == "deepseek" else "max_tokens"
+        assert calls[-1][output_parameter] == 65536 and calls[-1]["stream"] is False
+        assert other_parameter not in calls[-1]
         assert "tools" not in calls[-1]
         assert options[-1] == {"max_retries": 0, "timeout": 120}
     assert calls[0]["extra_body"]["thinking"] == {"type": "enabled"}
     assert calls[0]["extra_body"]["reasoning_effort"] == "high"
-    assert calls[1]["extra_body"] == {"enable_thinking": True, "thinking_budget": 4096}
+    assert calls[1]["extra_body"] == {"enable_thinking": True}
 
 
 @pytest.mark.parametrize("status,code,category", [
@@ -628,7 +657,7 @@ def test_runner_fatal_keeps_prior_week_and_failure_call_without_credentials(prot
 def test_runner_preflight_failure_is_logged_without_fictitious_attempt(protocol, settings, prompt_config, tmp_path, kind):
     from cemas.control.runner import run_episode
 
-    counter = StubCounter(8001) if kind == "budget" else OfficialInputTokenCounter(tmp_path / "missing.json")
+    counter = StubCounter(settings.input_token_budget + 1) if kind == "budget" else OfficialInputTokenCounter(tmp_path / "missing.json")
     transport = ScriptedTransport([response()])
     if kind == "credentials":
         counter = StubCounter()
@@ -649,7 +678,7 @@ def test_runner_preflight_failure_is_logged_without_fictitious_attempt(protocol,
     assert len(failure["details"]["messages_sha256"]) == 64
     assert transport.messages == []
     if kind == "budget":
-        assert failure["details"]["input_tokens"] == 8001
+        assert failure["details"]["input_tokens"] == settings.input_token_budget + 1
 
 
 def test_runner_capacity_decline_projects_only_s_on_llm_exhaustion(protocol, settings, prompt_config, tmp_path, monkeypatch):
@@ -680,18 +709,95 @@ def test_call_audit_disk_failure_stops_before_environment_step(protocol, setting
     from cemas.control.logging import RunLogger
     from cemas.control.runner import run_episode
 
+    original = OSError("call audit write failed")
+
     def disk_failure(*args, **kwargs):
-        raise OSError("call audit write failed")
+        raise original
 
     monkeypatch.setattr(RunLogger, "write_llm_calls", disk_failure)
     controller = LLMController(ScriptedTransport([response()]), prompt_config, settings, StubCounter())
     output = tmp_path / "audit-disk-failure"
-    with pytest.raises(OSError, match="call audit write failed"):
+    with pytest.raises(OSError, match="call audit write failed") as caught:
         run_episode(protocol, controller, output, 90001,
                     scenario_options={"population": 30, "initial_infections": 1, "execution_days": 9})
+    assert caught.value is original
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "failed" and manifest["elapsed_days"] == 0
     assert _json_lines(output / "decisions.jsonl") == []
+
+
+@pytest.mark.parametrize("kind", ["auth", "unexpected", "legacy_note", "persistent_flush", "persistent_close"])
+def test_runner_preserves_fatal_and_safe_audit_error_after_prior_week(protocol, settings, prompt_config, tmp_path, monkeypatch, kind):
+    from cemas.control.logging import RunLogger
+    from cemas.control.runner import run_episode
+
+    class LegacyConfigurationError(LLMConfigurationError):
+        add_note = None
+
+    if kind == "unexpected":
+        original = RuntimeError("unexpected client bug with sk-PRIMARY_DO_NOT_LOG")
+    else:
+        error_type = LegacyConfigurationError if kind == "legacy_note" else LLMConfigurationError
+        original = error_type("provider_http_401", "Provider rejected credentials",
+                              details={"messages_sha256": "a" * 64})
+    write_calls = RunLogger.write_llm_calls
+    deliveries = []
+
+    def disk_failure(logger, audits, **kwargs):
+        deliveries.append(audits)
+        if len(deliveries) == 2 and kind != "persistent_flush":
+            raise OSError("call audit write failed with sk-AUDIT_DO_NOT_LOG")
+        return write_calls(logger, audits, **kwargs)
+
+    monkeypatch.setattr(RunLogger, "write_llm_calls", disk_failure)
+    if kind in ("persistent_flush", "persistent_close"):
+        operation = "flush" if kind == "persistent_flush" else "close"
+        cleanup = getattr(RunLogger, operation)
+
+        def persistent_failure(logger):
+            if operation == "close":
+                cleanup(logger)
+            if len(deliveries) >= 2:
+                raise OSError("persistent audit failure with sk-PERSISTENT_DO_NOT_LOG")
+            if operation == "flush":
+                return cleanup(logger)
+
+        monkeypatch.setattr(RunLogger, operation, persistent_failure)
+    transport = ScriptedTransport([response(), original])
+    controller = LLMController(transport, prompt_config, settings, StubCounter())
+    output = tmp_path / "compound-call-failure"
+    with pytest.raises(type(original)) as caught:
+        run_episode(protocol, controller, output, 90001,
+                    scenario_options={"population": 30, "initial_infections": 1, "execution_days": 9})
+    assert caught.value is original
+    traceback_frames = []
+    traceback = caught.value.__traceback__
+    while traceback is not None:
+        traceback_frames.append(traceback.tb_frame.f_code.co_name)
+        traceback = traceback.tb_next
+    assert traceback_frames.count("run_episode") == 1
+    assert "complete" in traceback_frames and "disk_failure" not in traceback_frames
+    assert original.__notes__[0] == "Call audit delivery also failed (OSError)"
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "failed" and manifest["elapsed_days"] == 7
+    assert len(transport.messages) == len(deliveries) == 2
+    assert len(_json_lines(output / "decisions.jsonl")) == 1
+    assert len(_json_lines(output / "llm_calls.jsonl")) == (2 if kind == "persistent_flush" else 1)
+    for filename in ("public_daily.csv", "private_daily.csv"):
+        assert len((output / filename).read_text(encoding="utf-8").splitlines()) == 8
+    failure = json.loads((output / "failure.json").read_text(encoding="utf-8"))
+    assert failure["error_type"] == type(original).__name__
+    assert failure["details"]["call_audit_error"] == {
+        "stage": "call_audit_delivery", "error_type": "OSError", "error": "Call audit delivery failed",
+    }
+    if kind != "unexpected":
+        assert failure["details"]["error_code"] == "provider_http_401"
+        assert failure["details"]["messages_sha256"] == "a" * 64
+    if kind in ("persistent_flush", "persistent_close"):
+        assert any("OSError" in error for error in failure["logging_errors"])
+    for path in output.iterdir():
+        assert "DO_NOT_LOG" not in path.read_text(encoding="utf-8")
+    assert "DO_NOT_LOG" not in "".join(original.__notes__)
 
 
 @pytest.mark.parametrize("secondary_failure", ["fail", "close"])

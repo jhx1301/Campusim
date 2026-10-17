@@ -195,13 +195,13 @@ RL训练seed11/22/33，世界分别来自[1,000,000,1,100,000)、[2,000,000,2,10
 
 主模型推荐DeepSeek V4.1-Flash，当前官方API请求名deepseek-flash。旧deepseek-v4-flash已被路由到新模型，故旧名称不能作为不可变版本证据。[官方发布说明](https://www.deepseek.com/en/news/deepseek-v4-1-flash/) 第二模型采用不同系列的快照qwen3.5-plus-2026-02-15，只复核中等校园和城市A；官方资料列出该快照及thinking支持。[Qwen官方资料](https://www.alibabacloud.com/help/en/model-studio/deep-thinking)
 
-单控制器、thinking开启、输入预算8,000 token、最大输出8,192 token、reason≤120字。同模型所有记忆版本参数一致，报告实际usage/延迟。DeepSeek固定reasoning_effort=high、top_p=.95；官方说明thinking下temperature被忽略，因此记录请求temperature=0但不称其能保证确定性。Qwen快照显式temperature=0、thinking_budget=4096，是否接受/忽略按API验收记录；两供应商推理预算不宣称完全等价。[DeepSeek参数说明](https://api-docs.deepseek.com/guides/thinking_mode/) Thinking与JSON由各服务适配，未实际调用不声称已通过账户验收。
+单控制器、thinking开启、输入保护上限131,072 token、输出总量保护上限65,536 token、reason≤120字。上限用于阻止异常膨胀，不作为正常输入长度或推理长度目标；实际结构体积及P5预留依据见[P4契约第7节](control_phase4_contracts.md#7-输入输出保护上限修订)。同模型所有记忆版本参数一致，报告实际usage/延迟。DeepSeek固定reasoning_effort=high、top_p=.95；官方说明thinking下temperature被忽略，因此记录请求temperature=0但不称其能保证确定性。Qwen快照显式temperature=0，不传thinking_budget。输出总量包含推理和最终回答，DeepSeek使用max_tokens，Qwen使用max_completion_tokens，不能继续用Qwen仅限制最终回答的max_tokens冒充完整输出限制。[DeepSeek参数说明](https://api-docs.deepseek.com/api/create-chat-completion/)、[Qwen参数说明](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)。两供应商参数不宣称完全等价；是否接受及实际计量方式按API验收记录，未实际调用不声称已通过账户验收。
 
 最多3次总尝试，成功立即结束；SDK内部重试关闭，timeout=120秒，失败间隔2/4秒。临时连接/超时、408、限流429、临时5xx及解析失败才重试，且复用相同公共prompt。配置/鉴权/模型/参数、余额/硬配额及未知异常立即终止，结构化错误码优先于HTTP状态。三次可重试失败耗尽才以 `None + llm_retry_exhausted` 进入共同回退；失败/重试均保留审计。禁止浏览、工具调用或外部动态检索进入决策。主/次模型只可用同一源域资料。
 
 P4 的 observation 是唯一历史来源，observe只校验公共反馈；固定system模板和专家规则在 `cemas/control/prompts/public_v1.json`，公共参数由runner从本JSON白名单投影，user仅含observation/public_rates。不附加历史回答、推理、纠错或反馈缓存。分别记录模板、公共规则快照和最终两条消息的规范化JSON SHA-256，完整协议hash仅用于私有追溯。[P4接口契约](control_phase4_contracts.md)
 
-完整输入（内容、角色、消息特殊token和生成前缀）使用对应模型官方本地tokenizer和消息模板，不能用字符估算或借用其他供应商计数器。固定资源hash、库版本、模型及请求模式，正常运行不下载。独立源域验收核对day0、完整四周及长数值消息的本地计数与实际usage；未通过则阻止真实episode。输入≤8000才调用，超限零API调用；正常usage不符或实际超限立即终止。P4不做裁剪或压缩，P5才裁剪附加记忆，始终保留共同历史与任务字段。[DeepSeek官方离线tokenizer说明](https://api-docs.deepseek.com/zh-cn/quick_start/token_usage/)
+完整输入（内容、角色、消息特殊token和生成前缀）使用对应模型官方本地tokenizer和消息模板，不能用字符估算或借用其他供应商计数器。固定资源hash、库版本、模型及请求模式，正常运行不下载。独立源域验收核对day0、完整四周及长数值消息的本地计数与实际usage；未通过则阻止真实episode。输入≤131072才调用，超限零API调用；正常usage不符或实际超限立即终止。P4不做裁剪或压缩，P5才在确实触及保护上限时裁剪附加记忆，始终保留共同历史与任务字段。P5真实结构完成后，需实测四种记忆模式的完整token量和余量，不得将结构字节数当作token计数。[DeepSeek官方离线tokenizer说明](https://api-docs.deepseek.com/zh-cn/quick_start/token_usage/)
 
 runner先将每次调用持久化到私有 `llm_calls.jsonl`，再推进环境；fatal不推进当前周，manifest为failed。DecisionRecord新增调用次数和成功摘要；调用前预算/配置失败仅记failure.json，不伪造attempt。离线闭环使用smoke世界，真实P4开发仅使用40001–40009，沿用真实E0产物门禁。
 

@@ -198,7 +198,7 @@ def make_calibration_sim(protocol: ControlProtocol, beta: float, world_seed: int
 def _run_calibration(protocol, beta, seed, window, data, *, through_holdout=False):
     sim = make_calibration_sim(protocol, beta, seed, window, data=data,
                                through_holdout=through_holdout)
-    registry = build_population_registry(sim.people)
+    registry = build_population_registry(sim.people, activity_config=protocol.definition["activity"])
     record = {
         "world_seed": seed,
         "resolved_parameters": resolved_snapshot({key: value for key, value in sim.pars.items()

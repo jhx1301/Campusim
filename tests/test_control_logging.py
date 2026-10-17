@@ -106,23 +106,36 @@ def test_partial_or_failed_log_cannot_be_reported_completed(tmp_path):
     assert len(list(csv.DictReader((output / "private_daily.csv").open()))) == 1
 
 
-@pytest.mark.parametrize("broken_operation", ["flush", "close"])
-def test_failure_metadata_survives_stream_cleanup_errors(tmp_path, monkeypatch, broken_operation):
+@pytest.mark.parametrize("broken_operation", ["write_snapshot", "flush", "close"])
+@pytest.mark.parametrize("safe_error", [None, "Safe run failure"], ids=("raw", "safe"))
+def test_failure_metadata_survives_stream_cleanup_errors(tmp_path, monkeypatch, broken_operation, safe_error):
     output = tmp_path / broken_operation
     logger = RunLogger(output, {})
-    logger.write_snapshot(audit_snapshot("failed"))
+    snapshot = audit_snapshot("failed")
+    logger.write_snapshot(snapshot)
     original_close = logger.close
+    injected_message = f"injected {broken_operation} failure with sk-SECONDARY_DO_NOT_LOG"
 
-    def broken():
+    def broken(*args):
         if broken_operation == "close":
             original_close()
-        raise OSError(f"injected {broken_operation} failure")
+        raise OSError(injected_message)
 
     monkeypatch.setattr(logger, broken_operation, broken)
-    logger.fail(RuntimeError("original run failure"))
+    logger.fail(RuntimeError("original run failure"), snapshot, safe_error=safe_error)
     failure = json.loads((output / "failure.json").read_text())
-    assert failure["error"] == "original run failure"
-    assert any(broken_operation in message for message in failure["logging_errors"])
+    assert failure["error"] == ("original run failure" if safe_error is None else safe_error)
+    operation = "audit snapshot" if broken_operation == "write_snapshot" else broken_operation
+    if safe_error is None:
+        assert f"{operation}: {injected_message}" in failure["logging_errors"]
+        assert injected_message in (output / "summary.json").read_text()
+    else:
+        assert f"{operation}: OSError" in failure["logging_errors"]
+        assert set(failure["logging_errors"]) <= {
+            "audit snapshot: OSError", "flush: OSError", "close: OSError",
+        }
+        for path in output.iterdir():
+            assert "DO_NOT_LOG" not in path.read_text(encoding="utf-8")
     assert json.loads((output / "manifest.json").read_text())["status"] == "failed"
     assert json.loads((output / "summary.json").read_text())["status"] == "failed"
 

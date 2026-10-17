@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 
 from .controllers import Controller
 from .logging import public_observation_to_dict, resolved_snapshot, snapshot_sha256
-from .types import ActionProposal, ActionVector, PublicObservation, PublicWeekFeedback
+from .types import AGE_BANDS, ActionProposal, ActionVector, PublicObservation, PublicWeekFeedback
 
 
 def _canonical(value):
@@ -118,6 +118,12 @@ class PublicPromptConfig:
         _exact_keys(self.public_spec, PUBLIC_SPEC_FIELDS, "public_spec")
         for section, keys in PUBLIC_SPEC_FIELDS.items():
             _exact_keys(self.public_spec[section], keys, section)
+        age_bands = self.public_spec["observation"]["age_bands_shared"]
+        if (not isinstance(age_bands, (list, tuple)) or len(age_bands) != len(AGE_BANDS)
+                or any(not isinstance(band, (list, tuple)) or len(band) != 2
+                       or any(type(boundary) is not int for boundary in band) for band in age_bands)
+                or tuple(tuple(band) for band in age_bands) != AGE_BANDS):
+            raise LLMConfigurationError("invalid_age_bands", "observation.age_bands_shared must match the public age bands")
         actions = self.public_spec["actions"]
         parameter_keys = {"T": ("symptomatic_daily_probability", "ordinary_asymptomatic_daily_probability",
                                 "symptomatic_quarantine_entry_probability", "asymptomatic_quarantine_entry_probability"),
@@ -169,6 +175,8 @@ def _render_system(config):
     objective, activity, task = spec["objective"], spec["activity"], spec["task"]
     replacements = {**task, "reason_max_chars": config.reason_max_chars,
                     "expert_rules": config.template["expert_rules"],
+                    "age_bands": "、".join(f"{lower}–{upper}" for lower, upper
+                                           in spec["observation"]["age_bands_shared"]),
                     "ranges": ",".join(f"[0..{size-1}]" for size in actions["sizes"]),
                     "joint_count": actions["joint_count"],
                     "clinical_ratio": resources["clinical_tests_per_person_per_day"],
@@ -312,7 +320,6 @@ class LLMSettings:
     thinking: bool
     primary_effort: str
     primary_top_p: float
-    secondary_thinking_budget: int
     token_count_method: str
 
     def __post_init__(self):
@@ -323,7 +330,7 @@ class LLMSettings:
             raise LLMConfigurationError("invalid_provider", "Provider, model and credential environment name are required")
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.api_key_env):
             raise LLMConfigurationError("invalid_credentials_name", "Supply an environment variable name, never a credential value")
-        for name in ("input_token_budget", "max_output_tokens", "reason_max_chars", "secondary_thinking_budget"):
+        for name in ("input_token_budget", "max_output_tokens", "reason_max_chars"):
             if type(getattr(self, name)) is not int or getattr(self, name) <= 0:
                 raise LLMConfigurationError("invalid_settings", f"{name} must be a positive integer")
         if (type(self.max_attempts) is not int or self.max_attempts != 3
@@ -340,15 +347,16 @@ class LLMSettings:
         object.__setattr__(self, "retry_delays_seconds", tuple(self.retry_delays_seconds))
 
     def request_parameters(self):
-        params = {"model": self.model, "max_tokens": self.max_output_tokens, "temperature": self.temperature,
+        params = {"model": self.model, "temperature": self.temperature,
                   "stream": False}
         if self.provider == "deepseek":
-            params.update(top_p=self.primary_top_p, extra_body={
+            params.update(max_tokens=self.max_output_tokens, top_p=self.primary_top_p, extra_body={
                 "thinking": {"type": "enabled" if self.thinking else "disabled"},
                 "reasoning_effort": self.primary_effort})
         else:
-            params["extra_body"] = {"enable_thinking": self.thinking,
-                                    "thinking_budget": self.secondary_thinking_budget}
+            # Qwen max_tokens excludes reasoning; cap the entire completion instead.
+            params.update(max_completion_tokens=self.max_output_tokens,
+                          extra_body={"enable_thinking": self.thinking})
         return params
 
 

@@ -110,7 +110,7 @@ class JointActionExecutor(Intervention):
             sim["beta_layer"].update(self._base_beta)
         super().initialize(sim)
         self._sim = sim
-        self.registry = build_population_registry(sim.people)
+        self.registry = build_population_registry(sim.people, activity_config=self.protocol.definition["activity"])
         self.resources = self._initial_resources
         self.current_action = ActionVector(tuple(self.protocol.definition["actions"]["initial"]))
         self.action_duration_days = (0,) * 5

@@ -296,15 +296,15 @@ class RunLogger:
             try:
                 self.write_snapshot(snapshot)
             except Exception as log_error:
-                log_errors.append(f"audit snapshot: {log_error}")
+                log_errors.append(f"audit snapshot: {type(log_error).__name__ if safe_error is not None else log_error}")
         try:
             self.flush()
         except Exception as log_error:
-            log_errors.append(f"flush: {log_error}")
+            log_errors.append(f"flush: {type(log_error).__name__ if safe_error is not None else log_error}")
         try:
             self.close()
         except Exception as log_error:
-            log_errors.append(f"close: {log_error}")
+            log_errors.append(f"close: {type(log_error).__name__ if safe_error is not None else log_error}")
         failure["logging_errors"] = log_errors
         self._manifest["status"] = "failed"
         write_errors = []

@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-from .protocol import ControlProtocol
+from .protocol import ControlProtocol, validate_activity_config
 from .types import AGE_BANDS, PublicPopulation, PublicResources
 
 
@@ -48,8 +48,9 @@ def _roster(groups, population: int) -> tuple[int, ...]:
     return tuple(sorted(indices))
 
 
-def build_population_registry(people) -> PopulationRegistry:
+def build_population_registry(people, *, activity_config: Mapping[str, Any]) -> PopulationRegistry:
     """Use persistent teaching/lab membership, never today's contact edges."""
+    validate_activity_config(activity_config)
     ages = np.asarray(people.age)
     population = len(ages)
     if (population == 0 or not np.isfinite(ages).all()
@@ -70,12 +71,12 @@ def build_population_registry(people) -> PopulationRegistry:
 
     school_weights = np.zeros(population)
     work_weights = np.zeros(population)
-    community_weights = np.full(population, 0.2)
-    school_weights[list(school)] = 0.8
-    work_weights[list(work)] = 0.8
-    school_weights[list(both)] = 0.4
-    work_weights[list(both)] = 0.4
-    community_weights[list(other)] = 1.0
+    community_weights = np.full(population, activity_config["daily_budget_community"], dtype=float)
+    school_weights[list(school)] = activity_config["daily_budget_school_or_work"]
+    work_weights[list(work)] = activity_config["daily_budget_school_or_work"]
+    school_weights[list(both)] = activity_config["dual_school_work_each"]
+    work_weights[list(both)] = activity_config["dual_school_work_each"]
+    community_weights[list(other)] = activity_config["neither_school_nor_work_community"]
     for weights in (school_weights, work_weights, community_weights):
         weights.setflags(write=False)
     public = PublicPopulation(population, age_counts, len(school), len(work), len(both))
