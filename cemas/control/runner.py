@@ -8,6 +8,9 @@ from pathlib import Path
 import sys
 from time import perf_counter
 from types import MappingProxyType
+from weakref import WeakKeyDictionary
+
+_MEMORY_ADMISSION = WeakKeyDictionary()
 
 from .controllers import Controller
 from .logging import (
@@ -43,12 +46,16 @@ def _validate_development_seed(protocol, seed, purpose):
         if not any(seeds[name]["start_inclusive"] <= seed <= seeds[name]["end_inclusive"]
                    for name in ("validation_A", "validation_B")):
             raise ValueError("Phase 3 scientific runs require source validation seeds; final-test worlds are forbidden")
+    elif purpose == "memory_collection":
+        pool = seeds["memory_collection"]
+        if not pool["start_inclusive"] <= seed <= pool["end_inclusive"]:
+            raise ValueError("memory_collection requires reserved source seeds; final-test worlds are forbidden")
     elif purpose == "prompt_development":
         pool = seeds["prompt_development"]
         if not pool["start_inclusive"] <= seed <= pool["end_inclusive"]:
             raise ValueError("prompt_development runs require reserved source seeds; final-test worlds are forbidden")
     else:
-        raise ValueError("purpose must be smoke, scientific or prompt_development")
+        raise ValueError("purpose must be smoke, scientific, prompt_development or memory_collection")
 
 
 def make_public_prompt_config(protocol: ControlProtocol, *, template_path=None):
@@ -259,7 +266,8 @@ def _episode_summary(protocol, snapshot, population):
 
 
 def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: str | Path,
-                world_seed: int, *, purpose="smoke", mode="evaluation", scenario_options=None) -> RunResult:
+                world_seed: int, *, purpose="smoke", mode="evaluation", scenario_options=None,
+                public_transition_sink=None) -> RunResult:
     """Run one attempt, retaining failure evidence and refusing existing paths.
 
     The controller receives only ``reset()``, a PublicObservation, and closed
@@ -271,8 +279,14 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         raise TypeError("world_seed must be an ordinary integer")
     _validate_development_seed(protocol, world_seed, purpose)
     controller_type = getattr(controller, "controller_type", None)
-    if controller_type not in ("minimum", "maximum_feasible", "llm"):
-        raise ValueError("runner supports the two fixed references and llm")
+    if controller_type not in ("minimum", "maximum_feasible", "llm", "uniform_legal_independent_rng"):
+        raise ValueError("runner supports fixed references, uniform legal collection and llm")
+    if public_transition_sink is not None and not callable(public_transition_sink):
+        raise TypeError("public_transition_sink must be callable with public observation and feedback")
+    if purpose == "memory_collection" and controller_type not in ("minimum", "maximum_feasible", "uniform_legal_independent_rng"):
+        raise ValueError("memory_collection supports only the implemented non-LLM collection policies")
+    if controller_type == "uniform_legal_independent_rng" and purpose not in ("smoke", "memory_collection"):
+        raise ValueError("uniform legal policy is limited to smoke and memory_collection")
     if purpose == "prompt_development" and controller_type != "llm":
         raise ValueError("prompt_development is reserved for the public LLM controller")
     if controller_type == "llm" and purpose == "scientific":
@@ -283,10 +297,13 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         live = isinstance(controller.transport, LLMTransport)
         if (live and purpose == "smoke") or (not live and purpose == "prompt_development"):
             raise ValueError("live LLM calls require prompt_development; offline transports require smoke")
+    if getattr(controller, "method", None) == "llm_public_memory_v1":
+        _validate_memory_run(protocol, controller, purpose, scenario_options)
     manifest = {
         "protocol_id": protocol.protocol_id, "protocol_sha256": protocol.source_sha256,
         "world_seed": world_seed, "controller_type": controller_type,
-        "purpose": purpose, "mode": mode, "train_seed": None, "controller_seed": None,
+        "purpose": purpose, "mode": mode, "train_seed": None,
+        "controller_seed": getattr(controller, "_controller_seed", None),
         "paired_world": world_seed, "started_at": datetime.now(timezone.utc).isoformat(),
     }
     if controller_type == "llm":
@@ -299,7 +316,7 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         from .environment import WeeklyControlEnvironment
 
         environment = WeeklyControlEnvironment(protocol, mode=mode,
-                                               purpose="scientific" if purpose == "prompt_development" else purpose,
+                                               purpose="scientific" if purpose in ("prompt_development", "memory_collection") else purpose,
                                                scenario_options=scenario_options)
         observation, _ = environment.reset(world_seed)
         population = observation.population.population
@@ -308,7 +325,7 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         while True:
             decision_time = datetime.now(timezone.utc)
             started = perf_counter()
-            call_audits = ()
+            call_audits, decision_evidence = (), ()
             decision_error = None
             try:
                 proposal = controller.decide(observation)
@@ -321,6 +338,8 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
                     call_audits = controller.drain_call_audits()
                     logger.write_llm_calls(call_audits, metadata=controller.run_metadata()
                                            if controller_type == "llm" else None)
+                    decision_evidence = controller.drain_decision_evidence()
+                    logger.write_decision_evidence(decision_evidence)
                 except Exception as audit_error:
                     if decision_error is None:
                         raise
@@ -348,13 +367,18 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
                 fallback_reason=resolution.fallback_reason,
                 adjustment_reason=resolution.adjustment_reason,
                 reasoning=valid_proposal.reasoning if valid_proposal else None,
+                retrieved_case_ids=tuple(decision_evidence[-1].get("selected_case_ids", ())) if decision_evidence else (),
                 elapsed_ms=elapsed_ms,
                 llm_attempt_count=len(call_audits),
                 llm_succeeded=(proposal is not None) if controller_type == "llm" else None,
             )
             logger.write_decision(decision, observation=observation, resolution=resolution)
             logger.write_snapshot(snapshot)
+            logger.write_evidence_resolution(decision_evidence, resolution)
             controller.observe(window.feedback)
+            logger.write_memory_revisions(controller.drain_case_revisions())
+            if public_transition_sink is not None:
+                public_transition_sink(observation, window.feedback)
             if truncated:
                 raise RuntimeError("an interrupted run cannot be reported as complete")
             if terminated:
@@ -397,3 +421,89 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
                 raise
             description = type(close_error).__name__ if call_audit_error is not None else close_error
             _add_error_note(active_error, f"Log cleanup also failed: {description}")
+
+
+def memory_source_compatibility(protocol, calibration_artifact=None, *, execution_days=None, data_path=None):
+    """Compute private source compatibility outside every public memory component."""
+    import hashlib
+    from .calibration import load_calibration_artifact
+    root = Path(__file__).resolve().parents[2]
+    source = {}
+    for directory in (root / "cemas/control", root / "covasim"):
+        for path in sorted(directory.glob("*.py")):
+            source[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    objective = resolved_snapshot(protocol.definition["objective"])
+    objective.pop("status", None)
+    days = protocol.definition["engine"]["execution_days"] if execution_days is None else execution_days
+    objective["execution_days"] = days
+    artifact_sha = None
+    if calibration_artifact is not None:
+        artifact_sha = load_calibration_artifact(calibration_artifact, protocol, require_evaluation=True, data_path=data_path).sha256
+    return {"source_code_sha256": snapshot_sha256(source), "calibration_artifact_sha256": artifact_sha,
+            "execution_days": days, "objective_sha256": snapshot_sha256(objective)}
+
+
+def make_memory_llm_controller(protocol, *, endpoint, api_key_env="DASHSCOPE_API_KEY", tokenizer_manifest,
+                               tokenizer_acceptance=None, memory_acceptance=None, provider="deepseek", client=None,
+                               memory_mode="none", memory_profile_path=None, store_path=None,
+                               store_manifest=None, build_manifest=None):
+    from .llm import LLMTransport, OfficialInputTokenCounter
+    from .llm_memory import MemoryLLMController
+    from .memory import load_memory_profile
+    from .memory_store import FrozenPublicCaseStore
+    settings = make_llm_settings(protocol, provider=provider, endpoint=endpoint, api_key_env=api_key_env)
+    profile = load_memory_profile(memory_profile_path)
+    store = None
+    if memory_mode in ("global", "both"):
+        if store_path is None or store_manifest is None:
+            raise ValueError("global memory requires an explicit frozen public store and manifest")
+        store = FrozenPublicCaseStore.open(store_path, store_manifest)
+    try:
+        controller = MemoryLLMController(LLMTransport(settings, client=client), make_public_prompt_config(protocol),
+            settings, OfficialInputTokenCounter(tokenizer_manifest, acceptance_path=tokenizer_acceptance),
+            memory_mode=memory_mode, memory_profile=profile, store=store)
+    except BaseException:
+        if store is not None:
+            store.close()
+        raise
+    # These paths are runner-owned admission evidence, never serialized to prompts.
+    _MEMORY_ADMISSION[controller] = {"memory_acceptance": memory_acceptance, "build_manifest": build_manifest}
+    return controller
+
+
+def _validate_memory_run(protocol, controller, purpose, scenario_options):
+    from .llm import LLMConfigurationError, LLMTransport, OfficialInputTokenCounter
+    from .memory import public_task_hash
+    from .memory_store import FrozenPublicCaseStore, verify_source_manifest
+    store = controller.store
+    if controller.memory_mode in ("global", "both"):
+        if type(store) is not FrozenPublicCaseStore:
+            raise LLMConfigurationError("invalid_case_store", "Episodes require the verified read-only public case store")
+        store.verify_integrity()
+        options = dict(scenario_options or {})
+        days = options.get("execution_days", protocol.definition["engine"]["execution_days"])
+        if store.public_task_sha256 != public_task_hash(controller.prompt_config, days):
+            raise LLMConfigurationError("case_task_mismatch", "Source cases use a different public task or horizon")
+        if purpose == "smoke":
+            if store.purpose != "fixture":
+                raise LLMConfigurationError("invalid_store_purpose", "Offline smoke uses a clearly marked fixture case store")
+        else:
+            if store.purpose not in ("development", "evaluation_ready"):
+                raise LLMConfigurationError("fixture_store_forbidden", "Real prompt development cannot use a fixture source library")
+            path = _MEMORY_ADMISSION.get(controller, {}).get("build_manifest")
+            if path is None:
+                raise LLMConfigurationError("source_provenance_missing", "Real memory episodes require a separate private source manifest")
+            compatibility = memory_source_compatibility(protocol, options.get("calibration_artifact"),
+                execution_days=days, data_path=options.get("calibration_data_path"))
+            source = verify_source_manifest(path, compatibility, purpose=store.purpose)
+            if source.get("database_sha256") != store.store_sha256:
+                raise LLMConfigurationError("source_store_mismatch", "Private build evidence and public database do not match")
+    if isinstance(controller.transport, LLMTransport):
+        if not isinstance(controller.token_counter, OfficialInputTokenCounter):
+            raise LLMConfigurationError("tokenizer_not_official", "Live memory decisions require the official accepted counter")
+        controller.token_counter.validate(controller.settings)
+        receipt = _MEMORY_ADMISSION.get(controller, {}).get("memory_acceptance")
+        if receipt is None:
+            raise LLMConfigurationError("memory_not_accepted", "Live memory decisions require the additional P5 acceptance receipt")
+        from .memory_acceptance import validate_memory_acceptance
+        validate_memory_acceptance(receipt, controller)

@@ -414,55 +414,37 @@ Controller.observe(PublicWeekFeedback)
 
 ---
 
-### Phase 5：公共 memory 重构
+### Phase 5：公共记忆、案例检索与决策依据
 
-**依赖：** Phase 4。最终建库另依赖 Phase 6 的阈值调优。
+**2026-10-17计划修订：** 按本轮用户要求，Phase 5优先采用[本次研究架构](llm_architecture_research/02_recommended_architecture.md)。具体实施范围、接口、文件、分步退出条件和验收见[Phase 5实施计划](control_phase5_implementation_plan.md)。本节已按独立 [Phase 5 契约](control_phase5_contracts.md) 完成离线实现和工程验收；真实 provider/tokenizer、正式案例库和控制效果仍不在本阶段完成标准内。
 
-**修改文件**
+**依赖：** Phase 4公共LLM基础链；离线工程可先完成。真实LLM运行仍依赖官方tokenizer/provider及兼容E0验收；最终27世界×4策略源库另依赖Phase 6的阈值调优和统一H/目标确认。
 
-- `cemas/control/llm.py`
-- `cemas/control/controllers.py`
+**推荐实现**
 
-**新增文件**
+- 单个无会话状态的`MemoryLLMController`，每周重建system/user两消息；复用P4唯一的transport、计数、重试和审计链。
+- 确定性公共近期摘要、实际执行案例及revision；`stage(PublicObservation)`后用`accept(PublicWeekFeedback)`配对，实际动作不由提案推测。
+- 独立公共SQLite schema、源域构建器和只读store；来源seed/策略/私有评价另存，目标经验不追加全局库。
+- 数值检索采用研究38维state＋最近3完整周的原始差分trend，权重`.75/.25`；top_k≤6、同动作≤2，并落实资源/动作适配、同源/同内容去重、冲突对与OOD处理。
+- 本阶段不实现embedding、旧三路混合相似度或LLM反思。原memory节中的相关参数是被本次P5 profile取代的历史候选，P5不得隐式读取并混用。
+- 保留六条核心规则，增加版本化知识卡；四模式none/short/global/both保留相同基础观察、知识、模型及新输出schema。
+- 新wire为`action/reason/evidence_ids/alternative_actions/uncertainty_codes`，适配回原`ActionProposal`；保留旧P4两字段模板/parser/入口作为兼容基线。
+- 完整消息超硬预算时依次裁整案例（冲突对成组）、低优先级外部卡、附加recent；每轮重建引用与flags；不裁基础四周、mask、任务规则与核心六条。
+- 新增runner-owned依据日志，先持久化调用和依据再推进；反馈包含尾窗，不额外推进或提前交付事件。保持现有共同resolver和失败分类。
 
-- `cemas/control/memory.py`
-- `tools/collect_observable_memory.py`
-- `tests/test_control_memory.py`
+**配置与文件边界**
 
-**核心接口**
+新增独立`docs/control_memory_v1.json`及严格加载器作为P5算法配置；现有协议继续提供共同任务和模型设置，旧两字段LLM配置保持兼容。新增memory_types/memory/memory_store/retrieval/knowledge/llm_memory及版本资源；修改LLM接入点、controllers、runner和logging限于P5必要集成。具体清单见独立实施计划，不修改共同观察、动作、执行、奖励或传播内核。
 
-```text
-EpisodeMemory.reset()
-EpisodeMemory.begin(public_observation, executed_action)
-EpisodeMemory.complete(public_week_feedback)
+**采集与阶段依赖**
 
-ObservableMemoryStore.add_completed_case(public_case)
-ObservableMemoryStore.retrieve(public_query) -> public_cases
-organize_short_term(completed_public_weeks) -> PublicMemoryContext
-```
+P5实现`tools/collect_observable_memory.py`的公共采集、构建、覆盖审计和冻结能力；用人工数据、最低/最高合法/独立RNG随机合法三个简单策略的smoke验收。仅增加严格源池`memory_collection`用途，内部走scientific环境并保留E0门禁。
 
-所有接口均不接收 simulator 或私有 reward。
+Phase 6实现/调优阈值后，使用同一工具采集27世界×4策略=108轨迹，H/目标改变时统一重采集/重冻结。P5的fixture/development只读库不得标为evaluation_ready。P5不提前实现阈值、RL、H/权重选择、E1–E4调度或完整统计。
 
-**实现内容**
+**验收**
 
-- 复用 SQLite 两阶段写入、真实只读连接及查询组织方式；建立独立公共 schema。
-- 新库固定为 `observable_source_memory_v1.sqlite`；旧真值向量、文本和反馈不迁入。
-- 短期组织四个完成周，以五维执行动作、资源和公共后效描述轨迹。
-- 周反馈在下一决策前封闭，末周在终点封闭；不得读取未来结果补写。
-- 状态、趋势和文本全部采用 v1 公共字段；相似度与固定尺度按协议实现。
-- 删除层相似度，权重为 `.4 / 4⁄15 / 1⁄3`；top_k6，同执行组合最多两例，同分按 case_id 排序。
-- embedding 固定 revision 和本地 hash，正式评估禁止下载或静默替换。
-- 四种消融只开关短期组织/全局检索，共同原始历史、专家和模型参数一致。
-- 在完整输入预算下先裁剪检索案例，再压缩附加短期总结；不删除基础四周历史或公共任务字段。这些预算裁剪只在P5实现。
-- 来源 seed 等追溯信息独立存放，不进入案例展示或检索返回对象。
-
-**建库依赖**
-
-先以测试案例和三个简单策略验证模块。阈值调优完成后采集协议规定的 27 世界×4 策略，共108轨迹；通过公共反馈和覆盖审计后冻结最终库。
-
-**兼容与验证**
-
-旧库保留为历史产物，新库不做污染数据迁移。验证公共键、文本、反馈和检索的真值不变性；只读写入阻断、回合清空、末周封闭、seed 分离、embedding 离线加载和目标运行前后库 hash 不变。
+覆盖公共/私有扰动不变性、实际动作配对、末周/截短后窗、幂等/reset、revision/只读完整性、38维与排序边界、知识和四模式一致性、五字段引用校验、裁剪后注册表、审计故障与共同回退，以及P4回归。真实provider验收入口在P5准备，实际付费调用与最终科学建库单独登记门禁；离线通过不表示控制收益或真实运行已获验证。
 
 ---
 
@@ -500,9 +482,9 @@ select_checkpoint(validation_A, validation_B) -> FrozenControllerArtifact
 
 1. 安装并锁定验收后的依赖。
 2. 实现并调优公共阈值控制器。
-3. 完成最终源域案例库。
+3. 使用P5工具采集并冻结development源域案例库，供全方法源域开发使用；此时不标记evaluation_ready。
 4. 实现 MaskablePPO 和真正的 Double DQN。
-5. 全方法源域验证、预算/H 门槛检查及冻结。
+5. 全方法源域验证、预算/H 门槛检查及冻结；条件确定且完整27×4来源证据通过后发布evaluation_ready案例库，H/目标改变时统一重采集。
 
 **算法要求**
 

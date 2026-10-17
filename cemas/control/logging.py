@@ -238,6 +238,37 @@ class RunLogger:
         if audits:
             self.flush()
 
+    def _write_sidecar(self, filename, records):
+        if self._closed:
+            raise RuntimeError("run logger is closed")
+        if not records:
+            return
+        if filename not in self._handles:
+            self._handles[filename] = (self.output_dir / filename).open("x", encoding="utf-8", newline="\n")
+        for record in records:
+            self._handles[filename].write(json.dumps(resolved_snapshot(record), ensure_ascii=False, allow_nan=False) + "\n")
+        self.flush()
+
+    def write_decision_evidence(self, evidence) -> None:
+        """Durable public context/response evidence, before the world advances."""
+        if type(evidence) is not tuple or any(not isinstance(item, Mapping) for item in evidence):
+            raise TypeError("decision evidence must be a tuple of public mappings")
+        self._write_sidecar("decision_evidence.jsonl", evidence)
+
+    def write_evidence_resolution(self, evidence, resolution) -> None:
+        records = tuple({"event": "resolved", "decision_day": item["decision_day"],
+                         "observation_hash": item["observation_hash"], "context_hash": item["context_hash"],
+                         "executed_action": resolved_snapshot(resolution.executed_action),
+                         "adjustment_reason": resolution.adjustment_reason,
+                         "fallback_reason": resolution.fallback_reason} for item in evidence)
+        self._write_sidecar("decision_evidence.jsonl", records)
+
+    def write_memory_revisions(self, revisions) -> None:
+        from .memory_types import LocalCaseRevision
+        if type(revisions) is not tuple or any(type(item) is not LocalCaseRevision for item in revisions):
+            raise TypeError("memory revisions must be exact public LocalCaseRevision objects")
+        self._write_sidecar("memory_revisions.jsonl", revisions)
+
     def write_snapshot(self, snapshot) -> None:
         if self._closed:
             raise RuntimeError("run logger is closed")

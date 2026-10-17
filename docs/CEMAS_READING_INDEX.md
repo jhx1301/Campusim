@@ -1,6 +1,6 @@
 # CEMAS v1 当前工作阅读索引
 
-更新日期：2026-10-16。此索引用于接续 v1 开发，集中阅读现行协议、阶段契约和当前代码。
+更新日期：2026-10-17。此索引用于接续 v1 开发，集中阅读现行协议、阶段契约和当前代码。
 
 ## 1. 当前进度
 
@@ -15,10 +15,13 @@
 | Phase 2 | campus 场景、共同执行器、公共 ledger/观察、198 维编码和独立私有指标 |
 | Phase 3 | 已实现周环境、统一奖励、两个固定参照、日志/runner 和共享人口 E0；334项测试、完整smoke及主/辅助E0已验收，证据和拟合限制见 [P3 契约](control_phase3_contracts.md) |
 | Phase 4 | 已实现公共prompt、严格解析、本地计数适配/验收门禁、transport、重试、共同回退和调用审计；472项回归及完整离线闭环通过，真实provider/tokenizer验收待完成，见 [P4 契约](control_phase4_contracts.md) |
+| Phase 5 | 已实现确定性公共记忆、数值检索、知识卡、五字段依据、采集/冻结入口和 live 门禁；离线工程验收完成，真实 provider/tokenizer、正式27×4源库仍待后续阶段，见 [P5 契约](control_phase5_contracts.md) |
 
 P3 的公式和计数语义已确认，当前权重为可执行的 `development_candidate`。后续全部主方法的源域验证与 H 检查完成后再统一正式冻结；P3 闭环验收不代表权重验证、训练或最终实验完成。测试及实际 smoke/E0 结果只以契约中明确登记的证据为准，不能根据存在脚本就认定校准已经执行。
 
 ## 2. 按此顺序阅读
+
+接续Phase 5时，先读[Phase 5契约](control_phase5_contracts.md)、[Phase 5实施计划](control_phase5_implementation_plan.md)及其[研究架构依据](llm_architecture_research/02_recommended_architecture.md)。与原P5候选冲突的模块、检索参数和LLM输出采用本次研究；P4当前限制须读契约末尾，不能用早期472项记录代表最新回归状态。
 
 | 顺序 | 文档 | 当前应关注的内容 |
 |---|---|---|
@@ -44,7 +47,7 @@ P3 的公式和计数语义已确认，当前权重为可执行的 `development_
 | [controllers.py](../cemas/control/controllers.py)、[runner.py](../cemas/control/runner.py)、[logging.py](../cemas/control/logging.py) | 公共控制器及可选失败/审计出口、公共配置工厂、单回合编排、私有LLM调用日志和完成状态 |
 | [llm.py](../cemas/control/llm.py)、[public_v1.json](../cemas/control/prompts/public_v1.json) | 无显式记忆LLM、纯公共两条消息、严格parser、固定本地计数资源及provider验收、transport/重试 |
 | [calibration.py](../cemas/control/calibration.py) | 共享人口 E0 的拟合、独立评价、产物保存及兼容性核验 |
-| [examples/control_v1/](../examples/control_v1/) | 固定参照/E0薄入口，以及 `smoke_llm.py`（离线fixture）、`run_llm.py`（真实验收与E0双门禁） |
+| [examples/control_v1/](../examples/control_v1/) | 固定参照/E0薄入口，以及 `smoke_llm.py`、`smoke_memory.py`、`run_llm.py`、`run_memory_llm.py`、`accept_memory_llm.py` |
 
 v1 所有后续实验入口也放在 `examples/control_v1/`，可复用逻辑只放在 `cemas/control/`。旧 t18 脚本和绘图保留，不创建 t23；旧四参数、旧人口产物不能作为 v1 E0 证明。
 
@@ -60,7 +63,7 @@ v1 所有后续实验入口也放在 `examples/control_v1/`，可复用逻辑只
 - 到 H 不额外推进、不提前交付 pending 事件。初始感染、感染新增、累计、峰值和终点活动状态分别核对。
 - smoke 仅检查闭环；科学运行必须加载带独立评价的真实主窗 E0 产物，不能用裸 beta 或手填证明代替。最终实验还须通过后续统一冻结门禁。
 - 当前指定Python为 `E:/pytroch/anaconda3/envs/simulation/python.exe`（本机3.10.20），P3旧环境快照作为历史保留。P4可选SDK/tokenizer依赖与版本闭包单独记录在 `requirements-control-llm-v1.in` / `.lock.txt`；测试工具使用本地隔离目录，不改共享环境。
-- P4仅实现无显式记忆LLM基础链；真实API验收本轮按用户决定暂缓。P5才增加记忆、检索、embedding及其裁剪/压缩，P6才做调优阈值、RL、训练和权重/H冻结。
+- P4仅实现无显式记忆LLM基础链；真实API验收本轮按用户决定暂缓。P5按本次研究增加确定性公共记忆、数值检索、知识与依据输出、预算裁剪，不实现embedding或LLM反思；P6才做调优阈值、RL、训练、最终源库及权重/H冻结。
 
 ## 5. 下一次接续提示
 

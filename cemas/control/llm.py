@@ -673,27 +673,51 @@ class LLMController(Controller):
                 "transport_type": type(self.transport).__name__,
                 "tokenizer_identity": resolved_snapshot(self.token_counter.identity)}
 
-    def decide(self, observation):
-        self._failure_reason = None
+    def _prepare_input(self, observation):
+        """Build and count one immutable input before entering the shared retry loop."""
         messages = build_public_messages(observation, self.prompt_config)
-        digest = snapshot_sha256(messages)
         count = None
         try:
-            if isinstance(self.transport, LLMTransport) and not isinstance(self.token_counter, OfficialInputTokenCounter):
-                raise LLMConfigurationError("tokenizer_not_official", "Live transports require the pinned official token counter")
             self.token_counter.validate(self.settings)
             count = self.token_counter.count_input(messages, self.settings)
             if type(count) is not int or count < 0:
                 raise LLMConfigurationError("tokenizer_invalid_result", "Input token count must be a nonnegative ordinary integer")
             if count > self.settings.input_token_budget:
+                raise PromptBudgetError(count, self.settings.input_token_budget, snapshot_sha256(messages))
+            return messages, count
+        except LLMError as error:
+            error.details = _immutable({**error.details, "messages_sha256": snapshot_sha256(messages),
+                                        "input_tokens": count})
+            raise
+
+    def _parse_response(self, response, observation):
+        return parse_action_response(response.content, reason_max_chars=self.settings.reason_max_chars)
+
+    def _decision_finished(self, observation, proposal, attempt_count):
+        """Extension point for public evidence; never adds a provider call."""
+
+    def decide(self, observation):
+        self._failure_reason = None
+        messages, digest, count = (), None, None
+        try:
+            if isinstance(self.transport, LLMTransport) and not isinstance(self.token_counter, OfficialInputTokenCounter):
+                raise LLMConfigurationError("tokenizer_not_official", "Live transports require the pinned official token counter")
+            messages, count = self._prepare_input(observation)
+            if (type(messages) is not tuple or not messages
+                    or any(type(message) is not ChatMessage for message in messages)
+                    or type(count) is not int or count < 0):
+                raise LLMConfigurationError("invalid_prepared_input", "Prepared messages and token count are invalid")
+            digest = snapshot_sha256(messages)
+            if count > self.settings.input_token_budget:
                 raise PromptBudgetError(count, self.settings.input_token_budget, digest)
-            # A credential failure here is a preflight failure, not a fabricated call.
             self.transport.prepare()
         except LLMError as error:
-            error.details = _immutable({**error.details, "messages_sha256": digest,
+            error.details = _immutable({**error.details,
+                                        "messages_sha256": digest or error.details.get("messages_sha256"),
                                         "template_sha256": self.prompt_config.template_sha256,
                                         "public_spec_sha256": self.prompt_config.public_spec_sha256,
-                                        "input_tokens": count, "input_token_budget": self.settings.input_token_budget})
+                                        "input_tokens": count if count is not None else error.details.get("input_tokens"),
+                                        "input_token_budget": self.settings.input_token_budget})
             raise
         for attempt in range(1, self.settings.max_attempts + 1):
             started = self._clock()
@@ -714,7 +738,8 @@ class LLMController(Controller):
                 self.token_counter.verify_response(response)
                 if response.finish_reason == "length":
                     raise ActionResponseError("truncated_content", "Provider output reached its generation limit")
-                proposal = parse_action_response(response.content, reason_max_chars=self.settings.reason_max_chars)
+                proposal = self._parse_response(response, observation)
+                self._decision_finished(observation, proposal, attempt)
                 return proposal
             except (LLMServiceError, ActionResponseError) as error:
                 caught = error
@@ -735,4 +760,5 @@ class LLMController(Controller):
             if attempt < self.settings.max_attempts:
                 self._sleeper(self.settings.retry_delays_seconds[attempt - 1])
         self._failure_reason = "llm_retry_exhausted"
+        self._decision_finished(observation, None, self.settings.max_attempts)
         return None

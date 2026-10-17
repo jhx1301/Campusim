@@ -32,6 +32,42 @@ class Controller(ABC):
         """Deliver pending private call records to the runner."""
         return ()
 
+    def drain_decision_evidence(self) -> tuple:
+        """Deliver public decision evidence to the runner without receiving its audit."""
+        return ()
+
+    def drain_case_revisions(self) -> tuple:
+        """Deliver completed public experience after observe(), including terminal tails."""
+        return ()
+
+
+class UniformLegalController(Controller):
+    """Collection policy using an independent local random stream."""
+
+    controller_type = "uniform_legal_independent_rng"
+
+    def __init__(self, controller_seed=0):
+        if type(controller_seed) is not int or controller_seed < 0:
+            raise ValueError("controller_seed must be a nonnegative ordinary integer")
+        self._controller_seed = controller_seed
+        self.reset()
+
+    def reset(self):
+        import numpy as np
+        self._rng = np.random.default_rng(self._controller_seed)
+
+    def decide(self, observation):
+        if type(observation) is not PublicObservation:
+            raise TypeError("collection controllers require PublicObservation")
+        from .actions import decode_action
+        legal = tuple(i for i, value in enumerate(observation.legal_action_mask) if value)
+        index = int(self._rng.choice(legal))
+        return ActionProposal(decode_action(index), "Uniform legal collection policy")
+
+    def observe(self, feedback):
+        if type(feedback) is not PublicWeekFeedback:
+            raise TypeError("collection controllers require PublicWeekFeedback")
+
 
 class ActionDecoder(ABC):
     """RL adapters use this shared contract before returning ActionProposal."""

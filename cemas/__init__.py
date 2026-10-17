@@ -23,8 +23,12 @@ _CONTROL_EXPORTS = frozenset((
     "PublicPromptConfig", "ChatMessage", "OfficialInputTokenCounter", "PromptBudgetError",
     "LLMConfigurationError", "ActionResponseError", "TokenCountMismatchError",
     "build_public_messages", "parse_action_response", "make_llm_controller",
-    "make_llm_settings", "make_public_prompt_config",
-    "accept_llm_token_counter",
+    "make_llm_settings", "make_public_prompt_config", "accept_llm_token_counter",
+    "UniformLegalController", "MemoryProfile", "PublicEpisodeMemory", "PublicCase", "PublicMemoryContext",
+    "FrozenPublicCaseStore", "PublicCaseBuilder", "NumericRetriever", "KnowledgeBundle", "MemoryLLMController",
+    "build_memory_messages", "parse_memory_response", "make_memory_llm_controller", "memory_source_compatibility",
+    "load_memory_profile", "load_knowledge_bundle", "freeze_public_store", "coverage_report",
+    "validate_memory_acceptance", "accept_memory_llm",
 ))
 
 

@@ -1,0 +1,33 @@
+﻿{
+  "schema_version": "cemas-control-memory-v1",
+  "architecture_version": "numeric-public-memory-v1",
+  "response_schema_version": "cemas-public-decision-v1",
+  "template_path": "cemas/control/prompts/public_memory_v1.json",
+  "knowledge_path": "cemas/control/knowledge/public_knowledge_v1.json",
+  "short_term_window": 4,
+  "trend_window": 3,
+  "retrieval": {
+    "configuration_version": "numeric-retrieval-v1",
+    "feature_version": "cemas-public-case-features-v1",
+    "state_scales": [0.01, 0.12, 0.1, 0.02, 0.05, 0.05, 1, 1, 1, 1, 0.02, 0.1, 0.01, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    "trend_scales": [0.01, 0.12, 0.1, 0.05, 1],
+    "state_weight": 0.75,
+    "trend_weight": 0.25,
+    "minimum_valid_overlap": 0.75,
+    "maximum_state_rms": 3,
+    "minimum_score": 0.35,
+    "capacity_ratio_tolerances": [0.01, 0.03, 0.005],
+    "candidate_pool_size": 24,
+    "top_k": 6,
+    "maximum_per_action": 2,
+    "maximum_per_group": 1,
+    "redundancy_penalty": 0.1,
+    "conflict_minimum_state_score": 0.8,
+    "conflict_minimum_diagnosis_change": 5
+  },
+  "budget_policy": {
+    "soft_input_target": 16384,
+    "truncation_order": ["cases", "external_knowledge", "recent"],
+    "preserve_conflict_pairs": true
+  }
+}
