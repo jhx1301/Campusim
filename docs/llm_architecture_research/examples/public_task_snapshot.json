@@ -1,0 +1,233 @@
+{
+  "actions": {
+    "order": [
+      "T",
+      "S",
+      "C",
+      "E",
+      "A"
+    ],
+    "sizes": [
+      3,
+      4,
+      3,
+      3,
+      3
+    ],
+    "joint_count": 324,
+    "T": [
+      {
+        "level": 0,
+        "effective_parameters": {
+          "symptomatic_daily_probability": 0.08,
+          "ordinary_asymptomatic_daily_probability": 0,
+          "symptomatic_quarantine_entry_probability": 0.25,
+          "asymptomatic_quarantine_entry_probability": 0
+        }
+      },
+      {
+        "level": 1,
+        "effective_parameters": {
+          "symptomatic_daily_probability": 0.14,
+          "ordinary_asymptomatic_daily_probability": 0,
+          "symptomatic_quarantine_entry_probability": 0.5,
+          "asymptomatic_quarantine_entry_probability": 0.03
+        }
+      },
+      {
+        "level": 2,
+        "effective_parameters": {
+          "symptomatic_daily_probability": 0.22,
+          "ordinary_asymptomatic_daily_probability": 0,
+          "symptomatic_quarantine_entry_probability": 0.8,
+          "asymptomatic_quarantine_entry_probability": 0.08
+        }
+      }
+    ],
+    "S": [
+      {
+        "level": 0,
+        "effective_parameters": {
+          "request_ratio": 0
+        }
+      },
+      {
+        "level": 1,
+        "effective_parameters": {
+          "request_ratio": 0.02
+        }
+      },
+      {
+        "level": 2,
+        "effective_parameters": {
+          "request_ratio": 0.05
+        }
+      },
+      {
+        "level": 3,
+        "effective_parameters": {
+          "request_ratio": 0.1
+        }
+      }
+    ],
+    "C": [
+      {
+        "level": 0,
+        "effective_parameters": {
+          "coverage_probability": {
+            "home": 0.6,
+            "school": 0.2,
+            "work": 0.18,
+            "community": 0.15
+          },
+          "notification_delay_days": {
+            "home": 0,
+            "school": 3,
+            "work": 3,
+            "community": 4
+          }
+        }
+      },
+      {
+        "level": 1,
+        "effective_parameters": {
+          "coverage_probability": {
+            "home": 0.95,
+            "school": 0.45,
+            "work": 0.4,
+            "community": 0.35
+          },
+          "notification_delay_days": {
+            "home": 0,
+            "school": 1,
+            "work": 1,
+            "community": 2
+          }
+        }
+      },
+      {
+        "level": 2,
+        "effective_parameters": {
+          "coverage_probability": {
+            "home": 1,
+            "school": 0.8,
+            "work": 0.7,
+            "community": 0.55
+          },
+          "notification_delay_days": {
+            "home": 0,
+            "school": 0,
+            "work": 0,
+            "community": 1
+          }
+        }
+      }
+    ],
+    "E": [
+      {
+        "level": 0,
+        "effective_parameters": {
+          "transmission_multiplier": 1,
+          "restriction_time_fraction": 0
+        }
+      },
+      {
+        "level": 1,
+        "effective_parameters": {
+          "transmission_multiplier": 0.5,
+          "restriction_time_fraction": 0.5
+        }
+      },
+      {
+        "level": 2,
+        "effective_parameters": {
+          "transmission_multiplier": 0,
+          "restriction_time_fraction": 1
+        }
+      }
+    ],
+    "A": [
+      {
+        "level": 0,
+        "effective_parameters": {
+          "transmission_multiplier": 1,
+          "restriction_time_fraction": 0
+        }
+      },
+      {
+        "level": 1,
+        "effective_parameters": {
+          "transmission_multiplier": 0.75,
+          "restriction_time_fraction": 0.25
+        }
+      },
+      {
+        "level": 2,
+        "effective_parameters": {
+          "transmission_multiplier": 0.5,
+          "restriction_time_fraction": 0.5
+        }
+      }
+    ]
+  },
+  "resources": {
+    "clinical_tests_per_person_per_day": 0.02,
+    "tracing_index_cases_per_person_per_day": 0.01,
+    "recent_screening_exclusion_days": 3,
+    "tests": {
+      "sensitivity": 0.95,
+      "loss_prob": 0,
+      "report_delay_days": 1,
+      "swab_delay": null,
+      "ili_prev": null
+    }
+  },
+  "objective": {
+    "lambda": 1,
+    "burden_weights": {
+      "tests": 0.25,
+      "notifications": 0.25,
+      "union": 0.25,
+      "activity": 0.25
+    },
+    "formula_version": "cemas-reward-v1",
+    "status": "development_candidate",
+    "test_reference_daily_ratio": 0.12,
+    "notification_reference_daily_ratio": 0.1
+  },
+  "activity": {
+    "daily_budget_school_or_work": 0.8,
+    "daily_budget_community": 0.2,
+    "dual_school_work_each": 0.4,
+    "neither_school_nor_work_community": 1
+  },
+  "observation": {
+    "age_bands_shared": [
+      [
+        0,
+        16
+      ],
+      [
+        17,
+        23
+      ],
+      [
+        24,
+        30
+      ],
+      [
+        31,
+        60
+      ],
+      [
+        61,
+        99
+      ]
+    ]
+  },
+  "task": {
+    "decision_interval_days": 7,
+    "history_weeks": 4,
+    "quarantine_days": 14
+  }
+}

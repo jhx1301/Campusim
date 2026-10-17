@@ -1,0 +1,61 @@
+{
+  "synthetic_example": true,
+  "real_model_result": false,
+  "messages_sha256": "48e8f1a38e1b9d025569d453349d6897c1055242c0b300f129e4c7fc3643bdac",
+  "proposed_response": {
+    "action": [
+      1,
+      2,
+      1,
+      0,
+      0
+    ],
+    "reason": "交付诊断连续增加，筛查容量允许S2；增加检测负担，案例后效不作因果依据。",
+    "evidence_ids": [
+      "O:/history/3/delivered_diagnoses",
+      "O:/resources/screening_daily_capacity",
+      "K:SIM-01",
+      "K:SIM-04",
+      "C:309"
+    ],
+    "alternative_actions": [
+      {
+        "action": [
+          1,
+          1,
+          1,
+          0,
+          0
+        ],
+        "tradeoff": "维持较低筛查负担，但获得的检测记录可能更少。",
+        "evidence_ids": [
+          "K:SIM-04",
+          "O:/current_action"
+        ]
+      }
+    ],
+    "uncertainty_codes": [
+      "partial_observability",
+      "case_conflict"
+    ]
+  },
+  "expected_resolution": {
+    "requested_action": [
+      1,
+      2,
+      1,
+      0,
+      0
+    ],
+    "executed_action": [
+      1,
+      2,
+      1,
+      0,
+      0
+    ],
+    "fallback_reason": null
+  },
+  "token_count": null,
+  "note": "Artificial design example; no API call or measured tokenizer count."
+}

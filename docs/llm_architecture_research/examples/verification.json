@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "scope": "documentation synthetic structure and arithmetic only",
+  "checks": {
+    "public_observations": 7,
+    "weekly_records": 36,
+    "responses": 3,
+    "registry_references": 113,
+    "hashes": 12,
+    "local_links": 102
+  },
+  "simulation_runs": 0,
+  "model_calls": 0,
+  "official_token_count": null,
+  "runtime_memory_implementation_tested": false,
+  "notes": [
+    "Loaded existing types.py dataclasses without importing simulator.",
+    "No real API, efficacy, cost or causal conclusion validated."
+  ]
+}

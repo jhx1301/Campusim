@@ -1,0 +1,45 @@
+{
+  "synthetic_example": true,
+  "real_model_result": false,
+  "messages_sha256": "be6ab3b98f2f80e528ee25d388f53eaec845f744fcb461c4a54fe88cbd0d587c",
+  "proposed_response": {
+    "action": [
+      1,
+      1,
+      1,
+      0,
+      0
+    ],
+    "reason": "案例查询暂时失败；依据现有公共记录保持合法组合，仍无法确定感染变化。",
+    "evidence_ids": [
+      "O:/history/3/delivered_diagnoses",
+      "O:/resources/screening_daily_capacity",
+      "K:SIM-01",
+      "K:SIM-04"
+    ],
+    "alternative_actions": [],
+    "uncertainty_codes": [
+      "partial_observability",
+      "no_case"
+    ]
+  },
+  "expected_resolution": {
+    "requested_action": [
+      1,
+      1,
+      1,
+      0,
+      0
+    ],
+    "executed_action": [
+      1,
+      1,
+      1,
+      0,
+      0
+    ],
+    "fallback_reason": null
+  },
+  "token_count": null,
+  "note": "Artificial design example; no API call or measured tokenizer count."
+}

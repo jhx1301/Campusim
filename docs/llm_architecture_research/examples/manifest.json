@@ -1,0 +1,21 @@
+{
+  "synthetic_example": true,
+  "source_head": "2950e7f72355f03fda2bb69559378a06a9ca5eba",
+  "template_sha256": "9229ce6f5b630fe349c285fa8ed68dada616a917a4a5a886fe060fe6dd8106e7",
+  "public_task_sha256": "d509e55b922fbadcb671487cb334787a8c3752b66c47d54f4bc6f76a7dcf2956",
+  "knowledge_sha256": "dc0b9eb734e372674305d6e8f8dbe8fd435c6522ee791bc8c2fb8228160cad11",
+  "files": {
+    "both_messages.json": "8754155aebf8dfa024d9fdb80e06cc59085f40d717635a5a875e52ec4e9794b6",
+    "both_walkthrough.json": "6dfb82a00b4766417ffc94806077695dbd5578ce35a5bdaf4c9ca552d262a93f",
+    "decision_template.json": "780c4764e45eb94de47572715dba203f7dc892358cb60603edec71d21d516b1e",
+    "failure_messages.json": "18697532a0653ea860572cf410aeba6499821e0ce7f5455a05cb575a0efee0d5",
+    "failure_walkthrough.json": "be19b27680b75cd5e82c88b27a0e8844165d73f845f1567505208a13e163f724",
+    "knowledge_cards.json": "8e639d80143cd69ebca0e09002327c248bbb06c78d77bd595c561925578facdf",
+    "none_messages.json": "72a87dd7e26ba01dd89534f124e9d8611694b16bc09c9b7ee3c5e30901c27fb1",
+    "none_walkthrough.json": "166cdc2f8ecfef267fd19a30177607930b83e5a1141a7fa1a420312b3608c338",
+    "public_task_snapshot.json": "a4c06f7159f4c1e9a291bcc266176d89bd706310017dcb78b599f359ccb0a6ea",
+    "query_and_retrieval.json": "0a2a549602ad684845d553304b81cdc45827b04676e8c433cd902210510585ab",
+    "synthetic_cases.json": "a07509172040cabb5f959bbdaacc7f4d9ac750e9836185ac9439c1b5aa567545",
+    "terminal_feedback.json": "82bb108a32b05ed9c2755592979ecdba6ba0bdd6a520b37b6026c3eabfc6823f"
+  }
+}

@@ -1,0 +1,350 @@
+{
+  "schema_version": "cemas-knowledge-bundle-v1",
+  "bundle_id": "public-demo-bundle-2026-10-17",
+  "synthetic_example": true,
+  "cards": [
+    {
+      "id": "PH-01",
+      "version": "2021-01-29",
+      "kind": "research_finding",
+      "source": {
+        "publisher": "US CDC",
+        "title": "Response to a COVID-19 Outbreak on a University Campus - Indiana, August 2020",
+        "url": "https://www.cdc.gov/mmwr/volumes/70/wr/mm7004a3.htm",
+        "issued_on": "2021-01-29",
+        "revision": "70(4);118-122",
+        "retrieved_on": "2026-10-17",
+        "section": "Outbreak and response; Limitations",
+        "evidence_type": "observational_report"
+      },
+      "statement": "The campus report describes concurrent testing, tracing, isolation, screening, communication and activity changes with resource expansion.",
+      "preconditions": [
+        "Use only as an interpretation caution in the synthetic public-observation task; operational real-world advice is disabled"
+      ],
+      "limitations": [
+        "Concurrent measures do not identify a single action's causal effect; self-report and reporting delay limit inference"
+      ],
+      "public_fields": [
+        "history",
+        "resources"
+      ],
+      "action_dimensions": [
+        "T",
+        "S",
+        "C",
+        "E",
+        "A"
+      ],
+      "trigger": "has_history",
+      "priority": 2,
+      "conflict_group": "real-vs-synthetic",
+      "supersedes": [],
+      "review_status": "reviewed"
+    },
+    {
+      "id": "PH-02",
+      "version": "2026-06-04",
+      "kind": "research_finding",
+      "source": {
+        "publisher": "UK Health Security Agency",
+        "title": "Data quality report: national flu and COVID-19 surveillance report",
+        "url": "https://www.gov.uk/government/publications/sources-of-surveillance-data-for-influenza-covid-19-and-other-respiratory-viruses/data-quality-report-national-flu-and-covid-19-surveillance-report",
+        "issued_on": "2026-06-04",
+        "revision": "current online report",
+        "retrieved_on": "2026-10-17",
+        "section": "About the statistics; Limitations",
+        "evidence_type": "official_data_quality"
+      },
+      "statement": "Changes in testing policy, samples and reporting systems can affect observed case and positivity trends and require cautious comparison.",
+      "preconditions": [
+        "Use only as an interpretation caution in the synthetic public-observation task; operational real-world advice is disabled"
+      ],
+      "limitations": [
+        "The source positivity metric is not CEMAS delivered-diagnosis/test proxy"
+      ],
+      "public_fields": [
+        "history.cost",
+        "history.diagnosis_test_proxy",
+        "history.proxy_valid"
+      ],
+      "action_dimensions": [
+        "T",
+        "S"
+      ],
+      "trigger": "testing_changed",
+      "priority": 2,
+      "conflict_group": "measurement",
+      "supersedes": [],
+      "review_status": "reviewed"
+    },
+    {
+      "id": "PH-03",
+      "version": "2023.1",
+      "kind": "real_guideline",
+      "source": {
+        "publisher": "World Health Organization",
+        "title": "Considerations for implementing and adjusting public health and social measures in the context of COVID-19",
+        "url": "https://www.who.int/publications/i/item/considerations-in-adjusting-public-health-and-social-measures-in-the-context-of-COVID-19-interim-guidance",
+        "issued_on": "2023-03-30",
+        "revision": "WHO/2019-nCoV/Adjusting_PH_measures/2023.1",
+        "retrieved_on": "2026-10-17",
+        "section": "Overview",
+        "evidence_type": "official_guidance"
+      },
+      "statement": "Public health and social measures should be reviewed using local situational assessment and their health-system and social consequences.",
+      "preconditions": [
+        "Use only as an interpretation caution in the synthetic public-observation task; operational real-world advice is disabled"
+      ],
+      "limitations": [
+        "Does not provide CEMAS action thresholds; CEMAS lacks morbidity, mortality and health-system inputs"
+      ],
+      "public_fields": [
+        "history",
+        "resources"
+      ],
+      "action_dimensions": [
+        "E",
+        "A",
+        "T",
+        "S",
+        "C"
+      ],
+      "trigger": "always",
+      "priority": 3,
+      "conflict_group": "real-vs-synthetic",
+      "supersedes": [],
+      "review_status": "reviewed"
+    },
+    {
+      "id": "SIM-01",
+      "version": "1",
+      "kind": "simulation_rule",
+      "source": {
+        "publisher": "Campusim/CEMAS v1",
+        "title": "Public observation and feedback contract",
+        "url": "../../control_phase4_contracts.md",
+        "issued_on": "2026-10-16",
+        "revision": "current-checkout",
+        "retrieved_on": "2026-10-17",
+        "section": "1-4",
+        "evidence_type": "project_contract"
+      },
+      "statement": "Delivered diagnoses and notifications are public events; delayed changes cannot prove hidden infection change or action causality.",
+      "preconditions": [
+        "PublicWeekFeedback is closed"
+      ],
+      "limitations": [
+        "No hidden infection or counterfactual is available"
+      ],
+      "public_fields": [
+        "history",
+        "week_valid",
+        "feedback.week"
+      ],
+      "action_dimensions": [
+        "T",
+        "S",
+        "C",
+        "E",
+        "A"
+      ],
+      "trigger": "always",
+      "priority": 9,
+      "conflict_group": "delay-causality",
+      "supersedes": [],
+      "review_status": "reviewed"
+    },
+    {
+      "id": "SIM-02",
+      "version": "1",
+      "kind": "simulation_rule",
+      "source": {
+        "publisher": "Campusim/CEMAS v1",
+        "title": "Public ledger history semantics",
+        "url": "../../control_phase2_contracts.md",
+        "issued_on": "2026-10-14",
+        "revision": "current-checkout",
+        "retrieved_on": "2026-10-17",
+        "section": "public-ledger",
+        "evidence_type": "project_contract"
+      },
+      "statement": "Interpret valid weekly records with actual executed actions, resources, testing, notifications, burden and action durations; missing weeks are not stability.",
+      "preconditions": [
+        "week_valid is respected"
+      ],
+      "limitations": [
+        "Only four completed weeks are exposed"
+      ],
+      "public_fields": [
+        "history",
+        "week_valid",
+        "current_action",
+        "action_duration_days"
+      ],
+      "action_dimensions": [
+        "T",
+        "S",
+        "C",
+        "E",
+        "A"
+      ],
+      "trigger": "always",
+      "priority": 9,
+      "conflict_group": null,
+      "supersedes": [],
+      "review_status": "reviewed"
+    },
+    {
+      "id": "SIM-03",
+      "version": "1",
+      "kind": "simulation_rule",
+      "source": {
+        "publisher": "Campusim/CEMAS v1",
+        "title": "Public diagnosis/testing proxy",
+        "url": "../../control_protocol_v1.json",
+        "issued_on": "2026-10-12",
+        "revision": "cemas-control-protocol-v1",
+        "retrieved_on": "2026-10-17",
+        "section": "observation",
+        "evidence_type": "project_protocol"
+      },
+      "statement": "The diagnosis-to-test ratio is a public proxy; zero tests make it invalid and delivery timing can make the ratio exceed one.",
+      "preconditions": [
+        "proxy_valid is true"
+      ],
+      "limitations": [
+        "It is not a positivity rate or infection estimate"
+      ],
+      "public_fields": [
+        "history.cost",
+        "history.diagnosis_test_proxy",
+        "history.proxy_valid"
+      ],
+      "action_dimensions": [
+        "T",
+        "S"
+      ],
+      "trigger": "always",
+      "priority": 8,
+      "conflict_group": "measurement",
+      "supersedes": [],
+      "review_status": "reviewed"
+    },
+    {
+      "id": "SIM-04",
+      "version": "1",
+      "kind": "simulation_rule",
+      "source": {
+        "publisher": "Campusim/CEMAS v1",
+        "title": "Development candidate objective",
+        "url": "../../control_protocol_v1.json",
+        "issued_on": "2026-10-12",
+        "revision": "cemas-reward-v1",
+        "retrieved_on": "2026-10-17",
+        "section": "objective",
+        "evidence_type": "project_protocol"
+      },
+      "statement": "Choose using the common finite-horizon trade-off among infection evaluation and four public burden dimensions; no action level is presumed optimal.",
+      "preconditions": [
+        "The common objective version is fixed"
+      ],
+      "limitations": [
+        "True infection and reward remain private"
+      ],
+      "public_fields": [
+        "history.cost",
+        "resources",
+        "legal_action_mask"
+      ],
+      "action_dimensions": [
+        "T",
+        "S",
+        "C",
+        "E",
+        "A"
+      ],
+      "trigger": "always",
+      "priority": 9,
+      "conflict_group": "objective",
+      "supersedes": [],
+      "review_status": "reviewed"
+    },
+    {
+      "id": "SIM-05",
+      "version": "1",
+      "kind": "simulation_rule",
+      "source": {
+        "publisher": "Campusim/CEMAS v1",
+        "title": "Capacity and legal mask",
+        "url": "../../control_phase1_contracts.md",
+        "issued_on": "2026-10-13",
+        "revision": "current-checkout",
+        "retrieved_on": "2026-10-17",
+        "section": "action-mask",
+        "evidence_type": "project_contract"
+      },
+      "statement": "The mask limits screening S; increasing T or C does not create clinical or tracing capacity and does not guarantee all requests execute.",
+      "preconditions": [
+        "Use the current public resources and mask"
+      ],
+      "limitations": [
+        "Public observation has no private unmet-request ledger"
+      ],
+      "public_fields": [
+        "resources",
+        "legal_action_mask",
+        "history.cost"
+      ],
+      "action_dimensions": [
+        "T",
+        "S",
+        "C"
+      ],
+      "trigger": "always",
+      "priority": 9,
+      "conflict_group": "capacity",
+      "supersedes": [],
+      "review_status": "reviewed"
+    },
+    {
+      "id": "SIM-06",
+      "version": "1",
+      "kind": "simulation_rule",
+      "source": {
+        "publisher": "Campusim/CEMAS v1",
+        "title": "Weekly action switching rule",
+        "url": "../../control_protocol_v1.json",
+        "issued_on": "2026-10-12",
+        "revision": "cemas-control-protocol-v1",
+        "retrieved_on": "2026-10-17",
+        "section": "actions",
+        "evidence_type": "project_protocol"
+      },
+      "statement": "Each weekly decision may change all dimensions; the shared protocol adds no hidden minimum hold, switch penalty or hysteresis.",
+      "preconditions": [
+        "The controller follows the shared resolver"
+      ],
+      "limitations": [
+        "A method may describe uncertainty but cannot invent a common hard rule"
+      ],
+      "public_fields": [
+        "current_action",
+        "action_duration_days",
+        "legal_action_mask"
+      ],
+      "action_dimensions": [
+        "T",
+        "S",
+        "C",
+        "E",
+        "A"
+      ],
+      "trigger": "always",
+      "priority": 9,
+      "conflict_group": null,
+      "supersedes": [],
+      "review_status": "reviewed"
+    }
+  ],
+  "conflict_pairs": []
+}
