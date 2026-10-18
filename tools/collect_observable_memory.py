@@ -30,27 +30,43 @@ def _json(path, value):
         stream.write(json.dumps(resolved_snapshot(value), ensure_ascii=False, indent=2, allow_nan=False) + "\n")
 
 
-def _controller(policy, controller_seed):
+def _controller(policy, controller_seed, protocol=None, threshold_artifact=None):
     from cemas.control.controllers import MinimumController, MaximumFeasibleController, UniformLegalController
+    if policy == "tuned_threshold":
+        from cemas.control.controllers import load_baseline_controller
+        controller, _metadata = load_baseline_controller(protocol, threshold_artifact)
+        if controller.controller_type != "threshold":
+            raise ValueError("tuned_threshold collection requires a Threshold artifact")
+        return controller
     return {"minimum": MinimumController, "maximum_feasible": MaximumFeasibleController,
             "uniform_legal_independent_rng": lambda: UniformLegalController(controller_seed)}[policy]()
 
 
 def collect(args):
+    from cemas.control.artifacts import file_sha256
     from cemas.control.protocol import load_protocol
+    from cemas.control.protocol import source_grid
     from cemas.control.runner import make_public_prompt_config, memory_source_compatibility, run_episode
     from cemas.control.memory import public_task_hash
-    from cemas.control.memory_store import PublicCaseBuilder, freeze_public_store, coverage_report
+    from cemas.control.memory_store import PublicCaseBuilder, SOURCE_POLICIES, freeze_public_store, coverage_report
     protocol = load_protocol(args.protocol)
-    seeds = args.seed or [90001 if args.smoke else 30001]
     pool = protocol.definition["seeds"]["memory_collection"]
+    seeds = args.seed or ([90001] if args.smoke else list(range(pool["start_inclusive"], pool["end_inclusive"] + 1)))
     if len(set(seeds)) != len(seeds) or any(type(seed) is not int or (seed not in protocol.definition["seeds"]["smoke"] if args.smoke else not pool["start_inclusive"] <= seed <= pool["end_inclusive"]) for seed in seeds):
         raise ValueError("collection seeds must be unique members of the selected smoke/source pool")
     if not args.smoke and (args.artifact is None or any(value is not None for value in (args.population, args.days, args.initial_infections))):
         raise ValueError("scientific collection requires E0 evidence and the common population/horizon")
-    policies = args.policy or ["minimum", "maximum_feasible", "uniform_legal_independent_rng"]
+    policies = args.policy or list(SOURCE_POLICIES[:3] if args.smoke else SOURCE_POLICIES)
     if len(set(policies)) != len(policies):
         raise ValueError("collection policies must be unique")
+    threshold_artifact = getattr(args, "threshold_artifact", None)
+    if "tuned_threshold" in policies and threshold_artifact is None:
+        raise ValueError("tuned_threshold collection requires --threshold-artifact from source tuning")
+    threshold_hash = None
+    if "tuned_threshold" in policies:
+        threshold_hash = file_sha256(threshold_artifact)
+        # Validate the selected artifact before starting any simulation or output.
+        _controller("tuned_threshold", args.controller_seed, protocol, threshold_artifact)
     days = args.days or protocol.definition["engine"]["execution_days"]
     purpose = "fixture" if args.smoke else "development"
     compat = {} if args.smoke else memory_source_compatibility(protocol, args.artifact, data_path=args.data)
@@ -61,11 +77,7 @@ def collect(args):
     statuses = {}
     try:
         for seed in seeds:
-            index = seed - pool["start_inclusive"]
-            scales = protocol.definition["source"]["validation_scales"]
-            capacities = protocol.definition["resources"]["screening_static_capacity_ratios"]
-            world = None if args.smoke else {"beta_scale": scales[index//9],
-                "screening_capacity_ratio": capacities[(index//3)%3], "replicate": index%3}
+            world = None if args.smoke else source_grid(protocol, "memory_collection", seed)
             for policy in policies:
                 identity = f"{seed}-{policy}"
                 run_dir = args.output / "runs" / identity
@@ -74,17 +86,25 @@ def collect(args):
                            "calibration_artifact": args.artifact, "calibration_data_path": args.data,
                            "beta_scale": world["beta_scale"], "screening_capacity_ratio": world["screening_capacity_ratio"]}
                 recorder = PublicTransitionRecorder()
-                controller = _controller(policy, args.controller_seed)
+                controller = _controller(policy, args.controller_seed, protocol, threshold_artifact)
                 result = run_episode(protocol, controller, run_dir, seed,
                     purpose="smoke" if args.smoke else "memory_collection", scenario_options=options,
                     public_transition_sink=recorder)
+                _json(run_dir / "public_transitions.json", {"synthetic_fixture": args.smoke, "transitions": recorder.export})
                 registration = {"trajectory_id": identity, "purpose": purpose, "policy": policy,
                     "seed": seed, "source_kind": "source_simulation", "split": "source" if not args.smoke else "fixture",
+                    "run_purpose": "smoke" if args.smoke else "memory_collection",
                     "world": world, "compatibility": compat,
                     "controller_seed": args.controller_seed if policy == "uniform_legal_independent_rng" else None}
+                if not args.smoke:
+                    registration.update(run_dir=str(run_dir.resolve()),
+                        run_manifest_sha256=file_sha256(run_dir / "manifest.json"),
+                        run_summary_sha256=file_sha256(run_dir / "summary.json"),
+                        public_transitions_sha256=file_sha256(run_dir / "public_transitions.json"))
+                if policy == "tuned_threshold":
+                    registration["baseline_artifact_sha256"] = threshold_hash
                 builder.append(tuple(recorder.revisions), registration)
                 statuses[identity] = result.status
-                _json(run_dir / "public_transitions.json", {"synthetic_fixture": args.smoke, "transitions": recorder.export})
         report = builder.finalize(statuses)
     except BaseException as error:
         _json(args.output / "collection_failure.json", {"status": "failed", "error_type": type(error).__name__,
@@ -129,13 +149,15 @@ def main(argv=None):
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
     subs = parser.add_subparsers(dest="operation", required=True)
-    c = subs.add_parser("collect", help="Run the three implemented non-LLM collection policies")
+    c = subs.add_parser("collect", help="Collect four source policies, or three fixture smoke policies")
     c.add_argument("--protocol", type=Path, default=root / "docs/control_protocol_v1.json")
     c.add_argument("--output", type=Path, required=True)
     c.add_argument("--artifact", type=Path)
+    c.add_argument("--threshold-artifact", type=Path)
     c.add_argument("--data", type=Path)
     c.add_argument("--seed", type=int, action="append")
-    c.add_argument("--policy", choices=("minimum", "maximum_feasible", "uniform_legal_independent_rng"), action="append")
+    from cemas.control.memory_store import SOURCE_POLICIES
+    c.add_argument("--policy", choices=SOURCE_POLICIES, action="append")
     c.add_argument("--controller-seed", type=int, default=0)
     c.add_argument("--smoke", action="store_true")
     c.add_argument("--population", type=int)
@@ -150,6 +172,10 @@ def main(argv=None):
     f.add_argument("--private-manifest", type=Path, required=True)
     f.add_argument("--output", type=Path, required=True)
     f.add_argument("--purpose", choices=("fixture", "development", "evaluation_ready"))
+    promote = subs.add_parser("promote", help="Publish development data after complete Phase 6 release verification")
+    promote.add_argument("--development", type=Path, required=True)
+    promote.add_argument("--release", type=Path, required=True)
+    promote.add_argument("--output", type=Path, required=True)
     audit = subs.add_parser("coverage")
     audit.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -160,6 +186,9 @@ def main(argv=None):
     elif args.operation == "freeze":
         from cemas.control.memory_store import freeze_public_store
         freeze_public_store(args.staging, args.private_manifest, args.output, args.purpose)
+    elif args.operation == "promote":
+        from cemas.control.memory_store import promote_public_store
+        promote_public_store(args.development, args.release, args.output)
     else:
         from cemas.control.memory_store import coverage_report
         print(json.dumps(coverage_report(args.manifest), ensure_ascii=False, indent=2))

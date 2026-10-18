@@ -494,8 +494,131 @@ def _freeze(value: Any) -> Any:
     return value
 
 
+def _validate_baselines(definition):
+    controllers = definition["controllers"]
+    threshold = _section(controllers, "threshold", "controllers")
+    boundaries = _section(threshold, "base_thresholds_per_1000_per_week", "controllers.threshold")
+    for name, size in zip(definition["actions"]["order"], definition["actions"]["sizes"]):
+        values = boundaries.get(name)
+        if not isinstance(values, list) or len(values) != size - 1:
+            raise ProtocolValidationError(f"threshold {name} must have {size - 1} boundaries")
+        for value in values:
+            _number(value, f"threshold.{name}", positive=True)
+        if any(a >= b for a, b in zip(values, values[1:])):
+            raise ProtocolValidationError("threshold boundaries must be strictly increasing")
+    low, high = threshold["independent_dimension_scale_loguniform"]
+    _number(low, "threshold.scale.lower", positive=True)
+    _number(high, "threshold.scale.upper", positive=True)
+    if low >= high:
+        raise ProtocolValidationError("threshold scale bounds must increase")
+    for rho in threshold["hysteresis_candidates"]:
+        _probability(rho, "threshold.hysteresis")
+        if not 0 < rho < 1:
+            raise ProtocolValidationError("threshold hysteresis must be strictly between zero and one")
+    if not threshold["hysteresis_candidates"]:
+        raise ProtocolValidationError("threshold hysteresis candidates cannot be empty")
+    for key in ("candidate_count", "finalists"):
+        _integer(threshold.get(key), f"threshold.{key}", 1)
+    if threshold["finalists"] > threshold["candidate_count"]:
+        raise ProtocolValidationError("threshold finalists exceed candidate count")
+    _integer(threshold.get("candidate_generator_seed"), "threshold.candidate_generator_seed")
+    if threshold.get("downgrade_confirmation_weeks") != 2 or threshold.get("upgrade_unrestricted") is not True:
+        raise ProtocolValidationError("threshold requires two-week downgrade and unrestricted upgrade")
+
+    ppo = _section(controllers, "ppo", "controllers")
+    ddqn = _section(controllers, "ddqn", "controllers")
+    for name, config, hidden_keys in (("ppo", ppo, ("policy_hidden", "value_hidden")),
+                                       ("ddqn", ddqn, ("hidden",))):
+        for key in hidden_keys:
+            if not isinstance(config.get(key), list) or not config[key]:
+                raise ProtocolValidationError(f"{name}.{key} requires hidden layer sizes")
+            for value in config[key]:
+                _integer(value, f"{name}.{key}", 1)
+        for key in ("learning_rate", "max_grad_norm"):
+            _number(config.get(key), f"{name}.{key}", positive=True)
+        _integer(config.get("batch_size"), f"{name}.batch_size", 1)
+        if config.get("optimizer") != "Adam" or config.get("gamma") != 1:
+            raise ProtocolValidationError(f"{name} must use Adam and the undiscounted objective")
+    for key in ("n_steps", "n_epochs"):
+        _integer(ppo.get(key), f"ppo.{key}", 1)
+    if (ppo.get("n_envs") != 1 or ppo.get("activation") != "Tanh"
+            or ppo.get("policy") != "MlpPolicy" or ppo.get("vec_normalize") is not False
+            or ppo.get("reward_normalize") is not False or ppo["n_steps"] % ppo["batch_size"]):
+        raise ProtocolValidationError("PPO requires a single unnormalized MLP environment and complete minibatches")
+    for key in ("gae_lambda", "clip_range"):
+        _probability(ppo.get(key), f"ppo.{key}")
+    for key in ("ent_coef", "vf_coef", "target_kl"):
+        _number(ppo.get(key), f"ppo.{key}")
+    for key in ("replay_capacity", "warmup_steps", "target_update_steps"):
+        _integer(ddqn.get(key), f"ddqn.{key}", 1)
+    if not ddqn["batch_size"] <= ddqn["warmup_steps"] <= ddqn["replay_capacity"]:
+        raise ProtocolValidationError("DDQN batch/warmup/replay sizes are inconsistent")
+    if (ddqn.get("activation") != "ReLU" or ddqn.get("loss") != "SmoothL1"
+            or ddqn.get("train_frequency") != 1 or ddqn.get("gradient_steps") != 1
+            or ddqn.get("soft_update") is not False):
+        raise ProtocolValidationError("DDQN requires the configured one-step hard-update algorithm")
+    for name, config, rules in (
+            ("ppo", ppo, {"action_mask_inside_env": True, "eval_deterministic": True}),
+            ("ddqn", ddqn, {"mask_random_greedy_and_bootstrap": True,
+                             "terminal_bootstrap": False, "time_limit_as_task_terminal": True,
+                             "eval_epsilon": 0})):
+        for key, expected in rules.items():
+            if type(config.get(key)) is not type(expected) or config[key] != expected:
+                raise ProtocolValidationError(f"{name}.{key} violates the frozen inference/terminal rules")
+    for key in ("epsilon_initial", "epsilon_final", "epsilon_linear_fraction"):
+        _probability(ddqn.get(key), f"ddqn.{key}")
+    if ddqn["epsilon_linear_fraction"] == 0 or ddqn["epsilon_initial"] < ddqn["epsilon_final"]:
+        raise ProtocolValidationError("DDQN epsilon schedule is inconsistent")
+    source = definition["source"]
+    train_seeds = source["train_seed_values"]
+    if (not isinstance(train_seeds, list) or len(train_seeds) != 3
+            or len(train_seeds) != len(source["source_world_pools"])):
+        raise ProtocolValidationError("three training seeds must correspond to three source world pools")
+    for seed in train_seeds:
+        _integer(seed, "source.train_seed_values")
+    if len(set(train_seeds)) != len(train_seeds):
+        raise ProtocolValidationError("source training seeds must be distinct")
+    for key in ("checkpoint_steps", "initial_week_decisions_per_training_seed", "final_checkpoint_candidates"):
+        _integer(source.get(key), f"source.{key}", 1)
+    if source["checkpoint_steps"] % ppo["n_steps"]:
+        raise ProtocolValidationError("checkpoint chunks must contain complete PPO rollouts")
+    if int(source["initial_week_decisions_per_training_seed"] * ddqn["epsilon_linear_fraction"]) < 1:
+        raise ProtocolValidationError("DDQN epsilon decay must span at least one transition")
+    ladder = source["budget_ladder"]
+    if not ladder or ladder[0] != source["initial_week_decisions_per_training_seed"]:
+        raise ProtocolValidationError("budget ladder must start at the initial training budget")
+    for steps in ladder:
+        _integer(steps, "source.budget_ladder", 1)
+        if steps % source["checkpoint_steps"]:
+            raise ProtocolValidationError("training budgets must contain complete checkpoint chunks")
+    if any(a >= b for a, b in zip(ladder, ladder[1:])):
+        raise ProtocolValidationError("budget ladder must be strictly increasing")
+    _probability(source.get("extend_budget_relative_improvement"), "source.extend_budget_relative_improvement")
+
+
 def _reject_constant(value: str) -> None:
     raise ProtocolValidationError(f"JSON constant {value} is not finite")
+
+
+def source_grid(protocol, pool_name, seed):
+    """One beta/capacity/replicate mapping shared by validation and collection."""
+    if pool_name not in ("validation_A", "validation_B", "memory_collection"):
+        raise ValueError("source grid requires a validation or memory collection pool")
+    pool = protocol.definition["seeds"][pool_name]
+    first, last = pool["start_inclusive"], pool["end_inclusive"]
+    if type(seed) is not int or not first <= seed <= last:
+        raise ValueError("seed does not belong to the requested source pool")
+    scales = protocol.definition["source"]["validation_scales"]
+    capacities = protocol.definition["resources"]["screening_static_capacity_ratios"]
+    cells = len(scales) * len(capacities)
+    count = last - first + 1
+    if count % cells:
+        raise ValueError("source pool does not contain complete condition grids")
+    repeats = count // cells
+    cell, replicate = divmod(seed - first, repeats)
+    return {"beta_scale": scales[cell // len(capacities)],
+            "screening_capacity_ratio": capacities[cell % len(capacities)],
+            "replicate": replicate}
 
 
 def load_protocol(path: str | Path) -> ControlProtocol:
@@ -508,6 +631,7 @@ def load_protocol(path: str | Path) -> ControlProtocol:
         raise ProtocolValidationError(f"Cannot decode protocol JSON: {exc}") from exc
     _validate_v1(definition)
     _validate_llm(definition)
+    _validate_baselines(definition)
     engine = definition["engine"]
     actions = definition["actions"]
     return ControlProtocol(

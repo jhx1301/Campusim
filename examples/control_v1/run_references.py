@@ -19,7 +19,7 @@ def main(argv=None):
 
     from cemas.control.calibration import load_calibration_artifact
     from cemas.control.controllers import MinimumController, MaximumFeasibleController
-    from cemas.control.protocol import load_protocol
+    from cemas.control.protocol import load_protocol, source_grid
     from cemas.control.runner import run_episode
 
     protocol = load_protocol(args.protocol)
@@ -30,19 +30,13 @@ def main(argv=None):
         parser.error("seeds must be distinct worlds in the selected source validation split")
     # Loading verifies primary fitting evidence, independent report and compatibility.
     load_calibration_artifact(args.artifact, protocol, require_evaluation=True, data_path=args.data)
-    scales = protocol.definition["source"]["validation_scales"]
-    capacities = protocol.definition["resources"]["screening_static_capacity_ratios"]
-    combinations = len(scales) * len(capacities)
-    if (last - first + 1) % combinations:
-        raise ValueError("source validation worlds do not match the prescribed condition grid")
-    repeats = (last - first + 1) // combinations
     args.output.mkdir(parents=True, exist_ok=False)
     for seed in seeds:
-        condition = (seed - first) // repeats
+        condition = source_grid(protocol, f"validation_{args.validation_split}", seed)
         options = {"calibration_artifact": args.artifact,
                    "calibration_data_path": args.data,
-                   "beta_scale": scales[condition // len(capacities)],
-                   "screening_capacity_ratio": capacities[condition % len(capacities)]}
+                   "beta_scale": condition["beta_scale"],
+                   "screening_capacity_ratio": condition["screening_capacity_ratio"]}
         for controller_class in (MinimumController, MaximumFeasibleController):
             controller = controller_class()
             result = run_episode(protocol, controller,

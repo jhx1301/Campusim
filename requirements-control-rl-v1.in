@@ -1,0 +1,7 @@
+# Phase 6 CPU baseline stack, tested in the existing simulation environment.
+# Retain engine packages. Tokenizer loading uses requirements-control-llm-v1.in.
+torch==2.14.1
+gymnasium==1.4.0
+stable-baselines3==2.9.0
+sb3-contrib==2.9.0
+psutil==7.2.2

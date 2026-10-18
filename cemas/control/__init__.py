@@ -2,10 +2,11 @@
 
 from .controllers import (
     ActionDecoder, Controller, MaximumFeasibleController, MinimumController, UniformLegalController,
+    ThresholdController, load_baseline_controller,
 )
 from .actions import ACTION_ENCODING, ACTION_TABLE, decode_action, encode_action, legal_action_mask
 from .logging import DecisionRecord, RunLogger, hash_observation, public_observation_to_dict, resolved_snapshot
-from .protocol import ControlProtocol, ProtocolValidationError, load_protocol
+from .protocol import ControlProtocol, ProtocolValidationError, load_protocol, source_grid
 from .rewards import REWARD_COMPONENTS, RewardBreakdown, RewardCalculator, V1RewardCalculator
 from .types import (
     ACTION_ORDER, ACTION_SIZES, AGE_BANDS, HISTORY_WEEKS, JOINT_ACTION_COUNT,
@@ -22,7 +23,7 @@ from .ledger import PublicLedger, PublicLedgerAnalyzer
 from .metrics import PrivateMetricsAnalyzer
 from .observation import (
     OBSERVATION_ENCODING_VERSION, OBSERVATION_FEATURE_NAMES,
-    build_observation, encode_observation,
+    build_observation, encode_observation, encode_rl_observation, RL_OBSERVATION_ENCODING_VERSION,
 )
 from .scenarios import (
     PopulationRegistry, ScenarioBundle, base_model_configuration, build_population_registry,
@@ -74,6 +75,8 @@ __all__ = [
     "PublicWeekFeedback", "PublicWeeklyRecord", "hash_observation",
     "public_observation_to_dict",
     "ControlProtocol", "ProtocolValidationError", "load_protocol",
+    "source_grid", "ThresholdController", "load_baseline_controller",
+    "encode_rl_observation", "RL_OBSERVATION_ENCODING_VERSION",
     "resolve_action", "JointActionExecutor", "DayExecutionAudit", "InvestigationEvent",
     "NotificationEvent", "PublicLedger", "PublicLedgerAnalyzer",
     "PrivateMetricsAnalyzer", "OBSERVATION_ENCODING_VERSION", "OBSERVATION_FEATURE_NAMES",

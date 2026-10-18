@@ -1,7 +1,11 @@
-"""Shared controller contracts and the two fixed v1 references."""
+"""Public policy contracts, fixed references and the tuned threshold policy."""
 
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
+from math import isfinite
+from weakref import WeakKeyDictionary
+
+_BASELINE_METADATA = WeakKeyDictionary()
 
 if TYPE_CHECKING:
     from .llm import LLMCallAudit
@@ -110,3 +114,79 @@ class MaximumFeasibleController(MinimumController):
             if observation.legal_action_mask[encode_action(action)]:
                 return ActionProposal(action, "Maximum resource-feasible intervention")
         raise ValueError("public mask has no maximum resource-feasible v1 action")
+
+
+class ThresholdController(MinimumController):
+    """Use completed public weeks and actual levels, without duplicate history."""
+
+    controller_type = "threshold"
+
+    def __init__(self, thresholds, hysteresis):
+        from .types import ACTION_ORDER, ACTION_SIZES
+
+        if set(thresholds) != set(ACTION_ORDER):
+            raise ValueError("thresholds must describe T/S/C/E/A")
+        self.thresholds = {}
+        for name, size in zip(ACTION_ORDER, ACTION_SIZES):
+            values = tuple(thresholds[name])
+            if (len(values) != size - 1
+                    or any(type(v) not in (int, float) or not isfinite(v) or v <= 0 for v in values)
+                    or any(a >= b for a, b in zip(values, values[1:]))):
+                raise ValueError(f"{name} thresholds must be positive and strictly increasing")
+            self.thresholds[name] = values
+        if type(hysteresis) not in (int, float) or not isfinite(hysteresis) or not 0 < hysteresis < 1:
+            raise ValueError("hysteresis must lie strictly between zero and one")
+        self.hysteresis = hysteresis
+
+    def decide(self, observation):
+        from .actions import encode_action
+        from .types import ACTION_ORDER
+
+        if type(observation) is not PublicObservation:
+            raise TypeError("threshold requires PublicObservation")
+        indicators = []
+        for week, valid in zip(observation.history, observation.week_valid):
+            if valid:
+                growth = week.growth if week.growth_valid else 0.0
+                multiplier = 2 ** max(-1.0, min(1.0, growth / 2))
+                indicators.append(week.delivered_diagnoses / observation.population.population * 1000 * multiplier)
+        levels = list(observation.current_action.values)
+        if indicators:
+            for index, name in enumerate(ACTION_ORDER):
+                boundaries = self.thresholds[name]
+                target = sum(indicators[-1] >= boundary for boundary in boundaries)
+                if target > levels[index]:
+                    levels[index] = target
+                elif len(indicators) >= 2:
+                    while (levels[index] > target
+                           and all(z < boundaries[levels[index] - 1] * self.hysteresis
+                                   for z in indicators[-2:])):
+                        levels[index] -= 1
+        # The resolver rejects the whole illegal proposal; make S feasible here.
+        for screening in range(levels[1], -1, -1):
+            levels[1] = screening
+            action = ActionVector(levels)
+            if observation.legal_action_mask[encode_action(action)]:
+                return ActionProposal(action, "Public weekly threshold with confirmed downgrade")
+        raise ValueError("public mask has no feasible threshold action")
+
+
+def load_baseline_controller(protocol, artifact_path):
+    """Validate private metadata once; give the policy only its public inputs."""
+    from .artifacts import get_baseline_artifact
+
+    metadata = get_baseline_artifact(artifact_path, protocol)
+    if metadata["method"] == "threshold":
+        controller = ThresholdController(**metadata["parameters"])
+    else:
+        if metadata["method"] == "ppo":
+            from .rl.ppo import PPOController
+            controller_class = PPOController
+        else:
+            from .rl.ddqn import DDQNController
+            controller_class = DDQNController
+        controller = controller_class.load(
+            metadata["weights_path"], reference_population=metadata["reference_population"],
+            reference_horizon=metadata["reference_horizon"])
+    _BASELINE_METADATA[controller] = metadata
+    return controller, metadata

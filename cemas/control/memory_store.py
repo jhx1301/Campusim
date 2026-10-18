@@ -1,8 +1,9 @@
 """Private source construction and separately published read-only public cases."""
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import errno
 import hashlib
 import json
@@ -123,9 +124,9 @@ def load_store_manifest(value):
 
 
 def _world(seed):
-    index = seed - 30001
-    return {"beta_scale": (.9, 1, 1.12)[index // 9],
-            "screening_capacity_ratio": (.02, .05, .1)[(index // 3) % 3], "replicate": index % 3}
+    from .protocol import load_protocol, source_grid
+    protocol = load_protocol(Path(__file__).resolve().parents[2] / "docs/control_protocol_v1.json")
+    return source_grid(protocol, "memory_collection", seed)
 
 
 def _compatibility(value, required):
@@ -157,6 +158,8 @@ def _registration(value, purpose, compatibility):
             raise CaseStoreError("source seed outside memory collection pool")
         if result.get("policy") not in SOURCE_POLICIES or result.get("world") != _world(seed):
             raise CaseStoreError("unsupported policy or incorrect source world mapping")
+        if result["policy"] == "tuned_threshold":
+            _sha(result.get("baseline_artifact_sha256"), "baseline_artifact_sha256")
         if _compatibility(result.get("compatibility", {}), True) != compatibility:
             raise CaseStoreError("source compatibility mismatch")
     return result
@@ -333,7 +336,8 @@ def verify_source_manifest(value, expected_compatibility=None, *, purpose=None, 
     for entry in trajectories:
         if not isinstance(entry,dict):
             raise CaseStoreError("invalid source trajectory entry")
-        registration = _registration({k:v for k,v in entry.items() if k not in ("status","opaque_group","case_ids")},actual,compat)
+        source_purpose = "development" if actual == "evaluation_ready" and "promotion" in manifest else actual
+        registration = _registration({k:v for k,v in entry.items() if k not in ("status","opaque_group","case_ids")},source_purpose,compat)
         identity = registration["trajectory_id"]
         if identity in seen or entry.get("status") != "completed":
             raise CaseStoreError("source trajectories must be unique and completed")
@@ -358,25 +362,154 @@ def verify_source_manifest(value, expected_compatibility=None, *, purpose=None, 
         required = {(s,p) for s in range(30001,30028) for p in SOURCE_POLICIES}
         if identities != required or len(trajectories)!=108:
             raise CaseStoreError("evaluation_ready requires exactly all 108 world/policy trajectories")
-        # P6 owns the threshold and common H/objective artifact schemas. A caller
-        # cannot replace those artifacts with self-declared booleans or hashes.
-        raise CaseStoreError("evaluation_ready requires supported Phase 6 threshold/horizon/objective freeze artifacts; Phase 5 cannot publish it")
+        _verify_promotion(value, manifest)
     return manifest
 
 
 def coverage_report(staging_or_manifest):
-    value = (Path(staging_or_manifest)/"private_manifest.json"
-             if isinstance(staging_or_manifest,(str,Path)) and Path(staging_or_manifest).is_dir() else staging_or_manifest)
+    value = staging_or_manifest
+    if isinstance(value, (str, Path)) and Path(value).is_dir():
+        directory = Path(value)
+        value = directory / ("private_manifest.json" if (directory / "private_manifest.json").exists() else "build_manifest.json")
     manifest = _private_manifest(value)
     entries = manifest.get("trajectories",[])
     observed = {(item.get("seed"),item.get("policy")) for item in entries}
     required = {(s,p) for s in range(30001,30028) for p in SOURCE_POLICIES}
-    return {"purpose":manifest.get("purpose"),"trajectory_count":len(entries),
+    report = {"purpose":manifest.get("purpose"),"trajectory_count":len(entries),
         "completed_trajectory_count":sum(e.get("status")=="completed" for e in entries),
         "case_count":manifest.get("case_count",0),"revision_count":manifest.get("revision_count",0),
         "policies":sorted({e["policy"] for e in entries if "policy" in e}),
+        "policy_trajectory_counts":dict(sorted(Counter(e["policy"] for e in entries if "policy" in e).items())),
+        "world_count":len({e["seed"] for e in entries if "seed" in e}),
         "missing_world_policy_identities":[[s,p] for s,p in sorted(required-observed)],
         "exact_108_identity_coverage":observed==required and len(entries)==108}
+    cells = Counter((e.get("world", {}).get("beta_scale"), e.get("world", {}).get("screening_capacity_ratio"))
+                    for e in entries if isinstance(e.get("world"), dict))
+    expected_cells = {tuple(_world(seed)[key] for key in ("beta_scale", "screening_capacity_ratio"))
+                      for seed in range(30001, 30028)}
+    report["world_cells"] = [{"beta_scale": beta, "screening_capacity_ratio": cap, "trajectories": cells[(beta, cap)]}
+                             for beta, cap in sorted(expected_cells)]
+    report["missing_world_cells"] = [list(cell) for cell in sorted(expected_cells - cells.keys())]
+    if not isinstance(value, (str, Path)):
+        report["public_case_coverage"] = {"status": "unavailable", "reason": "database_path_required"}
+        return report
+    database = Path(value).resolve().parent / DATABASE_FILENAME
+    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as connection:
+        rows = connection.execute("SELECT c.payload_json FROM case_revisions c JOIN active_revision a "
+                                  "ON c.case_id=a.case_id AND c.revision=a.revision ORDER BY c.case_id")
+        cases = tuple(public_case_from_dict(json.loads(row[0])) for row in rows)
+    report["public_case_coverage"] = _public_case_coverage(cases)
+    return report
+
+
+def _public_case_coverage(cases):
+    from .actions import ACTION_TABLE
+    from .types import ACTION_ORDER, ACTION_SIZES
+    levels = {name: Counter() for name in ACTION_ORDER}
+    durations = {name: Counter() for name in ACTION_ORDER}
+    joint, transitions, histories, capacities = Counter(), Counter(), Counter(), {}
+    changes = Counter()
+    values = {name: [] for name in ("diagnoses", "growth", "diagnosis_test_proxy", "tests", "notifications",
+                                  "union_person_days", "activity_person_days")}
+    for case in cases:
+        pre, week = case.pre_observation, case.executed_window
+        action = week.executed_action.values
+        for index, name in enumerate(ACTION_ORDER):
+            levels[name][action[index]] += 1
+            durations[name][pre.action_duration_days[index]] += 1
+        joint[",".join(map(str, action))] += 1
+        transitions[",".join(map(str, pre.current_action.values)) + "->" + ",".join(map(str, action))] += 1
+        histories[sum(pre.week_valid)] += 1
+        capacity = pre.resources.screening_daily_capacity / pre.population.population
+        bucket = capacities.setdefault(capacity, {"available": set(), "executed": Counter()})
+        bucket["available"].update(a.values[1] for a, legal in zip(ACTION_TABLE, pre.legal_action_mask) if legal)
+        bucket["executed"][action[1]] += 1
+        changes["capacity_changed"] += int("capacity_changed" in case.flags)
+        changes["testing_changed"] += int("testing_changed" in case.flags)
+        changes["growth_valid"] += int(week.growth_valid)
+        changes["proxy_valid"] += int(week.proxy_valid)
+        values["diagnoses"].append(week.delivered_diagnoses)
+        if week.growth_valid:
+            values["growth"].append(week.growth)
+        if week.proxy_valid:
+            values["diagnosis_test_proxy"].append(week.diagnosis_test_proxy)
+        cost = week.cost
+        values["tests"].append(cost.clinical_tests + cost.screening_tests)
+        values["notifications"].append(cost.delivered_notifications)
+        values["union_person_days"].append(cost.union_person_days)
+        values["activity_person_days"].append(cost.school_restriction_person_days + cost.work_restriction_person_days
+                                              + cost.community_restriction_person_days)
+    missing = {name: sorted(set(range(size)) - levels[name].keys()) for name, size in zip(ACTION_ORDER, ACTION_SIZES)}
+    screening = [{"capacity_ratio": cap, "available_levels": sorted(data["available"]),
+                  "executed_counts": dict(sorted(data["executed"].items())),
+                  "missing_levels": sorted(data["available"] - data["executed"].keys())}
+                 for cap, data in sorted(capacities.items())]
+    return {"status": "available", "case_count": len(cases), "independent_worlds": False,
+            "dimension_level_counts": {name: dict(sorted(counts.items())) for name, counts in levels.items()},
+            "missing_dimension_levels": missing, "screening_by_capacity": screening,
+            "action_coverage_complete": not any(missing.values()) and all(not row["missing_levels"] for row in screening),
+            "joint_action_counts": dict(sorted(joint.items())), "action_transition_counts": dict(sorted(transitions.items())),
+            "history_length_counts": dict(sorted(histories.items())),
+            "action_duration_days_counts": {name: dict(sorted(counts.items())) for name, counts in durations.items()},
+            "measurement_changes": dict(sorted(changes.items())),
+            "outcomes_and_burdens": {name: {"count": len(items), "min": min(items) if items else None,
+                                            "max": max(items) if items else None} for name, items in values.items()}}
+
+
+def _verify_promotion(value, manifest):
+    promotion = manifest.get("promotion")
+    if not isinstance(promotion, dict) or not isinstance(value, (str, Path)):
+        raise CaseStoreError("evaluation_ready requires verified Phase 6 promotion evidence")
+    if (set(promotion) != {"development_dir", "development_manifest_sha256", "phase6_release_path", "phase6_release_sha256"}
+            or any(type(promotion.get(key)) is not str or not promotion[key]
+                   for key in ("development_dir", "phase6_release_path"))):
+        raise CaseStoreError("invalid Phase 6 promotion evidence fields")
+    from .artifacts import validate_phase6_release
+    original = Path(promotion["development_dir"]) / "build_manifest.json"
+    release = Path(promotion["phase6_release_path"])
+    try:
+        if (_file_sha(original) != _sha(promotion.get("development_manifest_sha256"), "development_manifest_sha256")
+                or _file_sha(release) != _sha(promotion.get("phase6_release_sha256"), "phase6_release_sha256")):
+            raise CaseStoreError("Phase 6 promotion evidence hash mismatch")
+    except OSError as exc:
+        raise CaseStoreError("Phase 6 promotion evidence missing or unreadable") from exc
+    source = verify_source_manifest(original, manifest["compatibility"], purpose="development")
+    expected = {**source, "purpose": "evaluation_ready", "promotion": promotion}
+    if manifest != expected:
+        raise CaseStoreError("promotion changed original source provenance or public data identity")
+    validate_phase6_release(release, development_dir=original.parent)
+
+
+def promote_public_store(development_dir, release_path, output_dir):
+    """Publish verified development data with unchanged cases and source purposes."""
+    from .artifacts import validate_phase6_release
+    source, release = Path(development_dir).resolve(), Path(release_path).resolve()
+    private_path = source / "build_manifest.json"
+    manifest = verify_source_manifest(private_path, purpose="development")
+    coverage = coverage_report(private_path)
+    if not coverage["exact_108_identity_coverage"]:
+        raise CaseStoreError("evaluation_ready requires exactly all 108 world/policy trajectories")
+    validate_phase6_release(release, development_dir=source)
+    frozen = load_store_manifest(source / "store_manifest.json")
+    if frozen.purpose != "development" or frozen.database_sha256 != manifest["database_sha256"]:
+        raise CaseStoreError("promotion requires the verified development publication")
+    # Reuse the existing complete-trajectory and immutable-copy verification.
+    result = freeze_public_store(source, private_path, output_dir, purpose="development")
+    output = Path(output_dir).resolve()
+    shutil.copyfile(private_path, output / "development_build_manifest.json")
+    shutil.copyfile(release, output / "phase6_release.json")
+    manifest.update(purpose="evaluation_ready", promotion={"development_dir": str(source),
+        "development_manifest_sha256": _file_sha(private_path), "phase6_release_path": str(release),
+        "phase6_release_sha256": _file_sha(release)})
+    result = replace(result, purpose="evaluation_ready")
+    for name, content in (("store_manifest.json", result.to_dict()), ("build_manifest.json", manifest)):
+        (output / name).write_text(canonical_json(content) + "\n", encoding="utf-8")
+    verify_source_manifest(output / "build_manifest.json", purpose="evaluation_ready")
+    publication = {"purpose": "evaluation_ready", "database_sha256": result.database_sha256,
+                   "build_manifest_sha256": _file_sha(output / "build_manifest.json"),
+                   "phase6_release_sha256": manifest["promotion"]["phase6_release_sha256"]}
+    (output / "publication_result.json").write_text(canonical_json(publication) + "\n", encoding="utf-8")
+    return result
 
 
 def freeze_public_store(staging, private_manifest, output_dir, purpose=None):

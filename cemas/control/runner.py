@@ -45,7 +45,10 @@ def _validate_development_seed(protocol, seed, purpose):
     elif purpose == "scientific":
         if not any(seeds[name]["start_inclusive"] <= seed <= seeds[name]["end_inclusive"]
                    for name in ("validation_A", "validation_B")):
-            raise ValueError("Phase 3 scientific runs require source validation seeds; final-test worlds are forbidden")
+            raise ValueError("scientific runs require source validation seeds; final-test worlds are forbidden")
+    elif purpose == "pilot":
+        if seed not in protocol.definition["source"]["pilot_worlds"]:
+            raise ValueError("pilot requires reserved pilot seeds; final-test worlds are forbidden")
     elif purpose == "memory_collection":
         pool = seeds["memory_collection"]
         if not pool["start_inclusive"] <= seed <= pool["end_inclusive"]:
@@ -55,7 +58,7 @@ def _validate_development_seed(protocol, seed, purpose):
         if not pool["start_inclusive"] <= seed <= pool["end_inclusive"]:
             raise ValueError("prompt_development runs require reserved source seeds; final-test worlds are forbidden")
     else:
-        raise ValueError("purpose must be smoke, scientific, prompt_development or memory_collection")
+        raise ValueError("purpose must be smoke, scientific, pilot, prompt_development or memory_collection")
 
 
 def make_public_prompt_config(protocol: ControlProtocol, *, template_path=None):
@@ -210,7 +213,7 @@ def accept_llm_token_counter(transport, counter, prompt_config, observations, ou
         raise
 
 
-def _episode_summary(protocol, snapshot, population):
+def episode_summary(protocol, snapshot, population):
     if (snapshot.status != "completed" or snapshot.elapsed_days != snapshot.horizon
             or snapshot.terminal_metrics is None):
         raise RuntimeError("environment did not complete its announced horizon")
@@ -280,24 +283,23 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         raise TypeError("world_seed must be an ordinary integer")
     _validate_development_seed(protocol, world_seed, purpose)
     controller_type = getattr(controller, "controller_type", None)
-    if controller_type not in ("minimum", "maximum_feasible", "llm", "uniform_legal_independent_rng"):
-        raise ValueError("runner supports fixed references, uniform legal collection and llm")
+    if controller_type not in ("minimum", "maximum_feasible", "llm", "uniform_legal_independent_rng", "threshold", "ppo", "ddqn"):
+        raise ValueError("runner requires an implemented v1 controller")
     if public_transition_sink is not None and not callable(public_transition_sink):
         raise TypeError("public_transition_sink must be callable with public observation and feedback")
-    if purpose == "memory_collection" and controller_type not in ("minimum", "maximum_feasible", "uniform_legal_independent_rng"):
+    if purpose == "memory_collection" and controller_type not in ("minimum", "maximum_feasible", "uniform_legal_independent_rng", "threshold"):
         raise ValueError("memory_collection supports only the implemented non-LLM collection policies")
     if controller_type == "uniform_legal_independent_rng" and purpose not in ("smoke", "memory_collection"):
         raise ValueError("uniform legal policy is limited to smoke and memory_collection")
     if purpose == "prompt_development" and controller_type != "llm":
         raise ValueError("prompt_development is reserved for the public LLM controller")
-    if controller_type == "llm" and purpose == "scientific":
-        raise ValueError("Phase 4 live prompt development requires prompt_development seeds")
     if controller_type == "llm":
         from .llm import LLMTransport
 
         live = isinstance(controller.transport, LLMTransport)
-        if (live and purpose == "smoke") or (not live and purpose == "prompt_development"):
-            raise ValueError("live LLM calls require prompt_development; offline transports require smoke")
+        if ((live and purpose not in ("prompt_development", "scientific", "pilot"))
+                or (not live and purpose != "smoke")):
+            raise ValueError("live LLM calls require reserved source worlds; offline transports require smoke")
     if getattr(controller, "method", None) == "llm_public_memory_v1":
         _validate_memory_run(protocol, controller, purpose, scenario_options)
     manifest = {
@@ -309,6 +311,11 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
     }
     if controller_type == "llm":
         manifest["llm"] = controller.run_metadata()
+    if controller_type in ("threshold", "ppo", "ddqn"):
+        from .controllers import _BASELINE_METADATA
+        metadata = _BASELINE_METADATA.get(controller)
+        if metadata is not None:
+            manifest["baseline"] = metadata
     manifest["run_purpose"] = purpose
     logger = RunLogger(output_dir, manifest)
     environment = None
@@ -317,9 +324,17 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         from .environment import WeeklyControlEnvironment
 
         environment = WeeklyControlEnvironment(protocol, mode=mode,
-                                               purpose="scientific" if purpose in ("prompt_development", "memory_collection") else purpose,
+                                               purpose="scientific" if purpose in ("prompt_development", "memory_collection", "pilot") else purpose,
                                                scenario_options=scenario_options)
+        reset_started = perf_counter()
         observation, _ = environment.reset(world_seed)
+        initialization_seconds = perf_counter() - reset_started
+        if "artifact_sha256" in manifest.get("baseline", {}) and purpose != "smoke":
+            baseline = manifest["baseline"]
+            actual_calibration = environment.audit_snapshot().manifest["calibration"]["artifact_sha256"]
+            if (observation.execution_days != baseline["reference_horizon"]
+                    or actual_calibration != baseline["calibration_artifact_sha256"]):
+                raise ValueError("loaded baseline and evaluation task use different H or E0 identities")
         population = observation.population.population
         controller.reset()
         logger.write_snapshot(environment.audit_snapshot())
@@ -387,7 +402,9 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
             observation = next_observation
         environment.close()
         snapshot = environment.audit_snapshot()
-        summary = _episode_summary(protocol, snapshot, population)
+        summary = episode_summary(protocol, snapshot, population)
+        if purpose == "pilot":
+            summary["initialization_seconds"] = initialization_seconds
         logger.complete(summary)
         return RunResult("completed", Path(output_dir), MappingProxyType(summary))
     except BaseException as error:
@@ -431,7 +448,7 @@ def memory_source_compatibility(protocol, calibration_artifact=None, *, executio
     root = Path(__file__).resolve().parents[2]
     source = {}
     for directory in (root / "cemas/control", root / "covasim"):
-        for path in sorted(directory.glob("*.py")):
+        for path in sorted(directory.rglob("*.py")):
             source[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     objective = resolved_snapshot(protocol.definition["objective"])
     objective.pop("status", None)

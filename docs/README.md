@@ -14,6 +14,8 @@
 | [Phase 0 契约](control_phase0_contracts.md) | 公共接口、schema 及公共/私有信息边界 |
 | [Phase 1 契约](control_phase1_contracts.md) | 324 动作编解码、合法 mask 和动作解析 |
 | [Phase 2 契约](control_phase2_contracts.md) | 联合动作执行、公共 ledger/观察和私有指标 |
+| [Phase 6 构建计划](control_phase6_implementation_plan.md) | Baseline、源域开发与共同冻结的实施范围 |
+| [Phase 6 实施契约](control_phase6_contracts.md) | 当前接口、命令、实际验收与未完成前置项 |
 
 研究背景和旧版论文材料保存在 `archive/`：
 

@@ -10,7 +10,7 @@ import pytest
 
 from cemas.control.memory_store import (DATABASE_FILENAME, SOURCE_POLICIES, CaseStoreError,
     FrozenPublicCaseStore, PublicCaseBuilder, coverage_report, freeze_public_store,
-    public_content_sha256, verify_source_manifest)
+    promote_public_store, public_content_sha256, verify_source_manifest)
 from cemas.control.memory_types import LocalCaseRevision, public_to_dict
 from cemas.control.types import (ActionVector, PublicObservation, PublicPopulation,
     PublicResources, PublicWeeklyRecord)
@@ -39,9 +39,12 @@ def local(local_id=1,revision=1,day=0,horizon=14):
 
 def registration(seed=30001,policy="minimum"):
     i = seed-30001
-    return {"trajectory_id":f"private-{seed}-{policy}","purpose":"development","source_kind":"source_simulation",
+    result = {"trajectory_id":f"private-{seed}-{policy}","purpose":"development","source_kind":"source_simulation",
         "split":"source","seed":seed,"policy":policy,"world":{"beta_scale":(.9,1,1.12)[i//9],
             "screening_capacity_ratio":(.02,.05,.1)[(i//3)%3],"replicate":i%3},"compatibility":COMPATIBILITY}
+    if policy == "tuned_threshold":
+        result["baseline_artifact_sha256"] = "e" * 64
+    return result
 
 
 def published(tmp_path,revision=True):
@@ -281,3 +284,104 @@ def test_evaluation_ready_exact_cartesian_identity_and_p6_artifact_gate(tmp_path
     manifest["case_count"] = 107
     with pytest.raises(CaseStoreError,match="108"):
         verify_source_manifest(manifest)
+
+
+def test_threshold_source_requires_actual_artifact_identity(tmp_path):
+    source = registration(policy="tuned_threshold")
+    del source["baseline_artifact_sha256"]
+    with PublicCaseBuilder(tmp_path / "staging", TASK, purpose="development", compatibility=COMPATIBILITY) as builder:
+        with pytest.raises(CaseStoreError, match="baseline_artifact_sha256"):
+            builder.append((local(),), source)
+
+
+def test_coverage_lists_public_gaps_without_treating_weeks_as_worlds(tmp_path):
+    builder, _manifest = published(tmp_path)
+    report = coverage_report(builder.private_path)
+    detail = report["public_case_coverage"]
+    assert detail["status"] == "available"
+    assert detail["case_count"] == 1
+    assert detail["missing_dimension_levels"]["S"] == [1, 2, 3]
+    assert detail["screening_by_capacity"][0]["missing_levels"] == [1, 2, 3]
+    assert detail["history_length_counts"] == {0: 1}
+    assert detail["joint_action_counts"] == {"0,0,0,0,0": 1}
+    assert detail["independent_worlds"] is False
+    assert detail["action_coverage_complete"] is False
+    assert report["missing_world_cells"]
+    assert coverage_report(json.loads(builder.private_path.read_text(encoding="utf-8")))["public_case_coverage"] == {
+        "status": "unavailable", "reason": "database_path_required"}
+
+
+def _complete_development(tmp_path):
+    """Synthetic unit-test trajectories; no source experiment is executed."""
+    with PublicCaseBuilder(tmp_path / "staging", TASK, purpose="development", compatibility=COMPATIBILITY) as builder:
+        for seed in range(30001, 30028):
+            for policy in SOURCE_POLICIES:
+                source = {**registration(seed, policy), "run_purpose": "memory_collection"}
+                builder.append((local(), local(revision=2), local(local_id=2, day=7)), source)
+        report = builder.finalize("completed")
+    return freeze_public_store(tmp_path / "staging", report.private_manifest_path, tmp_path / "development")
+
+
+def test_promotion_preserves_public_bytes_and_actual_source_purposes(tmp_path, monkeypatch):
+    import cemas.control.artifacts as artifacts
+    original = _complete_development(tmp_path)
+    release = tmp_path / "release.json"
+    release.write_text('{"synthetic_unit_test":true}', encoding="utf-8")
+    calls = []
+    # Isolate the publication mechanics; full release validation has separate tests.
+    monkeypatch.setattr(artifacts, "validate_phase6_release",
+                        lambda path, *, development_dir: calls.append((Path(path), Path(development_dir))))
+    source = tmp_path / "development"
+    before = (source / "build_manifest.json").read_bytes()
+    result = promote_public_store(source, release, tmp_path / "evaluation")
+    assert result.purpose == "evaluation_ready"
+    assert result.database_sha256 == original.database_sha256
+    assert (source / "build_manifest.json").read_bytes() == before
+    assert (source / DATABASE_FILENAME).read_bytes() == (tmp_path / "evaluation" / DATABASE_FILENAME).read_bytes()
+    manifest = verify_source_manifest(tmp_path / "evaluation" / "build_manifest.json", purpose="evaluation_ready")
+    assert len(calls) >= 2
+    assert {e["purpose"] for e in manifest["trajectories"]} == {"development"}
+    assert {e["run_purpose"] for e in manifest["trajectories"]} == {"memory_collection"}
+    with FrozenPublicCaseStore.open(tmp_path / "evaluation", result) as store:
+        assert len(store.cases()) == 216
+    manifest["trajectories"][0]["run_purpose"] = "evaluation"
+    path = tmp_path / "evaluation" / "build_manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(CaseStoreError, match="changed original source provenance"):
+        verify_source_manifest(path)
+
+
+def test_promotion_rejects_fixture_and_incomplete_development(tmp_path):
+    published(tmp_path / "fixture")
+    with pytest.raises(CaseStoreError, match="purpose/version"):
+        promote_public_store(tmp_path / "fixture" / "published", tmp_path / "missing-release.json", tmp_path / "output")
+    with PublicCaseBuilder(tmp_path / "staging", TASK, purpose="development", compatibility=COMPATIBILITY) as builder:
+        builder.append((local(), local(revision=2), local(local_id=2, day=7)), registration())
+        report = builder.finalize("completed")
+    freeze_public_store(tmp_path / "staging", report.private_manifest_path, tmp_path / "development")
+    with pytest.raises(CaseStoreError, match="108"):
+        promote_public_store(tmp_path / "development", tmp_path / "missing-release.json", tmp_path / "output")
+    assert not (tmp_path / "output").exists()
+
+
+def test_collection_loads_threshold_artifact_and_requires_it_before_output(tmp_path):
+    from argparse import Namespace
+    from cemas.control.artifacts import save_baseline_artifact
+    from cemas.control.protocol import load_protocol
+    from tools.collect_observable_memory import _controller, collect
+
+    protocol_path = Path(__file__).resolve().parents[1] / "docs/control_protocol_v1.json"
+    protocol = load_protocol(protocol_path)
+    parameters = {"thresholds": protocol.definition["controllers"]["threshold"]["base_thresholds_per_1000_per_week"],
+                  "hysteresis": .75}
+    artifact = save_baseline_artifact(tmp_path / "threshold", protocol, "threshold", parameters=parameters)
+    controller = _controller("tuned_threshold", 0, protocol, artifact)
+    assert controller.controller_type == "threshold"
+    assert controller.hysteresis == .75
+    assert controller.thresholds["T"] == (1, 5)
+    args = Namespace(protocol=protocol_path, seed=None, smoke=False, artifact=tmp_path / "e0.json",
+                     population=None, days=None, initial_infections=None, policy=None,
+                     threshold_artifact=None, output=tmp_path / "collection")
+    with pytest.raises(ValueError, match="--threshold-artifact"):
+        collect(args)
+    assert not args.output.exists()

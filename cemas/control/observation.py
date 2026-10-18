@@ -14,6 +14,7 @@ from .types import (
 
 
 OBSERVATION_ENCODING_VERSION = "cemas-public-observation-float32-v1"
+RL_OBSERVATION_ENCODING_VERSION = "cemas-rl-fixed-reference-float32-v1"
 _ACTION_FEATURES = tuple(f"action.{name}.{level}"
                          for name, size in zip(ACTION_ORDER, ACTION_SIZES)
                          for level in range(size))
@@ -136,4 +137,15 @@ def encode_observation(observation: PublicObservation) -> np.ndarray:
     result = np.asarray(features, dtype=np.float32)
     if not np.isfinite(result).all():
         raise ValueError("public measurements must fit finite float32 features")
+    return result
+
+
+def encode_rl_observation(observation, reference_population, reference_horizon):
+    """Scale only the two raw public task constants by frozen training values."""
+    if (type(reference_population) is not int or reference_population <= 0
+            or type(reference_horizon) is not int or reference_horizon <= 0):
+        raise ValueError("RL reference population and horizon must be positive integers")
+    result = encode_observation(observation)
+    result[OBSERVATION_FEATURE_NAMES.index("context.population")] /= reference_population
+    result[OBSERVATION_FEATURE_NAMES.index("context.execution_days")] /= reference_horizon
     return result
