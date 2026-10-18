@@ -85,4 +85,4 @@ release 必须关联当前任务/H/目标/E0/代码身份、108来源、实际�
 
 表中未计付费LLM服务时间/费用、重试、H统一升级后的重开发及lambda=.5/2独立敏感性批次。四种LLM模式各只有一个预登记候选时，A/B本身共108回合、1728次决策（未计重试）；真实延迟、token与费用尚未测量，不预填收费金额。敏感性需要额外两套独立源域开发与兼容源库。
 
-机器可读交付摘要与估算：`results/phase6_engineering/execution_summary.json`。已保留用户的 `docs/修改意见.md`；未提交或推送Git。
+机器可读交付摘要与估算：`results/phase6_engineering/execution_summary.json`。已保留用户的 `docs/修改意见.md`；本地结果目录不纳入本次Git提交，发布状态以实际提交记录为准。
