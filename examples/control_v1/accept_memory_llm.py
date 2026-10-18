@@ -39,7 +39,7 @@ def main(argv=None):
     from cemas.control.knowledge import load_knowledge_bundle
     from cemas.control.llm import LLMTransport, OfficialInputTokenCounter
     from cemas.control.memory import load_memory_profile
-    from cemas.control.memory_acceptance import accept_memory_llm
+    from tools.memory_acceptance import accept_memory_llm
     from cemas.control.protocol import load_protocol
     from cemas.control.runner import make_llm_settings, make_public_prompt_config
     from cemas.control.memory_store import FrozenPublicCaseStore

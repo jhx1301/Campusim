@@ -1,6 +1,6 @@
 # CEMAS v1 Phase 5 实施契约
 
-更新日期：2026-10-17。状态：**离线工程实现完成；真实 provider/tokenizer 验收未执行。**
+更新日期：2026-10-17。状态：**主要离线链已实现；source 导出重建仍缺入口，真实 provider/tokenizer 验收未执行。**
 
 本契约记录 Phase 5 的实际接口、边界和本次验证结果。它不把 fixture、fake tokenizer 或离线 transport 当作真实服务验收，也不把案例检索通过当作控制效果结论。
 
@@ -9,9 +9,9 @@
 Phase 5 将研究方案落在 `cemas/control/`：
 
 - `PublicEpisodeMemory` 只接收精确的 `PublicObservation` 和 `PublicWeekFeedback`；`stage()` 暂存决策前公共状态，`accept()` 使用实际反馈中的动作、资源和窗口生成本地 revision。
-- `PublicCaseBuilder` 的公共 SQLite 与私有 source manifest 分离；`FrozenPublicCaseStore` 以只读连接打开并校验数据库 hash、schema、revision 和 opaque group。
+- `PublicCaseBuilder` 仅使用一个公共 SQLite 保存案例；私有来源和编号映射在构建期间保存在内存，`finalize()` 导出已有格式的 `private_manifest.json`，不创建私有 SQLite。公共事务提交成功后才更新内存映射；失败时回滚该事务。`FrozenPublicCaseStore` 以只读连接打开并校验数据库 hash、schema、revision 和 opaque group。
 - `NumericRetriever` 使用固定 38 维 state、最近三周趋势差分、`.75/.25` 权重、容量/动作/任务过滤、冲突对和确定性多样性选择；没有 embedding 或 LLM 摘要。
-- `KnowledgeBundle` 固定六条 SIM 核心规则和三条版本化公共卫生卡；四种模式 `none/short/global/both` 使用同一公共 system、知识选择和五字段 wire。
+- `KnowledgeBundle` 固定六条 SIM 核心规则和三条版本化公共卫生卡；每张卡只解码构造一次，对象负责自身合法性，bundle负责来源、版本与集合约束，不转回字典重复构造。四种模式 `none/short/global/both` 使用同一公共 system、知识选择和五字段 wire。
 - `MemoryLLMController` 通过 `LLMController` 的同一 transport、计数、重试和审计链完成消息准备与解析；runner 在执行前写 `decision_evidence.jsonl`，反馈后写实际执行动作和 `memory_revisions.jsonl`。
 - `memory_collection` 只接受协议保留的 30001–30027 源池和 minimum/maximum_feasible/uniform legal 三种策略；evaluation-ready 的 108 条正式库仍由 Phase 6 的阈值与冻结证据决定。
 
@@ -43,7 +43,7 @@ $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = '1'
 & 'E:\pytroch\anaconda3\envs\simulation\python.exe' examples/control_v1/accept_memory_llm.py --help
 ```
 
-真实入口只接收 credential 环境变量名称；默认名称是 `DASHSCOPE_API_KEY`，代码和日志不读取或保存密钥值。真实运行还要求官方 tokenizer manifest/acceptance、P5 `memory_prompt_acceptance.json`、兼容的 E0 产物和（global/both 时）已验证的只读 source store。
+真实入口只接收 credential 环境变量名称；默认名称是 `DASHSCOPE_API_KEY`，transport在内存中读取密钥，日志不保存密钥值。正常运行需要官方 tokenizer manifest、兼容的 E0 产物和（global/both 时）已验证的只读 source store，不需要 P4/P5 验收报告。
 
 ## 本次验证
 
@@ -56,8 +56,20 @@ $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = '1'
 
 真实服务验收状态：**未执行**。本轮没有付费 API 调用、没有读取 `DASHSCOPE_API_KEY` 的值、没有正式科学仿真，也没有生产 27×4 源库。
 
-## 后续门禁
+## 运行条件与独立验收
 
-`make_memory_llm_controller()` 在 live transport 下要求官方 tokenizer 和 P5 receipt；global/both 还要求只读 store、public task hash、私有 source manifest 和 E0 兼容性。`validate_memory_acceptance()` 会重新解析 receipt 中的公共观察/上下文，绑定当前 prompt、知识卡、案例库、注册表、必需 flags、消息 hash 和官方计数。任一资源或服务身份变化都必须重新生成 receipt。
+按本轮用户修订，验收是开发完成后的独立验证，不作为程序使用规则。`make_memory_llm_controller()` 和正常运行入口不要求、不读取 P4/P5 验收报告，runner不要求四模式报告；旧报告参数仅为兼容已有调用而保留，不参与运行。live transport仍使用官方 tokenizer 检查当前输入、预算与实际usage；服务身份基于本批次首个实际返回。global/both的只读store、public task hash、私有source manifest和E0兼容性校验仍针对实际运行数据。
+
+`examples/control_v1/accept_memory_llm.py` 保留原命令入口，实现已移到 `tools/memory_acceptance.py`，不再由 `cemas` 或 `cemas.control` 加载、导出。验收函数需显式从工具模块导入，可独立执行六类服务探针，不需要已有P4报告。`validate_memory_acceptance()` 仅在显式开发验证时重建探针消息、复算计数并校验响应；四模式覆盖要求只适用于这项验证。报告用于留档，不改变运行模式，也不参与正常回合启动。
+
+复核发现，`collect_observable_memory.py` 当前只支持 `import-fixture` 和重新采集，尚不支持凭私有审计 manifest 从已有 source 公共导出重建 development 库；这项计划能力仍未完成，不能据此宣称 P5 全部工程验收通过。
+
+前次审查修复后使用 `D:\programfile\miniconda3\envs\simulation\python.exe` 运行全部 `test_control_*.py`、CEMAS 导入与校园人口回归：747 passed、1 failed；失败项为环境缺少 `tokenizers`，另有既有 pytest `env` 配置警告。结果保存在 `results/phase5_review_20261017/final.xml`。
+
+本轮将报告与正常运行解耦后，同一范围回归为756 passed、1 failed；唯一失败仍为缺少`tokenizers`。新增用例覆盖无报告运行、旧报告参数指向不存在文件仍可使用、报告不设置实际服务基准，以及独立验证工具。证据为`results/llm_report_decoupling_20261017/final.xml`；编译、入口`--help`和`git diff --check`通过。未跳过失败用例、安装依赖或执行真实API验收。
+
+私有来源改为JSON后，存储、检索和runner集成定向回归79 passed，证据为`results/private_provenance_json_20261017/targeted.xml`。三种简单策略的小规模采集验证（N=30、H=9、smoke seed=90001）生成3条fixture轨迹、6条案例和9个revision；staging仅含公共SQLite与`private_manifest.json`，发布库只读加载及来源对应关系检查通过，没有私有SQLite文件。删除了私有SQL表、第二连接、双库提交和对应失败状态；清单格式及来源核对接口保持兼容。
+
+开发工具移出与重复校验清理：知识、记忆和导入定向检查62 passed；五字段控制器、runner集成、存储、检索和公共契约回归163 passed，两组无重叠，共225 passed。证据位于`results/phase5_module_cleanup_20261017/{targeted,regression}.xml`。覆盖正常导入不加载或导出验收工具、每卡仅构造一次、直接构造bundle仍检查策略，以及JSON还原动作仍拒绝错误类型、长度和档位；保留字段白名单和对象自身检查。
 
 控制效果、策略优劣、正式源域覆盖和 evaluation-ready 发布留给 Phase 6/7；Phase 5 的离线通过不代表这些结论已经得到验证。

@@ -1,11 +1,12 @@
-"""Independent P5 provider probes and exact, version-bound acceptance receipts."""
+"""Developer-only P5 provider probes and saved-report validation."""
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 
-from .llm import LLMConfigurationError, LLMError
-from .logging import resolved_snapshot, snapshot_sha256
+from cemas.control.llm import LLMConfigurationError, LLMError, LLMResponse
+from cemas.control.logging import resolved_snapshot, snapshot_sha256
+from cemas.control.memory_types import public_hash
 
 MEMORY_ACCEPTANCE_VERSION = "cemas-memory-provider-acceptance-v1"
 MEMORY_PROBE_MODES = {"day0_none": "none", "four_weeks_short": "short", "four_weeks_global": "global",
@@ -23,16 +24,18 @@ def memory_service_identity(controller):
 
 
 def validate_memory_acceptance(path, controller):
-    """A filename or version label alone never enables a live memory episode."""
-    from .llm_memory import parse_memory_response
-    from .knowledge import CORE_IDS
-    from .memory_types import (strict_json_loads, observation_from_dict, memory_context_from_dict,
-                               public_hash, public_to_dict)
-    from .llm_memory import build_memory_messages
+    """Explicitly validate a development report against current public resources."""
+    from cemas.control.llm_memory import parse_memory_response
+    from cemas.control.knowledge import CORE_IDS
+    from cemas.control.memory import recent_summary
+    from cemas.control.memory_types import (strict_json_loads, observation_from_dict, memory_context_from_dict,
+                                           public_to_dict)
+    from cemas.control.llm_memory import build_memory_messages
     try:
         value = strict_json_loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
-        raise LLMConfigurationError("memory_not_accepted", "A matching P5 provider acceptance receipt is required") from None
+        raise LLMConfigurationError("memory_not_accepted", "Cannot read the P5 development acceptance report") from None
+    controller.token_counter.validate(controller.settings)
     identity = memory_service_identity(controller)
     required = {"version", "status", "experimental_trajectory", "accepted_at", "cases", "sha256", *identity}
     if (type(value) is not dict or set(value) != required or value["version"] != MEMORY_ACCEPTANCE_VERSION
@@ -47,7 +50,6 @@ def validate_memory_acceptance(path, controller):
             or {case.get("name") for case in cases} != set(MEMORY_PROBE_MODES)):
         raise LLMConfigurationError("memory_acceptance_incomplete", "P5 acceptance requires all six registered input cases")
     services = set()
-    original_mode = controller.memory_mode
     for case in cases:
         try:
             messages, response, count = case["messages"], case["response"], case["input_tokens"]
@@ -55,6 +57,7 @@ def validate_memory_acceptance(path, controller):
                     or case["memory_mode"] != MEMORY_PROBE_MODES[case["name"]]
                     or case["messages_sha256"] != snapshot_sha256(messages)
                     or type(count) is not int or not 0 < count <= controller.settings.input_token_budget
+                    or type(response["usage"]["prompt_tokens"]) is not int
                     or response["usage"]["prompt_tokens"] != count
                     or not response["model"] or not response["response_id"] or response["finish_reason"] == "length"):
                 raise ValueError("inconsistent case")
@@ -76,6 +79,8 @@ def validate_memory_acceptance(path, controller):
                 raise ValueError("retrieval probe must include successful public cases")
             if case["name"] == "four_weeks_both" and "case_conflict" not in payload["required_uncertainty_codes"]:
                 raise ValueError("both probe must exercise a conflicting case pair")
+            if expected_mode in ("short", "both") and context.recent is None:
+                raise ValueError("short-memory probes must exercise the recent summary")
             available_cards = {card.id: card for card in controller.knowledge_bundle.select(observation)}
             sent_cards = {card.id: card for card in context.knowledge}
             if set(sent_cards) - set(available_cards) or any(
@@ -84,53 +89,27 @@ def validate_memory_acceptance(path, controller):
                 raise ValueError("receipt knowledge cards are not from the current reviewed bundle")
             if not set(CORE_IDS).issubset(sent_cards):
                 raise ValueError("receipt omitted a required core simulation rule")
-            if context.mode in ("global", "both") and controller.memory_mode in ("global", "both"):
-                from .memory_store import FrozenPublicCaseStore
-                if type(controller.store) is not FrozenPublicCaseStore:
-                    raise ValueError("global receipt lacks the current verified public case store")
-                current_cases = {case.case_id: case for case in controller.store.cases()}
-                for item in context.retrieval.items:
-                    current = current_cases.get(item.case.case_id)
-                    if current is None or public_to_dict(current) != public_to_dict(item.case):
-                        raise ValueError("receipt case is not from the current verified public case store")
-            elif context.retrieval.items or context.retrieval.flags != ("disabled",):
+            if expected_mode in ("none", "short") and context.retrieval.flags != ("disabled",):
                 raise ValueError("memory-disabled probe contains global retrieval material")
+            if context.recent is not None and context.recent != recent_summary(observation):
+                raise ValueError("receipt recent summary does not match its public observation")
             rebuilt_messages, rebuilt_registry, rebuilt_required = build_memory_messages(
                 observation, controller.prompt_config, context)
             if resolved_snapshot(messages) != resolved_snapshot(rebuilt_messages):
                 raise ValueError("receipt messages do not rehydrate from current prompt, observation and memory context")
-            if list(payload["evidence_registry"]) != list(rebuilt_registry):
-                raise ValueError("receipt evidence registry does not bind to rehydrated public context")
-            if tuple(payload["required_uncertainty_codes"]) != tuple(rebuilt_required):
-                raise ValueError("receipt required uncertainty flags do not bind to rehydrated context")
-            if case["messages_sha256"] != snapshot_sha256(rebuilt_messages):
-                raise ValueError("receipt message hash does not match rehydrated messages")
-            # Also replay the current deterministic selector and budget policy.
-            # This binds retrieval scores/status and trimming decisions, rather
-            # than accepting an arbitrary self-consistent context from the receipt.
-            # none/short live episodes do not open a case store, so their
-            # receipt validation remains structural for the global probes. A
-            # global/both episode must replay the current store-backed selector.
-            if expected_mode in ("none", "short") or controller.memory_mode in ("global", "both"):
-                controller.memory_mode = expected_mode
-                controller.reset()
-                current_messages, current_count = controller._prepare_input(observation)
-                if resolved_snapshot(current_messages) != resolved_snapshot(messages) or current_count != count:
-                    raise ValueError("receipt context is not produced by current memory resources")
-                recount = controller.token_counter.count_input(current_messages, controller.settings)
-                if type(recount) is not int or recount <= 0 or recount != count:
-                    raise ValueError("receipt token count does not match current official counter")
-            registry = {key: rebuilt_registry[key] for key in rebuilt_registry}
-            parse_memory_response(response["content"], registry=registry,
+            # Probe fixtures need not belong to the live episode's source library.
+            # Recount their exact accepted messages without mutating episode state.
+            recount = controller.token_counter.count_input(rebuilt_messages, controller.settings)
+            if type(recount) is not int or recount <= 0 or recount != count:
+                raise ValueError("receipt token count does not match current official counter")
+            controller.token_counter.verify_response(LLMResponse(**response))
+            parse_memory_response(response["content"], registry=rebuilt_registry,
                                   required_uncertainty_codes=rebuilt_required,
                                   legal_action_mask=observation.legal_action_mask,
                                   reason_max_chars=controller.settings.reason_max_chars)
             services.add((response["model"], response.get("system_fingerprint")))
         except (KeyError, TypeError, ValueError, LLMError):
             raise LLMConfigurationError("memory_acceptance_invalid", "P5 receipt has inconsistent public probe evidence") from None
-        finally:
-            controller.memory_mode = original_mode
-            controller.reset()
     if len(services) != 1:
         raise LLMConfigurationError("provider_changed", "P5 probes returned different service identities")
     by_name = {case["name"]: case for case in cases}
@@ -141,7 +120,7 @@ def validate_memory_acceptance(path, controller):
 
 def accept_memory_llm(transport, counter, prompt_config, probes, output_dir, *, memory_profile=None, knowledge_bundle=None):
     """Use the production retry/parser/audit path; this does not advance a world."""
-    from .llm_memory import MemoryLLMController
+    from cemas.control.llm_memory import MemoryLLMController
     if set(probes) != set(MEMORY_PROBE_MODES):
         raise ValueError("all six named P5 probes are required")
     output = Path(output_dir)

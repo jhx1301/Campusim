@@ -5,7 +5,7 @@ import sqlite3
 
 import pytest
 
-from cemas.control.memory import load_memory_profile
+from cemas.control.memory import MemoryProfile, load_memory_profile
 from cemas.control.memory_store import CaseStoreUnavailable
 from cemas.control.memory_types import (CASE_SCHEMA_VERSION, PublicCase, public_hash, public_to_dict)
 from cemas.control.retrieval import (NumericRetriever, build_case_query, retrieve,
@@ -210,7 +210,23 @@ def test_pool_24_top_six_deterministic_independent_of_scan_order():
 
 
 @pytest.mark.parametrize("config",[{"top_k":7},{"maximum_per_action":3},{"maximum_per_group":2},
-    {"state_scales":[0]*38},{"candidate_pool_size":25},{"minimum_valid_overlap":-1},{"typo":1}])
+    {"state_scales":[0]*38},{"candidate_pool_size":25},{"minimum_valid_overlap":-1},{"typo":1},
+    {"candidate_pool_size":1},{"minimum_valid_overlap":0},{"state_weight":0,"trend_weight":1},
+    {"state_weight":.4},{"configuration_version":"unknown"},{"feature_version":"unknown"},
+    {"conflict_minimum_diagnosis_change":0},{"conflict_minimum_diagnosis_change":.5}])
 def test_configuration_cannot_relax_phase5_limits(config):
     with pytest.raises(ValueError):
         NumericRetriever(Store(()),config)
+
+
+def test_profile_and_direct_retriever_share_zero_capacity_tolerance_contract():
+    data = public_to_dict(load_memory_profile().data)
+    data["retrieval"]["capacity_ratio_tolerances"] = [0,0,0]
+    profile = MemoryProfile(data)
+    pre = observation()
+    query = build_case_query(pre,TASK,profile)
+    records = (case(1,pre),case(2,pre,resources=PublicResources(3,5,1)))
+    result = NumericRetriever(Store(records),profile).retrieve(query)
+    assert [item.case.case_id for item in result.items]==[1]
+    assert result.excluded_counts["resource"]==1
+    assert retrieve(query,Store(records),profile.retrieval)==result

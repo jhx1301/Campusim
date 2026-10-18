@@ -35,6 +35,33 @@ _RETRIEVAL_FIELDS = (
 )
 
 
+def _validate_retrieval_config(retrieval):
+    """Apply the same Phase 5 contract to profiles and direct retrievers."""
+    _exact(retrieval, _RETRIEVAL_FIELDS, "retrieval profile")
+    if retrieval["configuration_version"] != RETRIEVAL_VERSION or retrieval["feature_version"] != FEATURE_VERSION:
+        raise ValueError("unsupported retrieval or feature version")
+    for key, length in (("state_scales", 38), ("trend_scales", 5), ("capacity_ratio_tolerances", 3)):
+        for value in _sequence(retrieval[key], key, length=length):
+            _number(value, key, minimum=0)
+            if key != "capacity_ratio_tolerances" and value == 0:
+                raise ValueError("feature scales must be positive")
+    for key in ("state_weight", "trend_weight", "minimum_valid_overlap", "minimum_score",
+                "redundancy_penalty", "conflict_minimum_state_score"):
+        _number(retrieval[key], key, minimum=0, maximum=1)
+    if abs(retrieval["state_weight"] + retrieval["trend_weight"] - 1) > 1e-12 or retrieval["state_weight"] <= 0:
+        raise ValueError("retrieval weights must sum to one with positive state weight")
+    if retrieval["minimum_valid_overlap"] == 0:
+        raise ValueError("valid overlap must be positive")
+    _number(retrieval["maximum_state_rms"], "maximum_state_rms", minimum=0)
+    for key in ("candidate_pool_size", "top_k", "maximum_per_action", "maximum_per_group",
+                "conflict_minimum_diagnosis_change"):
+        _integer(retrieval[key], key, minimum=1)
+    if retrieval["candidate_pool_size"] != 24 or retrieval["top_k"] > 6:
+        raise ValueError("Phase 5 requires a 24-candidate pool and at most six selected cases")
+    if retrieval["maximum_per_action"] > 2 or retrieval["maximum_per_group"] != 1:
+        raise ValueError("Phase 5 diversity limits cannot be relaxed")
+
+
 @dataclass(frozen=True, slots=True)
 class MemoryProfile:
     data: Mapping
@@ -59,30 +86,7 @@ class MemoryProfile:
             path = PurePosixPath(value.replace("\\", "/"))
             if path.is_absolute() or ".." in path.parts or ":" in value:
                 raise ValueError(f"{key} must stay inside the project root")
-        retrieval = data["retrieval"]
-        _exact(retrieval, _RETRIEVAL_FIELDS, "retrieval profile")
-        if retrieval["configuration_version"] != RETRIEVAL_VERSION or retrieval["feature_version"] != FEATURE_VERSION:
-            raise ValueError("unsupported retrieval or feature version")
-        for key, length in (("state_scales", 38), ("trend_scales", 5), ("capacity_ratio_tolerances", 3)):
-            for value in _sequence(retrieval[key], key, length=length):
-                _number(value, key, minimum=0)
-                if key != "capacity_ratio_tolerances" and value == 0:
-                    raise ValueError("feature scales must be positive")
-        for key in ("state_weight", "trend_weight", "minimum_valid_overlap", "minimum_score",
-                    "redundancy_penalty", "conflict_minimum_state_score"):
-            _number(retrieval[key], key, minimum=0, maximum=1)
-        if abs(retrieval["state_weight"] + retrieval["trend_weight"] - 1) > 1e-12 or retrieval["state_weight"] <= 0:
-            raise ValueError("retrieval weights must sum to one with positive state weight")
-        if retrieval["minimum_valid_overlap"] == 0:
-            raise ValueError("valid overlap must be positive")
-        _number(retrieval["maximum_state_rms"], "maximum_state_rms", minimum=0)
-        for key in ("candidate_pool_size", "top_k", "maximum_per_action", "maximum_per_group",
-                    "conflict_minimum_diagnosis_change"):
-            _integer(retrieval[key], key, minimum=1)
-        if retrieval["candidate_pool_size"] != 24 or retrieval["top_k"] > 6:
-            raise ValueError("Phase 5 requires a 24-candidate pool and at most six selected cases")
-        if retrieval["maximum_per_action"] > 2 or retrieval["maximum_per_group"] != 1:
-            raise ValueError("Phase 5 diversity limits cannot be relaxed")
+        _validate_retrieval_config(data["retrieval"])
         budget = data["budget_policy"]
         _exact(budget, ("soft_input_target", "truncation_order", "preserve_conflict_pairs"), "budget policy")
         _integer(budget["soft_input_target"], "soft_input_target", minimum=1)

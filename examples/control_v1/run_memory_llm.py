@@ -1,4 +1,4 @@
-"""Run the Phase 5 public memory controller after both live admission gates."""
+"""Run the Phase 5 public memory controller with local counting and source data."""
 
 import argparse
 from pathlib import Path
@@ -17,8 +17,10 @@ def main(argv=None):
     parser.add_argument("--api-key-env", default="DASHSCOPE_API_KEY",
                         help="Name of an existing credential environment variable")
     parser.add_argument("--tokenizer-manifest", type=Path, required=True)
-    parser.add_argument("--tokenizer-acceptance", type=Path, required=True)
-    parser.add_argument("--memory-acceptance", type=Path, required=True)
+    parser.add_argument("--tokenizer-acceptance", type=Path,
+                        help="Legacy option; reports are not used at runtime")
+    parser.add_argument("--memory-acceptance", type=Path,
+                        help="Legacy option; reports are not used at runtime")
     parser.add_argument("--memory-mode", choices=("none", "short", "global", "both"), default="both")
     parser.add_argument("--store", type=Path)
     parser.add_argument("--store-manifest", type=Path)
@@ -36,8 +38,7 @@ def main(argv=None):
         parser.error("global/both memory requires a verified frozen public store")
     controller = make_memory_llm_controller(
         protocol, endpoint=args.endpoint, provider=args.provider, api_key_env=args.api_key_env,
-        tokenizer_manifest=args.tokenizer_manifest, tokenizer_acceptance=args.tokenizer_acceptance,
-        memory_acceptance=args.memory_acceptance, memory_mode=args.memory_mode,
+        tokenizer_manifest=args.tokenizer_manifest, memory_mode=args.memory_mode,
         store_path=args.store, store_manifest=args.store_manifest, build_manifest=args.build_manifest)
     try:
         result = run_episode(protocol, controller, args.output, args.seed, purpose="prompt_development",

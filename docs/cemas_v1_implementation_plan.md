@@ -398,7 +398,7 @@ Controller.observe(PublicWeekFeedback)
 - `parse_action_response()`：仅接受 `action/reason`；五个普通整数，reason 非空、单行、≤120 字，拒绝额外字段。
 - `LLMTransport`：独立供应商参数适配及可注入 mock client。
 - 最多三次总尝试、固定 2/4 秒间隔、SDK 内部重试关闭、timeout120秒；仅临时服务及解析失败复用原 prompt 重试。配置/鉴权/余额/硬配额/未知异常立即终止。
-- 输入保护上限131072 token，完整消息使用对应模型的官方本地 tokenizer/消息模板；固定文件hash、库版本、请求模式及模型对应关系。缺少资源或供应商计数验收则阻止真实 episode。输出总量保护上限65536，包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens，不单设thinking_budget。上限用于阻止异常膨胀，结构体积依据及尚待实测的部分见P4契约第7节；P4 不裁剪、不压缩。
+- 输入保护上限131072 token，完整消息使用对应模型的官方本地 tokenizer/消息模板；固定文件hash、库版本、请求模式及模型对应关系。正常运行检查当前资源、输入计数和实际usage，不以供应商验收报告作为启动凭证。输出总量保护上限65536，包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens，不单设thinking_budget。上限用于阻止异常膨胀，结构体积依据及尚待实测的部分见P4契约第7节；P4 不裁剪、不压缩。
 - runner-owned `llm_calls.jsonl` 保存各次请求/返回型号、完整消息、三类hash、计数器身份、输入计数、usage、响应、耗时和脱敏错误。fatal 也先落盘，不推进当前周；超限零调用，实际 usage 不符终止。
 - 耗尽返回 `None + llm_retry_exhausted`，runner 交共同 resolver；DecisionRecord 记录调用次数及是否成功。离线只用smoke池，真实开发只用prompt_development池并保留真实E0门禁。
 
@@ -418,13 +418,13 @@ Controller.observe(PublicWeekFeedback)
 
 **2026-10-17计划修订：** 按本轮用户要求，Phase 5优先采用[本次研究架构](llm_architecture_research/02_recommended_architecture.md)。具体实施范围、接口、文件、分步退出条件和验收见[Phase 5实施计划](control_phase5_implementation_plan.md)。本节已按独立 [Phase 5 契约](control_phase5_contracts.md) 完成离线实现和工程验收；真实 provider/tokenizer、正式案例库和控制效果仍不在本阶段完成标准内。
 
-**依赖：** Phase 4公共LLM基础链；离线工程可先完成。真实LLM运行仍依赖官方tokenizer/provider及兼容E0验收；最终27世界×4策略源库另依赖Phase 6的阈值调优和统一H/目标确认。
+**依赖：** Phase 4公共LLM基础链；离线工程可先完成。真实LLM运行需要官方tokenizer资源、可用provider及兼容E0产物；P4/P5验收报告仅作开发验证和留档，不作为启动条件。最终27世界×4策略源库另依赖Phase 6的阈值调优和统一H/目标确认。
 
 **推荐实现**
 
 - 单个无会话状态的`MemoryLLMController`，每周重建system/user两消息；复用P4唯一的transport、计数、重试和审计链。
 - 确定性公共近期摘要、实际执行案例及revision；`stage(PublicObservation)`后用`accept(PublicWeekFeedback)`配对，实际动作不由提案推测。
-- 独立公共SQLite schema、源域构建器和只读store；来源seed/策略/私有评价另存，目标经验不追加全局库。
+- 独立公共SQLite schema、源域构建器和只读store；来源seed/策略等登记保存在私有JSON清单，构建时的编号映射仅在内存维护，不使用第二个数据库；目标经验不追加全局库。
 - 数值检索采用研究38维state＋最近3完整周的原始差分trend，权重`.75/.25`；top_k≤6、同动作≤2，并落实资源/动作适配、同源/同内容去重、冲突对与OOD处理。
 - 本阶段不实现embedding、旧三路混合相似度或LLM反思。原memory节中的相关参数是被本次P5 profile取代的历史候选，P5不得隐式读取并混用。
 - 保留六条核心规则，增加版本化知识卡；四模式none/short/global/both保留相同基础观察、知识、模型及新输出schema。

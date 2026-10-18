@@ -27,7 +27,10 @@ def observation(day=0,horizon=14):
 
 def local(local_id=1,revision=1,day=0,horizon=14):
     pre = observation(day,horizon)
-    week = PublicWeeklyRecord(day,min(day+6,horizon-1),10,resources=pre.resources)
+    if day == 7:
+        pre = replace(pre,history=(PublicWeeklyRecord(),)*3+(PublicWeeklyRecord(0,6,10,resources=pre.resources),),
+                      week_valid=(False,False,False,True))
+    week = PublicWeeklyRecord(day,min(day+6,horizon-1),10 if day==0 else 12,resources=pre.resources)
     followup = PublicWeeklyRecord(day+7,min(day+13,horizon-1),12,resources=pre.resources) if revision==2 else None
     return LocalCaseRevision(local_id,revision,pre,week,followup,
         "closed_two" if revision==2 else "terminal_censored" if week.end_day==horizon-1 else "closed_one",
@@ -68,7 +71,10 @@ def test_revisions_monotonic_latest_readonly_and_private_separation(tmp_path):
         with pytest.raises(sqlite3.DatabaseError):
             connection.execute("DELETE FROM case_revisions")
         with pytest.raises(sqlite3.DatabaseError):
-            connection.execute("ATTACH DATABASE ? AS secret",(str(builder.private_path),))
+            connection.execute("ATTACH DATABASE ':memory:' AS extra")
+    assert builder.private_path.name=="private_manifest.json"
+    assert "secret-world-policy" in builder.private_path.read_text(encoding="utf-8")
+    assert not (builder.staging_dir/"private_sources.sqlite").exists()
     with sqlite3.connect(builder.path) as db:
         assert db.execute("SELECT COUNT(*) FROM case_revisions").fetchone()==(2,)
 
@@ -82,6 +88,78 @@ def test_changed_or_skipped_revision_rolls_back(tmp_path):
             builder.append((local(local_id=2,revision=2),),{"trajectory_id":"one"})
         report = builder.finalize("completed")
         assert report.case_count==report.revision_count==1
+
+
+def test_single_database_commit_failure_rolls_back_source_mapping(tmp_path,monkeypatch):
+    connect = sqlite3.connect
+
+    class FailedPublicCommit(sqlite3.Connection):
+        fail_commit = False
+
+        def commit(self):
+            if self.fail_commit:
+                raise sqlite3.OperationalError("public commit fixture")
+            return super().commit()
+
+    def connection(path,*args,**kwargs):
+        if Path(path).name == DATABASE_FILENAME:
+            kwargs["factory"] = FailedPublicCommit
+        return connect(path,*args,**kwargs)
+
+    monkeypatch.setattr(sqlite3,"connect",connection)
+    with PublicCaseBuilder(tmp_path/"staging",TASK) as builder:
+        builder._public.fail_commit = True
+        with pytest.raises(sqlite3.OperationalError,match="public commit fixture"):
+            builder.append((local(),),{"trajectory_id":"one"})
+        builder._public.fail_commit = False
+        assert builder.append((local(),),{"trajectory_id":"two"})==(1,)
+        report = builder.finalize("completed")
+    manifest = verify_source_manifest(report.private_manifest_path)
+    assert [entry["trajectory_id"] for entry in manifest["trajectories"]]==["two"]
+    assert manifest["case_count"]==manifest["revision_count"]==1
+
+
+def test_source_provenance_uses_json_and_only_one_database(tmp_path,monkeypatch):
+    connect,connections = sqlite3.connect,[]
+
+    def connection(path,*args,**kwargs):
+        connections.append(Path(path).name)
+        return connect(path,*args,**kwargs)
+
+    monkeypatch.setattr(sqlite3,"connect",connection)
+    with PublicCaseBuilder(tmp_path/"staging",TASK) as builder:
+        assert builder.append((local(),),{"trajectory_id":"z","seed":90001})==(1,)
+        assert builder.append((local(),),{"trajectory_id":"a","seed":90002})==(2,)
+        assert builder.append((local(revision=2),),{"trajectory_id":"z","seed":90001})==(1,)
+        report = builder.finalize({"z":"completed","a":"completed"})
+    assert connections==[DATABASE_FILENAME]
+    assert {path.name for path in builder.staging_dir.iterdir()}=={DATABASE_FILENAME,"private_manifest.json"}
+    manifest = verify_source_manifest(report.private_manifest_path)
+    assert [(entry["trajectory_id"],entry["seed"],entry["case_ids"]) for entry in manifest["trajectories"]]==[
+        ("a",90002,[2]),("z",90001,[1])]
+    assert manifest["case_count"]==2 and manifest["revision_count"]==3
+
+
+def test_failed_append_discards_new_private_registration(tmp_path):
+    with PublicCaseBuilder(tmp_path/"staging",TASK) as builder:
+        with pytest.raises(CaseStoreError,match="revision one"):
+            builder.append((local(),local(local_id=2,revision=2)),{"trajectory_id":"discarded"})
+        assert builder.append((local(),),{"trajectory_id":"kept"})==(1,)
+        report = builder.finalize("completed")
+    manifest = verify_source_manifest(report.private_manifest_path)
+    assert [entry["trajectory_id"] for entry in manifest["trajectories"]]==["kept"]
+
+
+def test_failed_append_preserves_existing_private_identity_map(tmp_path):
+    with PublicCaseBuilder(tmp_path/"staging",TASK) as builder:
+        builder.append((local(),),{"trajectory_id":"one"})
+        with pytest.raises(CaseStoreError,match="revision one"):
+            builder.append((local(local_id=2),local(local_id=3,revision=2)),{"trajectory_id":"one"})
+        assert builder.append((local(),),{"trajectory_id":"two"})==(2,)
+        assert builder.append((local(local_id=2),),{"trajectory_id":"one"})==(3,)
+        report = builder.finalize("completed")
+    manifest = verify_source_manifest(report.private_manifest_path)
+    assert [entry["case_ids"] for entry in manifest["trajectories"]]==[[1,3],[2]]
 
 
 def test_semantic_hash_excludes_identity_group_and_prose(tmp_path):
@@ -159,6 +237,27 @@ def test_development_publish_and_private_manifest_hash_binding(tmp_path):
     audited = verify_source_manifest(tmp_path/"published"/"build_manifest.json",COMPATIBILITY)
     assert audited["database_sha256"]==manifest.database_sha256
     assert coverage_report(tmp_path/"staging")["exact_108_identity_coverage"] is False
+
+
+@pytest.mark.parametrize("change",["missing_revision","wrong_followup","conflicting_history","population_changed"])
+def test_development_rejects_inconsistent_completed_public_trajectory(tmp_path,change):
+    first,updated,last = local(),local(revision=2),local(local_id=2,day=7)
+    if change == "wrong_followup":
+        updated = replace(updated,followup_window=replace(updated.followup_window,delivered_diagnoses=99))
+    elif change == "conflicting_history":
+        pre = last.pre_observation
+        last = replace(last,pre_observation=replace(pre,history=pre.history[:-1]+(
+            replace(pre.history[-1],delivered_diagnoses=99),)))
+    elif change == "population_changed":
+        last = replace(last,pre_observation=replace(last.pre_observation,
+            population=PublicPopulation(200,(20,40,40,80,20),60,80,10)))
+    revisions = (first,last) if change == "missing_revision" else (first,updated,last)
+    with PublicCaseBuilder(tmp_path/"staging",TASK,purpose="development",compatibility=COMPATIBILITY) as builder:
+        builder.append(revisions,registration())
+        report = builder.finalize("completed")
+    with pytest.raises(CaseStoreError,match="inconsistent public transitions"):
+        freeze_public_store(tmp_path/"staging",report.private_manifest_path,tmp_path/"published")
+    assert not (tmp_path/"published").exists()
 
 
 def test_evaluation_ready_exact_cartesian_identity_and_p6_artifact_gate(tmp_path):

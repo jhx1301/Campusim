@@ -348,14 +348,106 @@ def test_live_prompt_development_refuses_fixture_store_even_when_read_only(proto
         store.close()
 
 
-def test_live_memory_requires_extra_receipt_before_environment_or_paid_call(protocol, tmp_path, monkeypatch):
-    controller, *_ = _controller(protocol)
+@pytest.mark.parametrize("mode", ["none", "short"])
+def test_live_memory_path_runs_without_reports_using_offline_service(protocol, tmp_path, monkeypatch, mode):
+    import cemas.control.environment as environment_module
+
+    class OfflineSourceEnvironment(WeeklyControlEnvironment):
+        """Isolate report handling using a small smoke world instead of E0 data."""
+
+        def __init__(self, protocol, **kwargs):
+            super().__init__(protocol, purpose="smoke", scenario_options=OPTIONS)
+
+        def reset(self, seed):
+            return super().reset(90001)
+
+    def fixture_resources(counter, settings):
+        counter._identity = {"adapter": "offline_resource_fixture", "accepted_for_live": False}
+
+    controller, transport, *_ = _controller(protocol, mode=mode)
     controller.transport = LLMTransport(controller.settings, client=object())
-    # Isolate only the extra P5 gate; this is not an accepted production counter.
-    controller.token_counter = object.__new__(OfficialInputTokenCounter)
-    monkeypatch.setattr(OfficialInputTokenCounter, "validate", lambda self, settings: None)
-    output = tmp_path / "missing-p5-receipt"
-    with pytest.raises(LLMConfigurationError) as caught:
-        run_episode(protocol, controller, output, 40001, purpose="prompt_development", scenario_options=OPTIONS)
-    assert caught.value.code == "memory_not_accepted"
-    assert not output.exists()
+    controller.token_counter = OfficialInputTokenCounter(tmp_path / "offline-resources.json")
+    monkeypatch.setattr(environment_module, "WeeklyControlEnvironment", OfflineSourceEnvironment)
+    monkeypatch.setattr(OfficialInputTokenCounter, "_load", fixture_resources)
+    monkeypatch.setattr(OfficialInputTokenCounter, "count_input", lambda self, messages, settings: 100)
+    monkeypatch.setattr(controller.transport, "prepare", lambda: None)
+    monkeypatch.setattr(controller.transport, "complete", transport.complete)
+    output = tmp_path / "without-reports"
+    result = run_episode(protocol, controller, output, 40001, purpose="prompt_development")
+    assert result.status == "completed" and len(transport.messages) == 2
+    assert controller.token_counter.acceptance_path is None
+    assert "acceptance_sha256" not in controller.token_counter.identity
+
+
+@pytest.mark.parametrize("legacy_reports", [False, True])
+@pytest.mark.parametrize("memory", [False, True])
+def test_controller_factories_ignore_reports(protocol, tmp_path, memory, legacy_reports):
+    from cemas.control.runner import make_llm_controller, make_memory_llm_controller
+
+    kwargs = {"tokenizer_acceptance": tmp_path / "missing-p4-report.json"} if legacy_reports else {}
+    if memory and legacy_reports:
+        kwargs["memory_acceptance"] = tmp_path / "missing-p5-report.json"
+    factory = make_memory_llm_controller if memory else make_llm_controller
+    controller = factory(protocol, endpoint="https://offline.invalid/v1", api_key_env="UNUSED_FIXTURE",
+                         tokenizer_manifest=tmp_path / "resources.json", **kwargs)
+    assert controller.token_counter.acceptance_path is None
+
+
+def test_memory_acceptance_cli_needs_no_p4_report(tmp_path, monkeypatch):
+    from examples.control_v1 import accept_memory_llm as entrypoint
+    from cemas.control import llm
+    from tools import memory_acceptance
+
+    manifest = tmp_path / "tokenizer.json"
+    output = tmp_path / "p5_acceptance"
+    counter, probes, calls = object(), object(), []
+
+    def make_counter(resource_manifest):
+        calls.append(resource_manifest)
+        return counter
+
+    def accept(transport, token_counter, prompt_config, public_probes, output_dir, **kwargs):
+        assert token_counter is counter and public_probes is probes and output_dir == output
+        return output / "memory_prompt_acceptance.json"
+
+    monkeypatch.setattr(llm, "OfficialInputTokenCounter", make_counter)
+    monkeypatch.setattr(memory_acceptance, "accept_memory_llm", accept)
+    monkeypatch.setattr(entrypoint, "_factory", lambda spec: lambda protocol, store: probes)
+    argv = ["--output", str(output), "--endpoint", "https://offline.invalid/v1",
+            "--tokenizer-manifest", str(manifest), "--probe-factory", "offline:probes"]
+    assert entrypoint.main(argv) == 0
+    assert calls == [manifest]
+
+
+@pytest.mark.parametrize("memory", [False, True])
+@pytest.mark.parametrize("legacy_reports", [False, True])
+def test_run_cli_needs_no_reports(tmp_path, monkeypatch, memory, legacy_reports):
+    from types import SimpleNamespace
+    from examples.control_v1 import run_llm, run_memory_llm
+    import cemas.control.runner as runner
+
+    entrypoint = run_memory_llm if memory else run_llm
+    controller, calls = object(), []
+
+    def factory(protocol, **kwargs):
+        calls.append(kwargs)
+        return controller
+
+    def run(protocol, selected_controller, output, seed, **kwargs):
+        assert selected_controller is controller and seed == 40001
+        return SimpleNamespace(status="completed", output_dir=output)
+
+    monkeypatch.setattr(runner, "make_memory_llm_controller" if memory else "make_llm_controller", factory)
+    monkeypatch.setattr(runner, "run_episode", run)
+    argv = ["--output", str(tmp_path / "episode"), "--artifact", str(tmp_path / "e0.json"),
+            "--seed", "40001", "--endpoint", "https://offline.invalid/v1", "--api-key-env", "UNUSED_FIXTURE",
+            "--tokenizer-manifest", str(tmp_path / "resources.json")]
+    if memory:
+        argv += ["--memory-mode", "none"]
+    if legacy_reports:
+        argv += ["--tokenizer-acceptance", str(tmp_path / "missing-p4-report.json")]
+        if memory:
+            argv += ["--memory-acceptance", str(tmp_path / "missing-p5-report.json")]
+    assert entrypoint.main(argv) == 0
+    assert len(calls) == 1
+    assert "tokenizer_acceptance" not in calls[0] and "memory_acceptance" not in calls[0]

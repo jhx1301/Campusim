@@ -4,9 +4,10 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import replace
-from math import exp, isclose, isfinite, sqrt
+from math import exp, isclose, sqrt
 
 from .actions import encode_action
+from .memory import MemoryProfile, _validate_retrieval_config
 from .memory_store import CaseStoreUnavailable, public_content_sha256
 from .memory_types import (CASE_SCHEMA_VERSION, QUERY_SCHEMA_VERSION, CaseQuery,
     RetrievalItem, RetrievalResult)
@@ -24,28 +25,12 @@ DEFAULT_RETRIEVAL = {
 
 
 def _configuration(value):
-    if value is None:
-        return dict(DEFAULT_RETRIEVAL)
-    if hasattr(value,"retrieval"):
+    if type(value) is MemoryProfile:
         value = value.retrieval
-    if not isinstance(value,Mapping) or set(value)-set(DEFAULT_RETRIEVAL):
+    if value is not None and not isinstance(value,Mapping):
         raise ValueError("retrieval configuration has unsupported fields")
-    config = {**DEFAULT_RETRIEVAL,**dict(value)}
-    for key,length in (("state_scales",38),("trend_scales",5),("capacity_ratio_tolerances",3)):
-        values = config[key]
-        if not isinstance(values,(tuple,list)) or len(values)!=length or any(type(x) not in (int,float) or not isfinite(x) or x<=0 for x in values):
-            raise ValueError(f"invalid retrieval {key}")
-    for key in ("state_weight","trend_weight","minimum_valid_overlap","minimum_score","redundancy_penalty","conflict_minimum_state_score"):
-        if type(config[key]) not in (int,float) or not isfinite(config[key]) or not 0<=config[key]<=1:
-            raise ValueError(f"invalid retrieval {key}")
-    if config["state_weight"]+config["trend_weight"]<=0:
-        raise ValueError("retrieval weights must have positive sum")
-    for key in ("maximum_state_rms","conflict_minimum_diagnosis_change"):
-        if type(config[key]) not in (int,float) or not isfinite(config[key]) or config[key]<0:
-            raise ValueError(f"invalid retrieval {key}")
-    for key,maximum in (("candidate_pool_size",24),("top_k",6),("maximum_per_action",2),("maximum_per_group",1)):
-        if type(config[key]) is not int or not 1<=config[key]<=maximum:
-            raise ValueError(f"invalid retrieval {key}")
+    config = {**DEFAULT_RETRIEVAL,**(dict(value) if value is not None else {})}
+    _validate_retrieval_config(config)
     return config
 
 

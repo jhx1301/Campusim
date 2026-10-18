@@ -1,4 +1,4 @@
-"""Run the public LLM on reserved source worlds after tokenizer/E0 acceptance."""
+"""Run the public LLM on reserved source worlds with local counting and E0 data."""
 
 import argparse
 from pathlib import Path
@@ -16,7 +16,8 @@ def main(argv=None):
     parser.add_argument("--endpoint", required=True)
     parser.add_argument("--api-key-env", required=True, help="Name of an existing credential environment variable")
     parser.add_argument("--tokenizer-manifest", type=Path, required=True)
-    parser.add_argument("--tokenizer-acceptance", type=Path, required=True)
+    parser.add_argument("--tokenizer-acceptance", type=Path,
+                        help="Legacy option; reports are not used at runtime")
     args = parser.parse_args(argv)
 
     from cemas.control.protocol import load_protocol
@@ -28,7 +29,7 @@ def main(argv=None):
         parser.error("seed must belong to the reserved prompt_development source pool")
     controller = make_llm_controller(
         protocol, endpoint=args.endpoint, api_key_env=args.api_key_env, provider=args.provider,
-        tokenizer_manifest=args.tokenizer_manifest, tokenizer_acceptance=args.tokenizer_acceptance)
+        tokenizer_manifest=args.tokenizer_manifest)
     result = run_episode(protocol, controller, args.output, args.seed, purpose="prompt_development",
                          scenario_options={"calibration_artifact": args.artifact, "calibration_data_path": args.data})
     print(f"{result.status}: {result.output_dir}")

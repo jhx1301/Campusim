@@ -332,6 +332,14 @@ def test_context_decoders_enforce_mode_and_do_not_accept_extra_private_keys():
         memory_context_from_dict(payload)
 
 
+@pytest.mark.parametrize("values", [[0]*4, [True,0,0,0,0], [3,0,0,0,0], "00000"])
+def test_observation_decoder_preserves_action_validation(values):
+    payload = public_to_dict(observation())
+    payload["current_action"]["values"] = values
+    with pytest.raises((TypeError, ValueError)):
+        observation_from_dict(payload)
+
+
 def test_canonical_json_hash_matches_public_observation_audit():
     from cemas.control.logging import hash_observation
     initial = observation()

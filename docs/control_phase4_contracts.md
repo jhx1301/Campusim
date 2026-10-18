@@ -18,9 +18,9 @@
 |---|---|
 | `runner.make_public_prompt_config(protocol, template_path=None)` | 白名单投影、加载固定模板，返回嵌套不可变的 PublicPromptConfig |
 | `runner.make_llm_settings(protocol, provider, endpoint, api_key_env)` | 模型/预算/重试/采样参数取自协议；只接收凭据环境变量名，不接收密钥值 |
-| `runner.make_llm_controller(..., tokenizer_manifest, tokenizer_acceptance)` | 组装生产transport、配置和本地计数器；SDK/tokenizer不在包导入时加载 |
+| `runner.make_llm_controller(..., tokenizer_manifest)` | 组装生产transport、配置和本地计数器；SDK/tokenizer不在包导入时加载；旧tokenizer_acceptance参数兼容接受但不读取 |
 | `LLMTransport(settings, client=None).complete(messages)` | 单次OpenAI兼容SDK请求；主模型thinking/effort/top_p，次模型enable_thinking；完整输出限制分别适配max_tokens/max_completion_tokens |
-| `OfficialInputTokenCounter(resource_manifest, acceptance_path=None)` | candidate计数、正常运行validate、计数及服务身份校验 |
+| `OfficialInputTokenCounter(resource_manifest, acceptance_path=None)` | 正常运行validate仅检查计数资源；计数及本批次服务身份检查；acceptance_path仅供显式validate_acceptance使用 |
 | `runner.accept_llm_token_counter(transport, counter, config, observations, output_dir)` | 独立三种公开消息的候选计数验收，记录调用并生成匹配receipt；不推进实验episode |
 
 `observations` 的键固定为 `day0/four_weeks/long_numeric`，值必须是精确公共观察类型；后两者都有四个有效周，long_numeric的数值payload更长。验收原文、usage、响应id/模型/指纹和本地计数逐次持久化；任何失败保留调用及failure.json，不生成accepted receipt。
@@ -31,13 +31,13 @@
 
 响应只能是恰含 action/reason 的 JSON 对象。拒绝重复键、NaN/Infinity、围栏、额外正文和修补。action 是五个普通整数，范围由 ActionVector 检查；reason 非空、单行、至多协议规定的120字符，不截断。资源非法提案仍交共同 resolver。
 
-完整输入保护上限131072，完整输出保护上限65536，不单设次模型推理预算。输出包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens。上限是异常膨胀保护，不要求每次用满，修订依据见第7节。官方本地 tokenizer 必须包含模型对应关系、文件内容 hash、消息模板、加载库版本和供应商计数验收身份；正常运行不下载、不估算。每次 decide 构造/计数一次，重试复用消息；输入超限零调用。实际 usage 与本地计数不一致或超限时终止。
+完整输入保护上限131072，完整输出保护上限65536，不单设次模型推理预算。输出包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens。上限是异常膨胀保护，不要求每次用满，修订依据见第7节。官方本地 tokenizer 必须包含模型对应关系、文件内容 hash、消息模板和加载库版本；正常运行不下载、不估算。每次 decide 构造/计数一次，重试复用消息；输入超限零调用。实际 usage 与本地计数不一致或超限时终止。
 
 当前离线适配为 `official_local_chat_template_v1` / `hf_apply_chat_template_v1`：显式 `tokenize=True, add_generation_prompt=True, return_dict=False, truncation=False, padding=False`。资源manifest包含 `adapter/provider/model/official_source/library_versions/files/chat_template_file/template_kwargs/request_parameters_sha256`；files逐一锁原始字节hash，库版本锁transformers、tokenizers、jinja2、markupsafe。请求模式hash来自 `snapshot_sha256(settings.request_parameters())`。不接受覆写计数控制参数或未固定的加载资源。官方资源没有可核验消息模板、需要尚未实现的其他编码器或版本不符时直接阻止，不自行发明模板。
 
-正常运行还要求匹配 `tokenizer_acceptance.json`：核对资源身份、endpoint、请求参数、三个case的完整消息/hash/usage及返回服务身份。资源、receipt、返回型号或指纹发生变化时终止当前批次。hash用于完整性和关联，不代替官方资源来源核验或真实账户调用证据。
+正常运行不读取或要求 `tokenizer_acceptance.json`。资源完整性、输入预算和实际 usage 检查直接针对当前请求；本批次首个实际返回建立服务型号/指纹基准，后续变化时终止。开发验收仍可生成报告，通过显式 `validate_acceptance(settings)` 核对资源身份、endpoint、请求参数、三个case的消息/hash/usage与服务一致性；报告内容不设置正常运行的服务基准。hash用于完整性和关联，不代替官方资源来源核验或真实账户调用证据。
 
-独立 provider 验收必须覆盖 day0、完整四周及长数值消息，保存每次完整消息、本地计数、实际 usage、模型与服务指纹。验收不作为有效实验轨迹；缺少资源或匹配证据时阻止真实 episode，不能用 mock 通过来替代。
+独立 provider 验收覆盖 day0、完整四周及长数值消息，保存每次完整消息、本地计数、实际 usage、模型与服务指纹。报告用于开发验证和留档，不作为使用程序的启动凭证。正常运行仍需要可用计数资源；mock通过不代表完成真实服务验收。
 
 ## 3. 调用、失败与共同回退
 
@@ -59,7 +59,7 @@ runner 在 decide 成功或异常后都先交付/落盘已产生的调用审计�
 
 manifest的 `run_purpose` 保存runner用途；环境内部purpose为scientific。LLM元数据额外记录 `live_provider`、transport类型、模板/公共快照hash、settings和计数器身份。生产transport只能用于prompt_development，离线替身只能用于smoke；固定参照继续使用既有用途。不可重试失败不制造回退；调用前失败保留可用的三类hash、输入计数与预算。
 
-薄入口为 `examples/control_v1/run_llm.py` 与 `smoke_llm.py`。真实入口显式要求endpoint、凭据变量名、资源manifest、计数验收receipt和真实E0产物；模型名仍由协议提供。`--help`不会启动模拟或加载SDK/tokenizer。P3既有入口和历史产物保留。
+薄入口为 `examples/control_v1/run_llm.py` 与 `smoke_llm.py`。真实入口显式要求endpoint、凭据变量名、资源manifest和真实E0产物；不要求或读取计数验收报告，旧报告参数仅兼容接受。模型名仍由协议提供。`--help`不会启动模拟或加载SDK/tokenizer。P3既有入口和历史产物保留。
 
 ## 5. 实际验收
 

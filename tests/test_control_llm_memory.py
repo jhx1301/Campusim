@@ -1,6 +1,6 @@
 """Offline five-field decisions, shared retries, exact references and trimming."""
 
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import replace
 import json
 from math import log2
 from pathlib import Path
@@ -10,13 +10,15 @@ import pytest
 from cemas.control import (ActionResponseError, LLMConfigurationError, LLMResponse, LLMServiceError,
                            PromptBudgetError, legal_action_mask, load_protocol,
                            make_llm_settings, make_public_prompt_config)
-from cemas.control.knowledge import CORE_IDS, load_knowledge_bundle
+from cemas.control.knowledge import CORE_IDS
 from cemas.control.llm import build_public_messages
 from cemas.control.llm_memory import (MEMORY_MODES, MemoryLLMController, build_memory_messages,
                                       memory_prompt_config, parse_memory_response)
-from cemas.control.logging import resolved_snapshot
-from cemas.control.memory import load_memory_profile, public_task_hash
-from cemas.control.memory_types import (CASE_SCHEMA_VERSION, PublicCase, PublicMemoryContext,
+from cemas.control.logging import resolved_snapshot, snapshot_sha256
+from cemas.control.memory import public_task_hash
+from tools.memory_acceptance import (MEMORY_PROBE_MODES, accept_memory_llm,
+                                     validate_memory_acceptance)
+from cemas.control.memory_types import (CASE_SCHEMA_VERSION, PublicCase,
                                         RetrievalItem, RetrievalResult, observation_from_dict,
                                         public_hash, public_to_dict, weekly_record_from_dict)
 from cemas.control.types import (ActionVector, PublicCost, PublicObservation, PublicPopulation,
@@ -393,3 +395,106 @@ def test_p4_legacy_keeps_two_field_template_and_memory_rejection(config, day0):
     assert set(json.loads(legacy[1].content)) == {"observation", "public_rates"}
     with pytest.raises(NotImplementedError):
         build_public_messages(day0, prompt, memory_context={})
+
+
+@pytest.fixture
+def memory_receipt(config, day0, observation, tmp_path):
+    """Synthetic provider evidence for the receipt code path; no service is called."""
+    class AcceptedFixtureCounter(Counter):
+        def verify_response(self, response):
+            if (response.model, response.system_fingerprint) != ("offline-model", None):
+                raise LLMConfigurationError("provider_changed", "Offline accepted service changed")
+
+    class ProbeStore:
+        def cases(self):
+            return tuple(item.case for item in retrieval_result(observation, config[1]).items)
+
+        def group_for(self, case_id):
+            return str(case_id)
+
+    scale = 10000
+    weeks = tuple(replace(week, delivered_diagnoses=week.delivered_diagnoses * scale,
+                          cost=replace(week.cost, clinical_tests=week.cost.clinical_tests * scale,
+                                       delivered_notifications=week.cost.delivered_notifications * scale),
+                          resources=PublicResources(2 * scale, 5 * scale, scale))
+                  for week in observation.history)
+    long_observation = replace(observation, population=PublicPopulation(100 * scale,
+        (0, 100 * scale, 0, 0, 0), 50 * scale, 40 * scale),
+        resources=weeks[-1].resources, history=weeks)
+    store = ProbeStore()
+    probes = {name: {"observation": observation, "store": store}
+              for name in MEMORY_PROBE_MODES}
+    probes["day0_none"] = {"observation": day0}
+    probes["no_case"] = {"observation": replace(observation, resources=PublicResources(100, 100, 100)),
+                         "store": store}
+    probes["long_numeric"] = {"observation": long_observation, "store": store}
+    transport = Transport([lambda messages: replace(successful_response(messages), usage={"prompt_tokens": 100})] * 6)
+    transport.settings = config[2]
+    receipt = accept_memory_llm(transport, AcceptedFixtureCounter(), config[1], probes, tmp_path / "offline-receipt")
+    return receipt, transport
+
+
+@pytest.mark.parametrize("mode", MEMORY_MODES)
+def test_provider_receipt_accepts_all_modes_without_binding_probe_library(config, day0, memory_receipt, mode):
+    receipt, transport = memory_receipt
+    class NoQuery:
+        def retrieve(self, query):
+            raise AssertionError("provider receipt queried the episode library")
+    policy = controller(config, mode=mode, retriever=NoQuery())
+    if mode in ("none", "short"):
+        policy.decide(day0)
+    else:
+        policy.memory.stage(day0)
+    pending = policy.memory.pending_observation
+    prepared = policy._prepared_context
+    policy.token_counter.counted.clear()
+    record = validate_memory_acceptance(receipt, policy)
+    assert record["status"] == "accepted" and len(record["cases"]) == len(transport.messages) == 6
+    assert len(policy.token_counter.counted) == 6
+    assert policy.memory_mode == mode and policy.memory.pending_observation is pending
+    assert policy._prepared_context is prepared
+
+
+def _rewrite_receipt(path, mutate):
+    value = json.loads(path.read_text(encoding="utf-8"))
+    mutate(value)
+    value["sha256"] = snapshot_sha256({key: item for key, item in value.items() if key != "sha256"})
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+
+def test_provider_receipt_checks_previously_accepted_service(config, memory_receipt):
+    receipt, _ = memory_receipt
+    policy = controller(config)
+    def verify(response):
+        if (response.model, response.system_fingerprint) != ("current-provider-model", "current-fingerprint"):
+            raise LLMConfigurationError("provider_changed", "Provider changed")
+    policy.token_counter.verify_response = verify
+    with pytest.raises(LLMConfigurationError):
+        validate_memory_acceptance(receipt, policy)
+
+
+@pytest.mark.parametrize("name", tuple(MEMORY_PROBE_MODES))
+def test_provider_receipt_recounts_every_probe(config, memory_receipt, name):
+    receipt, _ = memory_receipt
+    def mutate(record):
+        case = next(item for item in record["cases"] if item["name"] == name)
+        case["input_tokens"] += 1
+        case["response"]["usage"]["prompt_tokens"] += 1
+    _rewrite_receipt(receipt, mutate)
+    with pytest.raises(LLMConfigurationError) as caught:
+        validate_memory_acceptance(receipt, controller(config))
+    assert caught.value.code == "memory_acceptance_invalid"
+
+
+def test_provider_receipt_rejects_rehashed_but_incorrect_recent_summary(config, memory_receipt):
+    receipt, _ = memory_receipt
+    def mutate(record):
+        case = next(item for item in record["cases"] if item["name"] == "four_weeks_short")
+        payload = json.loads(case["messages"][1]["content"])
+        payload["memory"]["recent"]["trend_direction"] = "down"
+        case["messages"][1]["content"] = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        case["messages_sha256"] = snapshot_sha256(case["messages"])
+    _rewrite_receipt(receipt, mutate)
+    with pytest.raises(LLMConfigurationError) as caught:
+        validate_memory_acceptance(receipt, controller(config))
+    assert caught.value.code == "memory_acceptance_invalid"

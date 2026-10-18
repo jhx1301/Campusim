@@ -10,7 +10,7 @@ from time import perf_counter
 from types import MappingProxyType
 from weakref import WeakKeyDictionary
 
-_MEMORY_ADMISSION = WeakKeyDictionary()
+_MEMORY_SOURCE_MANIFESTS = WeakKeyDictionary()
 
 from .controllers import Controller
 from .logging import (
@@ -101,18 +101,19 @@ def make_llm_settings(protocol: ControlProtocol, *, provider="deepseek", endpoin
 
 def make_llm_controller(protocol: ControlProtocol, *, endpoint, api_key_env, tokenizer_manifest,
                         tokenizer_acceptance=None, provider="deepseek", client=None):
+    """Build a runtime controller; the legacy report argument is ignored."""
     from .llm import LLMController, LLMTransport, OfficialInputTokenCounter
 
     settings = make_llm_settings(protocol, provider=provider, endpoint=endpoint, api_key_env=api_key_env)
     return LLMController(LLMTransport(settings, client=client), make_public_prompt_config(protocol), settings,
-                         OfficialInputTokenCounter(tokenizer_manifest, acceptance_path=tokenizer_acceptance))
+                         OfficialInputTokenCounter(tokenizer_manifest))
 
 
 def accept_llm_token_counter(transport, counter, prompt_config, observations, output_dir):
     """Record three isolated provider probes, never an experimental episode.
 
-    The caller supplies exact public types. A candidate resource manifest can be
-    used here, but only a matching accepted receipt enables normal live calls.
+    The caller supplies exact public types. Results are development evidence,
+    independent of normal episode startup.
     """
     from .llm import (
         LLMCallAudit, LLMConfigurationError, LLMError, LLMResponse, PromptBudgetError,
@@ -447,6 +448,7 @@ def make_memory_llm_controller(protocol, *, endpoint, api_key_env="DASHSCOPE_API
                                tokenizer_acceptance=None, memory_acceptance=None, provider="deepseek", client=None,
                                memory_mode="none", memory_profile_path=None, store_path=None,
                                store_manifest=None, build_manifest=None):
+    """Build a runtime controller; legacy report arguments are ignored."""
     from .llm import LLMTransport, OfficialInputTokenCounter
     from .llm_memory import MemoryLLMController
     from .memory import load_memory_profile
@@ -460,19 +462,19 @@ def make_memory_llm_controller(protocol, *, endpoint, api_key_env="DASHSCOPE_API
         store = FrozenPublicCaseStore.open(store_path, store_manifest)
     try:
         controller = MemoryLLMController(LLMTransport(settings, client=client), make_public_prompt_config(protocol),
-            settings, OfficialInputTokenCounter(tokenizer_manifest, acceptance_path=tokenizer_acceptance),
+            settings, OfficialInputTokenCounter(tokenizer_manifest),
             memory_mode=memory_mode, memory_profile=profile, store=store)
     except BaseException:
         if store is not None:
             store.close()
         raise
-    # These paths are runner-owned admission evidence, never serialized to prompts.
-    _MEMORY_ADMISSION[controller] = {"memory_acceptance": memory_acceptance, "build_manifest": build_manifest}
+    # Private source provenance stays with the runner, outside controller inputs.
+    _MEMORY_SOURCE_MANIFESTS[controller] = build_manifest
     return controller
 
 
 def _validate_memory_run(protocol, controller, purpose, scenario_options):
-    from .llm import LLMConfigurationError, LLMTransport, OfficialInputTokenCounter
+    from .llm import LLMConfigurationError
     from .memory import public_task_hash
     from .memory_store import FrozenPublicCaseStore, verify_source_manifest
     store = controller.store
@@ -490,7 +492,7 @@ def _validate_memory_run(protocol, controller, purpose, scenario_options):
         else:
             if store.purpose not in ("development", "evaluation_ready"):
                 raise LLMConfigurationError("fixture_store_forbidden", "Real prompt development cannot use a fixture source library")
-            path = _MEMORY_ADMISSION.get(controller, {}).get("build_manifest")
+            path = _MEMORY_SOURCE_MANIFESTS.get(controller)
             if path is None:
                 raise LLMConfigurationError("source_provenance_missing", "Real memory episodes require a separate private source manifest")
             compatibility = memory_source_compatibility(protocol, options.get("calibration_artifact"),
@@ -498,12 +500,3 @@ def _validate_memory_run(protocol, controller, purpose, scenario_options):
             source = verify_source_manifest(path, compatibility, purpose=store.purpose)
             if source.get("database_sha256") != store.store_sha256:
                 raise LLMConfigurationError("source_store_mismatch", "Private build evidence and public database do not match")
-    if isinstance(controller.transport, LLMTransport):
-        if not isinstance(controller.token_counter, OfficialInputTokenCounter):
-            raise LLMConfigurationError("tokenizer_not_official", "Live memory decisions require the official accepted counter")
-        controller.token_counter.validate(controller.settings)
-        receipt = _MEMORY_ADMISSION.get(controller, {}).get("memory_acceptance")
-        if receipt is None:
-            raise LLMConfigurationError("memory_not_accepted", "Live memory decisions require the additional P5 acceptance receipt")
-        from .memory_acceptance import validate_memory_acceptance
-        validate_memory_acceptance(receipt, controller)

@@ -3,7 +3,6 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 import json
-from pathlib import Path
 import time
 
 from .actions import encode_action
@@ -14,7 +13,7 @@ from .llm import (ActionResponseError, ChatMessage, LLMConfigurationError, LLMCo
 from .logging import public_observation_to_dict, snapshot_sha256
 from .memory import MemoryProfile, PublicEpisodeMemory, load_memory_profile, public_task_hash
 from .memory_types import (RESPONSE_SCHEMA_VERSION, UNCERTAINTY_CODES, PublicMemoryContext,
-                           RecentSummary, RetrievalResult, canonical_json, public_hash,
+                           RetrievalResult, canonical_json, public_hash,
                            public_to_dict, strict_json_loads)
 from .types import ActionProposal, ActionVector, PublicObservation, PublicWeekFeedback
 
@@ -191,10 +190,7 @@ def memory_prompt_config(prompt_config, profile=None):
     profile = load_memory_profile() if profile is None else profile
     if type(profile) is not MemoryProfile:
         raise TypeError("memory profile must be a validated MemoryProfile")
-    root = Path(__file__).resolve().parents[2]
-    path = Path(profile.data["template_path"])
-    if not path.is_absolute():
-        path = root / path
+    path = profile.resource_path("template_path")
     try:
         template = strict_json_loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
@@ -218,8 +214,7 @@ class MemoryLLMController(LLMController):
         if type(self.memory_profile) is not MemoryProfile:
             raise TypeError("memory_profile must be MemoryProfile")
         if knowledge_bundle is None:
-            root = Path(__file__).resolve().parents[2]
-            knowledge_bundle = load_knowledge_bundle(root / self.memory_profile.data["knowledge_path"])
+            knowledge_bundle = load_knowledge_bundle(self.memory_profile.resource_path("knowledge_path"))
         if type(knowledge_bundle) is not KnowledgeBundle:
             raise TypeError("knowledge_bundle must be KnowledgeBundle")
         self.knowledge_bundle = knowledge_bundle

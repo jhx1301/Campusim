@@ -61,9 +61,6 @@ from .llm_memory import (
     MEMORY_MODES, MemoryLLMController, build_memory_messages, memory_prompt_config,
     parse_memory_response,
 )
-from .memory_acceptance import (
-    MEMORY_ACCEPTANCE_VERSION, MEMORY_PROBE_MODES, accept_memory_llm, validate_memory_acceptance,
-)
 
 
 
@@ -96,8 +93,7 @@ __all__ = [
     "CaseStoreError", "CollectionReport", "FrozenPublicCaseStore", "PublicCaseBuilder", "StoreManifest",
     "coverage_report", "freeze_public_store", "verify_source_manifest", "NumericRetriever", "build_case_query",
     "retrieve", "KnowledgeBundle", "load_knowledge_bundle", "MEMORY_MODES", "MemoryLLMController",
-    "build_memory_messages", "memory_prompt_config", "parse_memory_response", "MEMORY_ACCEPTANCE_VERSION",
-    "MEMORY_PROBE_MODES", "accept_memory_llm", "validate_memory_acceptance",
+    "build_memory_messages", "memory_prompt_config", "parse_memory_response",
     "resolved_snapshot", "CalibrationFitError",
     "ActionResponseError", "ChatMessage", "LLMCallAudit", "LLMConfigurationError", "LLMController",
     "LLMError", "LLMResponse", "LLMServiceError", "LLMSettings", "LLMTransport",

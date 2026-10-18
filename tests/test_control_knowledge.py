@@ -64,6 +64,30 @@ def test_resource_move_does_not_change_content_identity(tmp_path):
     assert load_knowledge_bundle(copied).sha256 == original.sha256
 
 
+def test_loading_bundle_constructs_each_card_once(monkeypatch):
+    from cemas.control.memory_types import KnowledgeCard
+
+    constructed = []
+    initialize = KnowledgeCard.__post_init__
+
+    def record(card):
+        initialize(card)
+        constructed.append(card)
+
+    monkeypatch.setattr(KnowledgeCard, "__post_init__", record)
+    bundle = load_knowledge_bundle()
+    assert len(constructed) == len(bundle.cards) == 9
+    assert {id(card) for card in constructed} == {id(card) for card in bundle.cards}
+
+
+@pytest.mark.parametrize("changes", [{"version": "2"}, {"public_fields": ("private_metrics",)}])
+def test_direct_bundle_construction_checks_core_policy(changes):
+    bundle = load_knowledge_bundle()
+    cards = tuple(replace(card, **changes) if card.id == "SIM-01" else card for card in bundle.cards)
+    with pytest.raises(LLMConfigurationError):
+        replace(bundle, cards=cards)
+
+
 def test_o_only_knowledge_triggers_share_summary_arithmetic():
     bundle = load_knowledge_bundle()
     day0 = observation(())
@@ -90,6 +114,11 @@ def test_o_only_knowledge_triggers_share_summary_arithmetic():
     lambda value: value["cards"][0].update(id="PH-04"),
     lambda value: value["cards"][0].update(public_fields=["private_metrics"]),
     lambda value: value["cards"][0].update(world_seed=30001),
+    lambda value: value["cards"][0].update(preconditions=[" "]),
+    lambda value: value["cards"][0].update(limitations=[]),
+    lambda value: value["cards"][0].update(public_fields=[]),
+    lambda value: value["cards"][0].update(action_dimensions=[]),
+    lambda value: value["cards"][0].update(supersedes=["PH-04"]),
     lambda value: value["cards"][0]["source"].update(publisher="World Health Organization"),
     lambda value: value["cards"][0]["source"].update(private_path="secrets"),
     lambda value: value["cards"][0]["source"].update(url="https://unreviewed.invalid/report"),

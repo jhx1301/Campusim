@@ -201,7 +201,7 @@ RL训练seed11/22/33，世界分别来自[1,000,000,1,100,000)、[2,000,000,2,10
 
 P4 的 observation 是唯一历史来源，observe只校验公共反馈；固定system模板和专家规则在 `cemas/control/prompts/public_v1.json`，公共参数由runner从本JSON白名单投影，user仅含observation/public_rates。不附加历史回答、推理、纠错或反馈缓存。分别记录模板、公共规则快照和最终两条消息的规范化JSON SHA-256，完整协议hash仅用于私有追溯。[P4接口契约](control_phase4_contracts.md)
 
-完整输入（内容、角色、消息特殊token和生成前缀）使用对应模型官方本地tokenizer和消息模板，不能用字符估算或借用其他供应商计数器。固定资源hash、库版本、模型及请求模式，正常运行不下载。独立源域验收核对day0、完整四周及长数值消息的本地计数与实际usage；未通过则阻止真实episode。输入≤131072才调用，超限零API调用；正常usage不符或实际超限立即终止。P4不做裁剪或压缩，P5才在确实触及保护上限时裁剪附加记忆，始终保留共同历史与任务字段。P5真实结构完成后，需实测四种记忆模式的完整token量和余量，不得将结构字节数当作token计数。[DeepSeek官方离线tokenizer说明](https://api-docs.deepseek.com/zh-cn/quick_start/token_usage/)
+完整输入（内容、角色、消息特殊token和生成前缀）使用对应模型官方本地tokenizer和消息模板，不能用字符估算或借用其他供应商计数器。固定资源hash、库版本、模型及请求模式，正常运行不下载。独立源域验收核对day0、完整四周及长数值消息的本地计数与实际usage，报告只用于开发验证和留档，不作为正常episode启动凭证。输入≤131072才调用，超限零API调用；正常usage不符或实际超限立即终止。P4不做裁剪或压缩，P5才在确实触及保护上限时裁剪附加记忆，始终保留共同历史与任务字段。P5真实结构完成后，需实测四种记忆模式的完整token量和余量，不得将结构字节数当作token计数。[DeepSeek官方离线tokenizer说明](https://api-docs.deepseek.com/zh-cn/quick_start/token_usage/)
 
 runner先将每次调用持久化到私有 `llm_calls.jsonl`，再推进环境；fatal不推进当前周，manifest为failed。DecisionRecord新增调用次数和成功摘要；调用前预算/配置失败仅记failure.json，不伪造attempt。离线闭环使用smoke世界，真实P4开发仅使用40001–40009，沿用真实E0产物门禁。
 

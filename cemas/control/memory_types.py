@@ -455,9 +455,7 @@ def _record_dict(value, record_type):
 
 
 def _action_from_dict(value):
-    values = _record_dict(value, ActionVector)
-    values["values"] = _sequence(values["values"], "action values", length=5)
-    return ActionVector(**values)
+    return ActionVector(**_record_dict(value, ActionVector))
 
 
 def resources_from_dict(value):

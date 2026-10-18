@@ -450,7 +450,7 @@ def candidate_counter(tmp_path, settings, monkeypatch):
     return OfficialInputTokenCounter(path), manifest, path, calls
 
 
-def test_official_adapter_local_only_generation_prefix_and_missing_acceptance(tmp_path, settings, observation, prompt_config, monkeypatch):
+def test_official_adapter_counts_and_decides_without_acceptance(tmp_path, settings, observation, prompt_config, monkeypatch):
     counter, manifest, path, calls = candidate_counter(tmp_path, settings, monkeypatch)
     messages = build_public_messages(observation, prompt_config)
     assert counter.count_input(messages, settings) == 100
@@ -458,12 +458,11 @@ def test_official_adapter_local_only_generation_prefix_and_missing_acceptance(tm
     assert calls[1][0] == resolved_snapshot(messages)
     assert calls[1][1] == {"tokenize": True, "add_generation_prompt": True, "return_dict": False,
                           "truncation": False, "padding": False, "enable_thinking": True}
-    with pytest.raises(LLMConfigurationError, match="acceptance"):
-        counter.validate(settings)
+    counter.validate(settings)
     controller = LLMController(ScriptedTransport([response()]), prompt_config, settings, counter)
-    with pytest.raises(LLMConfigurationError):
-        controller.decide(observation)
-    assert controller.transport.messages == []
+    assert controller.decide(observation).action == ActionVector((0, 0, 0, 0, 0))
+    assert len(controller.transport.messages) == 1
+    assert "acceptance_sha256" not in counter.identity
 
 
 def test_real_local_tokenizer_library_counts_roles_template_and_generation_prefix(tmp_path, settings, observation, prompt_config):
@@ -492,8 +491,7 @@ def test_real_local_tokenizer_library_counts_roles_template_and_generation_prefi
     assert counter.count_input(messages, settings) == len(expected)
     without_prefix = tokenizer.apply_chat_template(resolved_snapshot(messages), tokenize=True, add_generation_prompt=False, return_dict=False)
     assert len(expected) > len(without_prefix)
-    with pytest.raises(LLMConfigurationError, match="acceptance"):
-        counter.validate(settings)
+    counter.validate(settings)
 
 
 @pytest.mark.parametrize("change", ["hash", "model", "template", "library", "request", "unpinned"])
@@ -534,7 +532,7 @@ def numeric_observation(observation):
     return replace(full, history=weeks)
 
 
-def test_provider_acceptance_receipt_enables_only_matching_resource_mode_and_service(tmp_path, settings, observation, prompt_config, monkeypatch):
+def test_provider_report_validation_is_explicit_and_checks_resources_and_service(tmp_path, settings, observation, prompt_config, monkeypatch):
     from cemas.control.runner import accept_llm_token_counter
 
     resources = tmp_path / "resources"
@@ -549,15 +547,29 @@ def test_provider_acceptance_receipt_enables_only_matching_resource_mode_and_ser
     record = json.loads(receipt.read_text(encoding="utf-8"))
     assert record["experimental_trajectory"] is False and record["status"] == "accepted"
     accepted = OfficialInputTokenCounter(path, acceptance_path=receipt)
-    accepted.validate(settings)
-    accepted.verify_response(response())
-    assert accepted.identity["acceptance_sha256"] == record["sha256"]
+    assert accepted.validate_acceptance(settings)["sha256"] == record["sha256"]
+    current = replace(response(), model="current-live-model", system_fingerprint="current-fingerprint")
+    accepted.verify_response(current)
+    assert "acceptance_sha256" not in accepted.identity
     with pytest.raises(LLMConfigurationError, match="changed"):
-        accepted.verify_response(response(system_fingerprint="changed"))
+        accepted.verify_response(replace(current, system_fingerprint="changed"))
     with pytest.raises(LLMConfigurationError):
-        accepted.validate(replace(settings, endpoint="https://other.invalid/v1"))
+        accepted.validate_acceptance(replace(settings, endpoint="https://other.invalid/v1"))
     with pytest.raises(LLMConfigurationError):
-        accepted.validate(replace(settings, thinking=False))
+        accepted.validate_acceptance(replace(settings, thinking=False))
+
+
+def test_normal_counting_ignores_missing_report_and_tracks_actual_service(tmp_path, settings, observation, prompt_config, monkeypatch):
+    _, _, path, _ = candidate_counter(tmp_path, settings, monkeypatch)
+    counter = OfficialInputTokenCounter(path, acceptance_path=tmp_path / "missing-report.json")
+    counter.validate(settings)
+    counter.verify_response(response())
+    counter.verify_response(response())
+    with pytest.raises(LLMConfigurationError, match="changed"):
+        counter.verify_response(response(system_fingerprint="changed"))
+    assert "acceptance_sha256" not in counter.identity
+    with pytest.raises(LLMConfigurationError, match="acceptance"):
+        counter.validate_acceptance(settings)
 
 
 def test_failed_provider_acceptance_retains_call_and_never_creates_accepted_receipt(tmp_path, settings, observation, prompt_config, monkeypatch):

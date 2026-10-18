@@ -2,6 +2,8 @@
 
 日期：2026-10-17。状态：**已按本计划实现；离线工程验收完成，真实 provider/tokenizer 验收待执行**。实现与证据见 [Phase 5 契约](control_phase5_contracts.md)。
 
+2026-10-17用户修订：P4/P5验收报告只用于开发验证和留档，不作为使用程序的启动凭证。正常运行直接检查当前资源、请求和实际返回；本次修订优先于研究快照中的报告门禁要求。
+
 ## 1. 阶段目标与依据优先级
 
 Phase 5 的目标是：在已有公共观察—LLM提案—共同执行—公共反馈闭环中，加入可核查的近期经验、冻结源域案例和知识引用，使控制器能够比较当前情景与过去的实际执行记录，并给出结构化决策依据。
@@ -36,7 +38,7 @@ Phase 5 的目标是：在已有公共观察—LLM提案—共同执行—公共
 | 五字段响应、引用检查与依据日志 | 转回原ActionProposal；执行前落盘；执行后关联实际动作；不回传私有审计 |
 | 完整预算控制 | 官方计数覆盖两消息；只裁附加资料；同字节重试；保留P4失败分类 |
 | 采集/构建工具和工程测试 | 人工案例、三个简单策略的离线smoke验证工具链；明确fixture/development状态 |
-| 真实服务验收入口与门禁 | 能验四模式及边界消息；缺真实验收时阻止真实P5运行；不伪造accepted凭证 |
+| 独立真实服务验收入口 | 能验四模式及边界消息并留存结果；正常运行不读取或要求报告 |
 
 明确排除：阈值控制器实现/调优、PPO/DDQN、训练与checkpoint选择、H/目标权重选择、E0算法修改或完整重标定、最终27×4采集任务的执行、E1–E4正式编排/统计、城市及资源事件环境、E4世界分叉重放、embedding及对照方法、多智能体/审查LLM/反思/世界模型、服务端会话和缓存管理器。
 
@@ -96,11 +98,12 @@ flowchart LR
 | `cemas/control/llm_memory.py`（新） | MemoryLLMController、P5消息组装/裁剪、五字段parser和引用注册表；组合确定性模块并复用P4调用链 |
 | `cemas/control/llm.py`（改） | 仅抽出必要消息准备/响应解析接入点，保留单份transport/tokenizer/retry/audit实现 |
 | `cemas/control/controllers.py`（改） | 增加默认空的依据导出方法；增加独立RNG的UniformLegalController用于采集smoke |
-| `cemas/control/runner.py`、`logging.py`（改） | 新工厂、P5依据落盘、公共采集sink、窄用途与seed检查、来源私有登记、live验收门禁 |
+| `cemas/control/runner.py`、`logging.py`（改） | 新工厂、P5依据落盘、公共采集sink、窄用途与seed检查、来源私有登记 |
 | `cemas/control/prompts/public_memory_v1.json`、`cemas/control/knowledge/public_knowledge_v1.json`（新） | 研究模板与九条知识卡的正式资源，独立版本/hash |
 | `docs/control_memory_v1.json`（新） | P5算法配置，显式取代原memory候选配置，不改共同任务参数 |
 | `tools/collect_observable_memory.py`（新） | 采集/构建/覆盖/冻结薄入口，可重放已导出的公共输入，不包含第二套模拟循环 |
-| `examples/control_v1/smoke_memory.py`、`run_memory_llm.py`、`accept_memory_llm.py`（新） | 离线工程演示、受门禁保护的真实prompt开发、独立P5服务验收 |
+| `tools/memory_acceptance.py` | 独立服务探针与报告验证；开发工具不由正常控制包加载或公开导出 |
+| `examples/control_v1/smoke_memory.py`、`run_memory_llm.py`、`accept_memory_llm.py`（新） | 离线工程演示、真实prompt开发、独立P5服务验收；运行入口不要求报告 |
 | `tests/test_control_memory*.py`、`test_control_retrieval.py`、`test_control_knowledge.py`、`test_control_llm_memory.py`（新） | 按边界分组测试；必要用例扩展现有runner/logging/LLM测试 |
 | `docs/control_phase5_contracts.md`（实施时新增） | 实现接口、可复现命令、当次真实验收结果和未通过门禁；不提前写通过 |
 
@@ -145,7 +148,7 @@ PublicEpisodeMemory.recent(PublicObservation) -> RecentSummary
 
 ### 5.3 存储、审核与冻结
 
-开发时采用SQLite标准库；不用新数据库服务。写入与只读运行对象分开：
+公共案例采用SQLite标准库；私有来源仅保存为JSON清单，不创建第二个数据库。写入与只读运行对象分开：
 
 ```text
 PublicCaseBuilder.append(local_revisions, private_source_registration) -> stored_ids
@@ -154,7 +157,7 @@ freeze_public_store(staging, private_manifest, output_dir, purpose) -> StoreMani
 FrozenPublicCaseStore.open(path, verified_manifest) -> read_only_store
 ```
 
-第一接口的私有登记由采集/runner端持有和处理，不向PublicEpisodeMemory、PublicCase或Retriever传递；builder对外返回仅公共ID。实现上公共case写连接与来源sidecar写连接必须分离。
+第一接口的私有登记由采集/runner端持有和处理，不向PublicEpisodeMemory、PublicCase或Retriever传递；builder对外返回仅公共ID。构建期间在内存保存登记、匿名分组和局部到公共案例ID的映射；每次公共事务成功后更新映射，结束时导出`private_manifest.json`。不维护私有SQL表、第二条写连接或跨数据库提交状态。
 
 冻结库表限定为：`case_revisions(case_id,revision,payload_json,public_content_sha256)`、`active_revision(case_id,revision)`、`case_group(case_id,opaque_group)`及公共版本metadata。opaque_group只用于同轨迹去重，无seed/策略编码，不在检索返回或prompt中展示。真实世界/策略/E0/源码/split存独立私有manifest，禁止ATTACH到运行时SQLite连接。
 
@@ -256,11 +259,11 @@ P5提供覆盖报告算法和按opaque group排除同轨迹的测试；不执行
 
 ## 7. 真实服务验收单独列账
 
-P5工程验收无需付费调用；真实运行仍必须通过P4官方tokenizer资源/请求参数/服务身份验收，另有`memory_prompt_acceptance.json`证明新prompt、五字段解析和四模式消息适用。保留P4三case receipt的版本与验证逻辑，不强改旧格式。
+P5工程验收无需付费调用。P4三case报告与P5的`memory_prompt_acceptance.json`可独立生成和校验，用于记录官方计数、新prompt、五字段解析及四模式消息的验证结果；正常运行不要求或读取这些报告，旧报告参数仅兼容接受。
 
-独立P5验收至少覆盖：day0 none、四周short、四周global、四周both（含冲突）、zero-case/out_of_support、长数值/高案例数消息。记录最终消息/hash、本地与provider计数、响应字段/引用、usage、模型/指纹与P5profile/知识/schema版本。官方资源、服务身份、template/schema变化后需重新验收。加载补充receipt时必须验证上述实际profile/template/bundle/schema内容hash、官方计数资源身份、请求参数、返回服务身份及必需case覆盖；仅文件存在或版本名一致不足以放行。补充receipt不是疾病实验，不推进仿真。
+独立P5验收覆盖：day0 none、四周short、四周global、四周both（含冲突）、zero-case/out_of_support、长数值/高案例数消息。记录最终消息/hash、本地与provider计数、响应字段/引用、usage、模型/指纹与P5profile/知识/schema版本。显式验证报告时核对这些身份、消息和计数；报告不作为疾病实验，不推进仿真，也不设置正常运行的模式或启动资格。
 
-用人工但合法公共输入进行服务验收可标明fixture；不能将其中案例写进正式库。正常P5 live工厂要求两类receipt及真实E0；只要缺一项就不启动真实episode。P5实现这套门禁和mock测试；是否实际调用API、准备资源及重建E0需后续明确授权，本轮不执行。
+用人工但合法公共输入进行服务验收可标明fixture；不能将其中案例写进正式库。正常P5 live工厂需要官方tokenizer资源；科学运行需要兼容E0，global/both需要实际源库及来源清单。缺少验收报告不阻止运行。运行时保留当前输入预算、实际usage和本批次服务身份检查；是否实际调用API、准备资源及重建E0需后续明确授权，本轮不执行。
 
 ## 8. 分步实施与退出条件
 
@@ -273,7 +276,7 @@ P5工程验收无需付费调用；真实运行仍必须通过P4官方tokenizer�
 | P5.5 新控制器 | 独立两消息、四模式、五字段parser、registry、预算裁剪 | 同O四模式控制变量一致；无网络重试外额外调用；旧两字段基线仍通过 |
 | P5.6 runner与审计 | 新工厂、typed公共sink、prepared/resolved依据事件、终点反馈 | 审计先于执行；复合故障保留；实际动作与请求分离；耗尽走共享回退 |
 | P5.7 工具与用途 | 三简单策略smoke、源池检查、采集/覆盖/冻结入口 | 正确映射源池；最终池拒绝；缺第四策略不能evaluation_ready；不执行正式27×4 |
-| P5.8 门禁与总验收 | 新prompt真实验收入口/mock；目标回归、离线闭环和契约 | 下节工程门槛通过，真实门禁状态单列，最终diff无阶段外改动 |
+| P5.8 独立验证与总验收 | 新prompt真实验收入口/mock；目标回归、离线闭环和契约 | 下节工程门槛通过，真实验证状态单列，正常运行不依赖报告 |
 
 P5.2和知识卡校验可以并行；SQLite先完成才做检索，控制器需等待确定性的上下文契约，runner集成后才做完整smoke。不要为并行开发复制prompt算术、case模板或重试循环。
 
@@ -295,7 +298,7 @@ P5.2和知识卡校验可以并行；SQLite先完成才做检索，控制器需�
 
 实现时使用指定解释器和已有本地pytest路径；环境缺依赖要分别登记“未测/环境阻塞”，不得删用例制造全绿。未提供正式tokenizer时可注入fake counter测试裁剪/重试控制流，但不把fake数字称为模型token。真实资源库的合成词表测试仍不代替provider验收。
 
-Phase 5工程完成必须同时满足：四模式离线完整闭环；公共边界与终点验收；确定性案例/检索/知识；P4兼容回归；完整依据日志；采集/冻结工具；新的live门禁；Phase5契约记录真实命令/结果/失败；diff仅包含P5必要文件。
+Phase 5工程完成必须同时满足：四模式离线完整闭环；公共边界与终点验收；确定性案例/检索/知识；P4兼容回归；完整依据日志；采集/冻结工具；独立服务验证工具；Phase5契约记录真实命令/结果/失败；diff仅包含P5必要文件。
 
 最终报告分别填写：
 
@@ -308,4 +311,4 @@ Phase 5工程完成必须同时满足：四模式离线完整闭环；公共边�
 
 本轮已完成本计划划定的 Phase 5 离线实现、入口和工程验收；保留研究文档、现有协议和 P4 兼容入口。没有安装依赖、调用付费 API、运行正式科学仿真、提交或推送。真实 provider/tokenizer 验收、正式 27×4 源库和控制效果仍由后续门禁管理。
 
-后续实施者可直接按P5.1–P5.8推进。若缺真实E0或provider资源，继续完成不依赖它们的工程和离线验收，并保留真实运行门禁；若缺Phase6阈值，交付可用建库工具和缺策略拒绝证据。不能因这些依赖尚未完成而提前扩展Phase6/7，也不能把研究目录中的人工数据当作阶段实现完成。
+后续实施者可直接按P5.1–P5.8推进。若缺真实E0或provider资源，继续完成不依赖它们的工程和离线验收；正常运行只检查实际所需资源与当前请求，不依赖验收报告。若缺Phase6阈值，交付可用建库工具和缺策略拒绝证据。不能因这些依赖尚未完成而提前扩展Phase6/7，也不能把研究目录中的人工数据当作阶段实现完成。

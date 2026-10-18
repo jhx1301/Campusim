@@ -494,26 +494,19 @@ class LLMTransport:
 
 
 class OfficialInputTokenCounter:
-    """Pinned, local official resources plus separately recorded provider acceptance.
-
-    A candidate can be counted for the dedicated acceptance workflow. Normal
-    controller calls require a receipt bound to these resources and settings.
-    """
+    """Pinned local counting with independent, optional acceptance validation."""
 
     def __init__(self, resource_manifest: str | Path, *, acceptance_path=None):
         self.manifest_path = Path(resource_manifest).resolve()
         self.acceptance_path = Path(acceptance_path).resolve() if acceptance_path else None
         self._tokenizer = None
         self._identity = None
-        self._acceptance_sha256 = None
         self._expected_service = None
 
     @property
     def identity(self):
         if self._identity is None:
             return MappingProxyType({"status": "not_loaded"})
-        if self._acceptance_sha256:
-            return _immutable({**self._identity, "acceptance_sha256": self._acceptance_sha256})
         return self._identity
 
     def _load(self, settings):
@@ -526,7 +519,7 @@ class OfficialInputTokenCounter:
                     "chat_template_file", "template_kwargs", "request_parameters_sha256")
         _exact_keys(manifest, required, "tokenizer manifest")
         if self._identity is not None and self._identity["manifest_sha256"] != snapshot_sha256(manifest):
-            raise LLMConfigurationError("tokenizer_resources_changed", "Tokenizer manifest changed; start a separate accepted batch")
+            raise LLMConfigurationError("tokenizer_resources_changed", "Tokenizer manifest changed during this batch")
         if (manifest["adapter"] != "hf_apply_chat_template_v1" or settings.token_count_method != "official_local_chat_template_v1"
                 or (manifest["provider"], manifest["model"]) != (settings.provider, settings.model)
                 or manifest["request_parameters_sha256"] != snapshot_sha256(settings.request_parameters())):
@@ -581,17 +574,20 @@ class OfficialInputTokenCounter:
         self._identity = _immutable({**manifest, "manifest_sha256": snapshot_sha256(manifest)})
 
     def validate(self, settings):
+        """Check the current counting resources; a report is not a prerequisite."""
+        self._load(settings)
+
+    def validate_acceptance(self, settings):
+        """Explicitly check a development report, outside normal episode startup."""
         self._load(settings)
         if self.acceptance_path is None:
-            raise LLMConfigurationError("tokenizer_not_accepted", "Provider token counting acceptance is required before an episode")
+            raise LLMConfigurationError("tokenizer_not_accepted", "Select a provider acceptance report to validate")
         try:
             receipt = json.loads(self.acceptance_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             raise LLMConfigurationError("tokenizer_not_accepted", "Cannot read provider acceptance receipt") from None
         _exact_keys(receipt, ("version", "status", "experimental_trajectory", "accepted_at", "tokenizer_identity",
                               "endpoint", "request_parameters", "cases", "sha256"), "acceptance receipt")
-        if self._acceptance_sha256 is not None and self._acceptance_sha256 != receipt["sha256"]:
-            raise LLMConfigurationError("tokenizer_acceptance_changed", "Acceptance changed; start a separate batch")
         content = {key: value for key, value in receipt.items() if key != "sha256"}
         if (receipt["version"] != "cemas-provider-token-count-acceptance-v1" or receipt["experimental_trajectory"] is not False
                 or receipt.get("sha256") != snapshot_sha256(content) or receipt.get("status") != "accepted"
@@ -616,12 +612,14 @@ class OfficialInputTokenCounter:
         services = {(case["response"]["model"], case["response"].get("system_fingerprint")) for case in cases}
         if len(services) != 1:
             raise LLMConfigurationError("provider_changed", "Acceptance cases returned different service identities")
-        self._expected_service = services.pop()
-        self._acceptance_sha256 = receipt["sha256"]
+        return receipt
 
     def verify_response(self, response):
-        if self._expected_service != (response.model, response.system_fingerprint):
-            raise LLMConfigurationError("provider_changed", "Provider model or fingerprint changed; accept a separate batch")
+        service = (response.model, response.system_fingerprint)
+        if self._expected_service is None:
+            self._expected_service = service
+        elif self._expected_service != service:
+            raise LLMConfigurationError("provider_changed", "Provider model or fingerprint changed during this batch")
 
     def count_input(self, messages, settings):
         self._load(settings)
@@ -703,13 +701,7 @@ class LLMController(Controller):
             if isinstance(self.transport, LLMTransport) and not isinstance(self.token_counter, OfficialInputTokenCounter):
                 raise LLMConfigurationError("tokenizer_not_official", "Live transports require the pinned official token counter")
             messages, count = self._prepare_input(observation)
-            if (type(messages) is not tuple or not messages
-                    or any(type(message) is not ChatMessage for message in messages)
-                    or type(count) is not int or count < 0):
-                raise LLMConfigurationError("invalid_prepared_input", "Prepared messages and token count are invalid")
             digest = snapshot_sha256(messages)
-            if count > self.settings.input_token_budget:
-                raise PromptBudgetError(count, self.settings.input_token_budget, digest)
             self.transport.prepare()
         except LLMError as error:
             error.details = _immutable({**error.details,

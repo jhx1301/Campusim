@@ -162,7 +162,7 @@ def _registration(value, purpose, compatibility):
     return result
 
 class PublicCaseBuilder:
-    """Append-only public revisions with a separate private registration DB."""
+    """Append public revisions and export private provenance as a JSON manifest."""
 
     def __init__(self, staging_dir, public_task_sha256, *, purpose="fixture", compatibility=None):
         if purpose not in _PURPOSES:
@@ -173,12 +173,12 @@ class PublicCaseBuilder:
         self.compatibility = _compatibility(compatibility or {}, purpose != "fixture")
         self.staging_dir.mkdir(parents=True, exist_ok=True)
         self.path = self.staging_dir / DATABASE_FILENAME
-        self.private_path = self.staging_dir / "private_sources.sqlite"
-        if any(path.exists() for path in (self.path, self.private_path, self.staging_dir / "private_manifest.json")):
+        self.private_path = self.staging_dir / "private_manifest.json"
+        if any(path.exists() for path in (self.path, self.private_path)):
             raise CaseStoreError("staging output already exists; use a new directory")
         self._public = sqlite3.connect(self.path)
-        self._private = sqlite3.connect(self.private_path)
         self._closed = self._finalized = False
+        self._trajectories = {}
         self._public.executescript("""
             PRAGMA foreign_keys=ON;
             CREATE TABLE case_revisions(case_id INTEGER NOT NULL,revision INTEGER NOT NULL,
@@ -192,44 +192,34 @@ class PublicCaseBuilder:
             ("schema_version", STORE_SCHEMA_VERSION), ("case_schema_version", CASE_SCHEMA_VERSION),
             ("public_task_sha256", self.public_task_sha256)))
         self._public.commit()
-        self._private.executescript("""
-            CREATE TABLE trajectories(trajectory_id TEXT PRIMARY KEY,registration_json TEXT NOT NULL,
-                opaque_group TEXT NOT NULL,status TEXT NOT NULL);
-            CREATE TABLE identities(trajectory_id TEXT NOT NULL,local_id INTEGER NOT NULL,
-                case_id INTEGER NOT NULL UNIQUE,PRIMARY KEY(trajectory_id,local_id));
-        """)
-        self._private.commit()
 
     def append(self, local_revisions, private_source_registration):
         if self._closed or self._finalized:
-            raise CaseStoreError("collection is already finalized")
+            raise CaseStoreError("collection is closed or finalized")
         revisions = tuple(local_revisions)
         if any(type(item) is not LocalCaseRevision for item in revisions):
             raise TypeError("append accepts only LocalCaseRevision values")
         registration = _registration(private_source_registration, self.purpose, self.compatibility)
         trajectory = registration["trajectory_id"]
         encoded, ids = canonical_json(registration), []
+        existing = self._trajectories.get(trajectory)
+        if existing is not None:
+            previous, group, known_ids = existing
+            if previous != encoded:
+                raise CaseStoreError("trajectory registration changed")
+            local_ids = dict(known_ids)
+        else:
+            group, local_ids = uuid4().hex, {}
         try:
             self._public.execute("BEGIN IMMEDIATE")
-            self._private.execute("BEGIN IMMEDIATE")
-            existing = self._private.execute("SELECT registration_json,opaque_group,status FROM trajectories WHERE trajectory_id=?", (trajectory,)).fetchone()
-            if existing:
-                if existing[0] != encoded or existing[2] != "collecting":
-                    raise CaseStoreError("trajectory registration changed or was already closed")
-                group = existing[1]
-            else:
-                group = uuid4().hex
-                self._private.execute("INSERT INTO trajectories VALUES(?,?,?,?)", (trajectory, encoded, group, "collecting"))
             next_id = self._public.execute("SELECT COALESCE(MAX(case_id),0)+1 FROM case_revisions").fetchone()[0]
             for local in revisions:
-                identity = self._private.execute("SELECT case_id FROM identities WHERE trajectory_id=? AND local_id=?", (trajectory, local.local_id)).fetchone()
-                if identity:
-                    case_id = identity[0]
-                else:
+                case_id = local_ids.get(local.local_id)
+                if case_id is None:
                     if local.revision != 1:
                         raise CaseStoreError("new local case must begin at revision one")
                     case_id, next_id = next_id, next_id + 1
-                    self._private.execute("INSERT INTO identities VALUES(?,?,?)", (trajectory, local.local_id, case_id))
+                    local_ids[local.local_id] = case_id
                 case = PublicCase(case_id=case_id,revision=local.revision,schema_version=CASE_SCHEMA_VERSION,
                     public_task_sha256=self.public_task_sha256,pre_observation=local.pre_observation,
                     executed_window=local.executed_window,window_days=local.window_days,
@@ -259,36 +249,34 @@ class PublicCaseBuilder:
                 self._public.execute("INSERT OR REPLACE INTO active_revision VALUES(?,?)", (case_id,local.revision))
                 self._public.execute("INSERT OR IGNORE INTO case_group VALUES(?,?)", (case_id,group))
                 ids.append(case_id)
-            self._private.commit()
             self._public.commit()
         except Exception:
-            self._private.rollback()
             self._public.rollback()
             raise
+        # Publish the private ID mapping only after the public transaction commits.
+        self._trajectories[trajectory] = (encoded, group, local_ids)
         return tuple(ids)
 
     def finalize(self, source_run_status):
         if self._closed or self._finalized:
-            raise CaseStoreError("collection is already finalized")
-        trajectories = self._private.execute("SELECT trajectory_id,registration_json,opaque_group FROM trajectories ORDER BY trajectory_id").fetchall()
-        statuses = ({row[0]:source_run_status for row in trajectories} if isinstance(source_run_status,str)
+            raise CaseStoreError("collection is closed or finalized")
+        trajectories = sorted(self._trajectories.items())
+        statuses = ({trajectory:source_run_status for trajectory,_ in trajectories} if isinstance(source_run_status,str)
                     else dict(source_run_status) if isinstance(source_run_status,Mapping) else {})
-        if set(statuses) != {row[0] for row in trajectories} or any(v not in ("completed","failed","cancelled") for v in statuses.values()):
+        if set(statuses) != set(self._trajectories) or any(v not in ("completed","failed","cancelled") for v in statuses.values()):
             raise CaseStoreError("statuses must identify every trajectory exactly")
         entries = []
-        for trajectory, encoded, group in trajectories:
-            self._private.execute("UPDATE trajectories SET status=? WHERE trajectory_id=?", (statuses[trajectory],trajectory))
+        for trajectory, (encoded, group, local_ids) in trajectories:
             entry = json.loads(encoded)
             entry.update(status=statuses[trajectory],opaque_group=group,
-                case_ids=[row[0] for row in self._private.execute("SELECT case_id FROM identities WHERE trajectory_id=? ORDER BY case_id",(trajectory,))])
+                         case_ids=sorted(local_ids.values()))
             entries.append(entry)
-        self._private.commit()
         cases = self._public.execute("SELECT COUNT(*) FROM active_revision").fetchone()[0]
         revisions = self._public.execute("SELECT COUNT(*) FROM case_revisions").fetchone()[0]
         manifest = {"schema_version":STORE_SCHEMA_VERSION,"purpose":self.purpose,
             "public_task_sha256":self.public_task_sha256,"compatibility":self.compatibility,
             "trajectories":entries,"case_count":cases,"revision_count":revisions}
-        path = self.staging_dir / "private_manifest.json"
+        path = self.private_path
         with path.open("x",encoding="utf-8",newline="\n") as stream:
             stream.write(canonical_json(manifest)+"\n")
         self._finalized = True
@@ -297,10 +285,8 @@ class PublicCaseBuilder:
 
     def close(self):
         if not self._closed:
-            self._public.commit()
             self._public.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             self._public.close()
-            self._private.close()
             self._closed = True
 
     def __enter__(self):
@@ -428,12 +414,28 @@ def freeze_public_store(staging, private_manifest, output_dir, purpose=None):
     with FrozenPublicCaseStore.open(source,result) as reader:
         cases = reader.cases()
         if manifest["purpose"] != "fixture":
+            from .memory import PublicEpisodeMemory
+            from .types import PublicWeekFeedback
             for entry in manifest["trajectories"]:
-                windows = sorted((c.executed_window for c in cases if c.case_id in entry["case_ids"]),key=lambda w:w.start_day)
+                trajectory = sorted((c for c in cases if c.case_id in entry["case_ids"]),
+                                    key=lambda c:c.executed_window.start_day)
+                windows = [case.executed_window for case in trajectory]
                 horizon = manifest["compatibility"]["execution_days"]
-                if (not windows or windows[0].start_day!=0 or windows[-1].end_day!=horizon-1
-                        or any(a.end_day+1!=b.start_day for a,b in zip(windows,windows[1:]))):
+                if not windows or windows[0].start_day!=0 or windows[-1].end_day!=horizon-1:
                     raise CaseStoreError("completed source trajectory must cover its entire horizon")
+                memory,previous = PublicEpisodeMemory(),None
+                try:
+                    for index,case in enumerate(trajectory):
+                        if case.pre_observation.execution_days != horizon:
+                            raise ValueError("source case horizon mismatch")
+                        memory.stage(case.pre_observation)
+                        memory.accept(PublicWeekFeedback(case.executed_window,previous))
+                        followup = windows[index+1] if index+1<len(windows) else None
+                        if case.followup_window != followup:
+                            raise ValueError("source followup does not match its next actual window")
+                        previous = case.executed_window
+                except (TypeError,ValueError) as exc:
+                    raise CaseStoreError("source trajectory has inconsistent public transitions or followup revisions") from exc
     output.mkdir(parents=True,exist_ok=False)
     destination = output/DATABASE_FILENAME
     with source.open("rb") as incoming,destination.open("xb") as outgoing:
