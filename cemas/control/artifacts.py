@@ -14,6 +14,7 @@ from .scenarios import base_model_configuration, population_configuration
 
 BASELINE_SCHEMA = "cemas-baseline-artifact-v1"
 RELEASE_SCHEMA = "cemas-phase6-release-v1"
+THRESHOLD_ALGORITHM_SEMANTICS = "public-latest-week-threshold-v2"
 
 
 def file_sha256(path):
@@ -26,6 +27,7 @@ def baseline_task_configuration(protocol):
     return resolved_snapshot({
         "population": protocol.population, "execution_days": protocol.execution_days,
         "initial_infections": protocol.initial_infections, "objective": objective,
+        "initial_baseline_days": protocol.definition["engine"]["initial_baseline_days"],
         "population_configuration": population_configuration(protocol),
         "base_model_configuration": base_model_configuration(protocol),
         "actions": protocol.definition["actions"], "activity": protocol.definition["activity"],
@@ -37,6 +39,9 @@ def save_baseline_artifact(output_dir, protocol, method, *, parameters=None,
                            calibration_artifact=None):
     if method not in ("threshold", "ppo", "ddqn"):
         raise ValueError("baseline method must be threshold, ppo or ddqn")
+    if method == "threshold":
+        from .controllers import ThresholdController
+        ThresholdController(**parameters)
     output = Path(output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
     versions = {}
@@ -62,7 +67,7 @@ def save_baseline_artifact(output_dir, protocol, method, *, parameters=None,
         _sha256(calibration_sha)
     payload = {
         "schema_version": BASELINE_SCHEMA, "method": method,
-        "algorithm_semantics": {"threshold": "public-two-week-hysteresis-v1",
+        "algorithm_semantics": {"threshold": THRESHOLD_ALGORITHM_SEMANTICS,
                                 "ppo": "sb3-maskable-ppo-v1", "ddqn": "masked-double-dqn-v1"}[method],
         "action_encoding": ACTION_ENCODING, "rl_encoding": RL_OBSERVATION_ENCODING_VERSION,
         "reference_population": protocol.population, "reference_horizon": protocol.execution_days,
@@ -93,7 +98,7 @@ def get_baseline_artifact(path, protocol):
             or payload.get("reference_population") != protocol.population
             or payload.get("reference_horizon") != protocol.execution_days):
         raise ValueError("baseline action or observation encoding is incompatible")
-    semantics = {"threshold": "public-two-week-hysteresis-v1", "ppo": "sb3-maskable-ppo-v1",
+    semantics = {"threshold": THRESHOLD_ALGORITHM_SEMANTICS, "ppo": "sb3-maskable-ppo-v1",
                  "ddqn": "masked-double-dqn-v1"}
     if payload.get("algorithm_semantics") != semantics[payload["method"]]:
         raise ValueError("baseline algorithm semantics are incompatible")
@@ -105,7 +110,10 @@ def get_baseline_artifact(path, protocol):
         _, calibration = _read_reference(payload["calibration_artifact_file"], path.parent)
         if calibration.get("sha256") != payload["calibration_artifact_sha256"]:
             raise ValueError("baseline E0 semantic identity differs from its file")
-    if payload["method"] != "threshold":
+    if payload["method"] == "threshold":
+        from .controllers import ThresholdController
+        ThresholdController(**payload["parameters"])
+    else:
         weights = payload["weights"]
         weight_path = (path.parent / weights["path"]).resolve()
         if file_sha256(weight_path) != weights["sha256"]:
@@ -138,30 +146,39 @@ def _read_reference(reference, root):
 
 
 def training_budget(record_path):
-    """Count actual transitions/days, including initialized but unstepped worlds."""
-    worlds, transitions, days = {}, 0, 0
+    """Count autonomous samples separately from fixed windows and all actual days."""
+    worlds, transitions, fixed_windows, days = {}, 0, 0, 0
+    fixed_cost, autonomous_cost = 0.0, 0.0
     with Path(record_path).open(encoding="utf-8") as handle:
         for line in handle:
             event = json.loads(line)
             world = event["world_seed"]
             if event["event"] == "initializing":
                 worlds[world] = {"world_seed": world, "scenario_options": event["scenario_options"],
-                                 "elapsed_days": 0, "transitions": 0, "completed": False,
-                                 "initialized": False, "failed": False}
+                                 "elapsed_days": 0, "transitions": 0, "fixed_windows": 0,
+                                 "completed": False, "initialized": False, "failed": False}
             elif event["event"] == "initialized":
                 worlds[world]["initialized"] = True
-            elif event["event"] == "transition":
+            elif event["event"] in ("transition", "fixed_window", "failed", "closed"):
                 current = worlds[world]
                 days += event["elapsed_days"] - current["elapsed_days"]
-                transitions += 1
-                current.update(elapsed_days=event["elapsed_days"], transitions=current["transitions"]+1)
+                current["elapsed_days"] = event["elapsed_days"]
+                if event["event"] == "transition":
+                    transitions += 1
+                    current["transitions"] += 1
+                    autonomous_cost += event["positive_cost"]
+                elif event["event"] == "fixed_window":
+                    fixed_windows += 1
+                    current["fixed_windows"] += 1
+                    fixed_cost += event["positive_cost"]
+                elif event["event"] == "failed":
+                    current["failed"] = True
             elif event["event"] == "completed":
                 worlds[world]["completed"] = True
-            elif event["event"] == "failed":
-                current = worlds[world]
-                days += event["elapsed_days"] - current["elapsed_days"]
-                current.update(elapsed_days=event["elapsed_days"], failed=True)
-    return {"transitions": transitions, "simulated_days": days, "worlds": list(worlds.values()),
+    return {"transitions": transitions, "autonomous_decisions": transitions,
+            "fixed_windows": fixed_windows, "simulated_days": days,
+            "fixed_window_positive_cost": fixed_cost, "autonomous_positive_cost": autonomous_cost,
+            "worlds": list(worlds.values()),
             "initialized_unstepped_worlds": [row["world_seed"] for row in worlds.values()
                                              if row["initialized"] and not row["transitions"]]}
 
@@ -286,6 +303,7 @@ def _source_evaluation(report, protocol, calibration_sha, method, *, pool="valid
         if (manifest.get("status") != "completed" or manifest.get("purpose") != "scientific"
                 or manifest.get("run_purpose") != "scientific" or manifest.get("mode") != "evaluation"
                 or manifest.get("world_seed") != row["world_seed"] or manifest.get("controller_type") != method
+                or manifest.get("initial_baseline_days") != protocol.definition["engine"]["initial_baseline_days"]
                 or manifest.get("calibration_verified") is not True
                 or manifest.get("calibration", {}).get("artifact_sha256") != calibration_sha):
             raise ValueError("release evaluation runner identity, purpose, method or E0 differs")
@@ -327,6 +345,8 @@ def _threshold_selection(artifact, protocol, calibration_sha):
     config = protocol.definition["controllers"]["threshold"]
     candidates = report["candidates"]
     if (report.get("purpose") != "source_development" or report.get("method") != "threshold"
+            or report.get("algorithm_semantics") != THRESHOLD_ALGORITHM_SEMANTICS
+            or report.get("task_sha256") != snapshot_sha256(baseline_task_configuration(protocol))
             or len(candidates) != config["candidate_count"]
             or {row["candidate_id"] for row in candidates} != set(range(config["candidate_count"]))):
         raise ValueError("Threshold selection requires its complete prespecified source candidates")
@@ -388,7 +408,8 @@ def _rl_selection(artifact, report, report_path, protocol, calibration_sha):
         raise ValueError("RL training and selected artifact records disagree")
     actual = training_budget(report_path.parent / f"worlds-{seed}.jsonl")
     if (actual != report["actual_training"][str(seed)] or actual["transitions"] != rows[-1]["step"]
-            or any(row["failed"] for row in actual["worlds"])):
+            or any(row["failed"] or row["initialized"] and row["fixed_windows"] != 1
+                   for row in actual["worlds"])):
         raise ValueError("RL budget does not match the actual worker transition records")
     return selected["validation_B"]["records"]
 
@@ -418,6 +439,7 @@ def _source_trajectories(manifest, protocol, calibration_sha):
         if (run.get("status") != "completed" or run.get("purpose") != "memory_collection"
                 or run.get("run_purpose") != "memory_collection" or run.get("mode") != "evaluation"
                 or run.get("world_seed") != entry["seed"] or run.get("controller_type") != expected_method
+                or run.get("initial_baseline_days") != protocol.definition["engine"]["initial_baseline_days"]
                 or run.get("calibration", {}).get("artifact_sha256") != calibration_sha
                 or run.get("calibration", {}).get("beta_scale") != entry["world"]["beta_scale"]
                 or summary.get("status") != "completed" or summary.get("elapsed_days") != protocol.execution_days

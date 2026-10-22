@@ -55,11 +55,12 @@ def test_episode_plan_is_reproducible_without_replacement_and_global_rng_indepen
 def test_threshold_candidates_use_exact_prescribed_rng_order(protocol):
     rng = np.random.default_rng(82001)
     scales = np.exp(rng.uniform(np.log(.5), np.log(2), 5))
-    rho = float(rng.choice((.5, .75)))
     candidates = threshold_candidates(protocol)
     assert len(candidates) == 32 and candidates == threshold_candidates(protocol)
     assert candidates[0]["scales"] == pytest.approx(scales)
-    assert candidates[0]["parameters"]["hysteresis"] == rho
+    assert set(candidates[0]["parameters"]) == {"thresholds"}
+    second_scales = np.exp(rng.uniform(np.log(.5), np.log(2), 5))
+    assert candidates[1]["scales"] == pytest.approx(second_scales)
     assert candidates[0]["parameters"]["thresholds"]["S"] == pytest.approx(np.array([.5, 3, 10])*scales[1])
 
 
@@ -141,7 +142,7 @@ def test_horizon_uses_final_B_models_OR_and_strict_twenty_percent(protocol):
 def test_private_budget_counts_partial_failure_and_initialized_unstepped_world(tmp_path):
     events = [{"event": "initializing", "world_seed": 1, "scenario_options": {}},
               {"event": "initialized", "world_seed": 1},
-              {"event": "transition", "world_seed": 1, "elapsed_days": 7},
+              {"event": "transition", "world_seed": 1, "elapsed_days": 7, "positive_cost": .1},
               {"event": "failed", "world_seed": 1, "elapsed_days": 9},
               {"event": "initializing", "world_seed": 2, "scenario_options": {}},
               {"event": "initialized", "world_seed": 2},

@@ -43,6 +43,7 @@
     "execution_days": 112,
     "n_days": 111,
     "decision_interval_days": 7,
+    "initial_baseline_days": 7,
     "history_weeks": 4,
     "use_waning": false,
     "n_imports": 0,
@@ -924,12 +925,6 @@
         0.5,
         2
       ],
-      "hysteresis_candidates": [
-        0.5,
-        0.75
-      ],
-      "downgrade_confirmation_weeks": 2,
-      "upgrade_unrestricted": true,
       "candidate_count": 32,
       "candidate_generator_seed": 82001,
       "screen_validation_A": true,
@@ -1090,7 +1085,6 @@
       "fork_controller_state": [
         "short_term_memory",
         "action_durations",
-        "threshold_hysteresis",
         "controller_RNG",
         "retrieval_snapshot",
         "frozen_global_memory_version"

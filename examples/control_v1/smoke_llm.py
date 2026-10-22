@@ -61,6 +61,14 @@ def main(argv=None):
     protocol = load_protocol(args.protocol)
     if args.seed not in protocol.definition["seeds"]["smoke"]:
         parser.error("offline smoke requires a protocol smoke seed")
+    engine = protocol.definition["engine"]
+    required_decisions = 2 if args.case == "fatal" else 1
+    minimum_days = (engine["initial_baseline_days"]
+                    + (required_decisions - 1) * engine["decision_interval_days"] + 1)
+    days = protocol.execution_days if args.days is None else args.days
+    if days < minimum_days:
+        parser.error(f"{args.case} smoke requires at least {minimum_days} days "
+                     f"to exercise {required_decisions} autonomous decision(s)")
     options = {key: value for key, value in (("population", args.population), ("execution_days", args.days),
                ("initial_infections", args.initial_infections)) if value is not None}
     settings = make_llm_settings(protocol, endpoint="https://offline.invalid/v1", api_key_env="UNUSED_OFFLINE_FIXTURE")
@@ -74,7 +82,7 @@ def main(argv=None):
         print(f"expected offline failure retained: {args.output}")
         return 0
     if args.case == "fatal":
-        raise RuntimeError("fatal fixture needs a horizon longer than one week")
+        raise RuntimeError("expected offline fatal fixture was not triggered")
     print(f"{result.status} (offline fixture): {result.output_dir}")
     return 0
 

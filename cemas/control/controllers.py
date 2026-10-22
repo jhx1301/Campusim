@@ -28,6 +28,10 @@ class Controller(ABC):
     def observe(self, feedback: PublicWeekFeedback) -> None:
         """Accept a closed public execution window."""
 
+    def observe_initial_week(self, observation: PublicObservation, feedback: PublicWeekFeedback) -> None:
+        """Accept the protocol-fixed window without asking the policy to decide."""
+        self.observe(feedback)
+
     def consume_failure_reason(self) -> str | None:
         """Return and clear a decision failure for the common resolver."""
         return None
@@ -121,7 +125,7 @@ class ThresholdController(MinimumController):
 
     controller_type = "threshold"
 
-    def __init__(self, thresholds, hysteresis):
+    def __init__(self, thresholds):
         from .types import ACTION_ORDER, ACTION_SIZES
 
         if set(thresholds) != set(ACTION_ORDER):
@@ -134,9 +138,6 @@ class ThresholdController(MinimumController):
                     or any(a >= b for a, b in zip(values, values[1:]))):
                 raise ValueError(f"{name} thresholds must be positive and strictly increasing")
             self.thresholds[name] = values
-        if type(hysteresis) not in (int, float) or not isfinite(hysteresis) or not 0 < hysteresis < 1:
-            raise ValueError("hysteresis must lie strictly between zero and one")
-        self.hysteresis = hysteresis
 
     def decide(self, observation):
         from .actions import encode_action
@@ -144,30 +145,23 @@ class ThresholdController(MinimumController):
 
         if type(observation) is not PublicObservation:
             raise TypeError("threshold requires PublicObservation")
-        indicators = []
-        for week, valid in zip(observation.history, observation.week_valid):
-            if valid:
-                growth = week.growth if week.growth_valid else 0.0
-                multiplier = 2 ** max(-1.0, min(1.0, growth / 2))
-                indicators.append(week.delivered_diagnoses / observation.population.population * 1000 * multiplier)
         levels = list(observation.current_action.values)
-        if indicators:
+        for week, valid in zip(reversed(observation.history), reversed(observation.week_valid)):
+            if not valid:
+                continue
+            growth = week.growth if week.growth_valid else 0.0
+            multiplier = 2 ** max(-1.0, min(1.0, growth / 2))
+            indicator = week.delivered_diagnoses / observation.population.population * 1000 * multiplier
             for index, name in enumerate(ACTION_ORDER):
                 boundaries = self.thresholds[name]
-                target = sum(indicators[-1] >= boundary for boundary in boundaries)
-                if target > levels[index]:
-                    levels[index] = target
-                elif len(indicators) >= 2:
-                    while (levels[index] > target
-                           and all(z < boundaries[levels[index] - 1] * self.hysteresis
-                                   for z in indicators[-2:])):
-                        levels[index] -= 1
+                levels[index] = sum(indicator >= boundary for boundary in boundaries)
+            break
         # The resolver rejects the whole illegal proposal; make S feasible here.
         for screening in range(levels[1], -1, -1):
             levels[1] = screening
             action = ActionVector(levels)
             if observation.legal_action_mask[encode_action(action)]:
-                return ActionProposal(action, "Public weekly threshold with confirmed downgrade")
+                return ActionProposal(action, "Public latest-week threshold")
         raise ValueError("public mask has no feasible threshold action")
 
 

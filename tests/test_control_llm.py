@@ -621,14 +621,17 @@ def test_runner_audits_before_advancing_and_keeps_resource_illegal_proposal(prot
     deliveries = []
 
     def checked_step(environment, proposal, **kwargs):
-        deliveries.append(len(_json_lines(output / "llm_calls.jsonl")))
+        deliveries.append(len(_json_lines(output / "llm_calls.jsonl")) if (output / "llm_calls.jsonl").exists() else 0)
         return step(environment, proposal, **kwargs)
 
     monkeypatch.setattr(WeeklyControlEnvironment, "step_proposal", checked_step)
     result = run_episode(protocol, controller, output, 90001,
-                         scenario_options={"population": 30, "initial_infections": 1, "execution_days": 9})
-    assert result.status == "completed" and deliveries == [3, 4]
-    decisions = _json_lines(output / "decisions.jsonl")
+                         scenario_options={"population": 30, "initial_infections": 1, "execution_days": 16})
+    assert result.status == "completed" and deliveries == [0, 3, 4]
+    records = _json_lines(output / "decisions.jsonl")
+    assert records[0]["decision_source"] == "protocol_fixed"
+    assert records[0]["llm_attempt_count"] == 0 and records[0]["llm_succeeded"] is None
+    decisions = records[1:]
     assert [item["llm_attempt_count"] for item in decisions] == [3, 1]
     assert [item["llm_succeeded"] for item in decisions] == [False, True]
     assert [item["elapsed_ms"] for item in decisions] == [3000.0, 1000.0]
@@ -654,12 +657,12 @@ def test_runner_fatal_keeps_prior_week_and_failure_call_without_credentials(prot
     output = tmp_path / "fatal"
     with pytest.raises((LLMConfigurationError, RuntimeError, TokenCountMismatchError)):
         run_episode(protocol, controller, output, 90002,
-                    scenario_options={"population": 30, "initial_infections": 1, "execution_days": 9})
+                    scenario_options={"population": 30, "initial_infections": 1, "execution_days": 16})
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["status"] == "failed" and manifest["elapsed_days"] == 7
-    assert len(_json_lines(output / "decisions.jsonl")) == 1
+    assert manifest["status"] == "failed" and manifest["elapsed_days"] == 14
+    assert len(_json_lines(output / "decisions.jsonl")) == 2
     audits = _json_lines(output / "llm_calls.jsonl")
-    assert len(audits) == 2 and audits[-1]["decision_day"] == 7
+    assert len(audits) == 2 and audits[-1]["decision_day"] == 14
     assert audits[-1]["retryable"] is False
     for path in output.iterdir():
         assert "sk-DO_NOT_LOG" not in path.read_text(encoding="utf-8")
@@ -682,9 +685,10 @@ def test_runner_preflight_failure_is_logged_without_fictitious_attempt(protocol,
     output = tmp_path / "preflight"
     with pytest.raises((PromptBudgetError, LLMConfigurationError)):
         run_episode(protocol, controller, output, 90001,
-                    scenario_options={"population": 30, "initial_infections": 1, "execution_days": 7})
+                    scenario_options={"population": 30, "initial_infections": 1, "execution_days": 8})
     assert not (output / "llm_calls.jsonl").exists()
-    assert _json_lines(output / "decisions.jsonl") == []
+    records = _json_lines(output / "decisions.jsonl")
+    assert len(records) == 1 and records[0]["decision_source"] == "protocol_fixed"
     failure = json.loads((output / "failure.json").read_text(encoding="utf-8"))
     assert failure["details"]["error_code"]
     assert len(failure["details"]["messages_sha256"]) == 64
@@ -700,7 +704,7 @@ def test_runner_capacity_decline_projects_only_s_on_llm_exhaustion(protocol, set
     make_observation = WeeklyControlEnvironment._observation
 
     def lower_capacity(environment):
-        if environment._elapsed_days == 7:
+        if environment._elapsed_days == 14:
             environment._bundle.executor.resources = PublicResources(2, 0, 1)
         return make_observation(environment)
 
@@ -709,8 +713,8 @@ def test_runner_capacity_decline_projects_only_s_on_llm_exhaustion(protocol, set
     controller = LLMController(transport, prompt_config, settings, StubCounter(), sleeper=lambda _: None)
     output = tmp_path / "declining-capacity"
     run_episode(protocol, controller, output, 90001,
-                scenario_options={"population": 100, "initial_infections": 2, "execution_days": 9})
-    first, second = _json_lines(output / "decisions.jsonl")
+                scenario_options={"population": 100, "initial_infections": 2, "execution_days": 16})
+    first, second = _json_lines(output / "decisions.jsonl")[1:]
     assert first["executed_action"]["values"] == [2, 2, 2, 2, 2]
     assert second["executed_action"]["values"] == [2, 0, 2, 2, 2]
     assert second["fallback_reason"] == "llm_retry_exhausted"
@@ -734,8 +738,8 @@ def test_call_audit_disk_failure_stops_before_environment_step(protocol, setting
                     scenario_options={"population": 30, "initial_infections": 1, "execution_days": 9})
     assert caught.value is original
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["status"] == "failed" and manifest["elapsed_days"] == 0
-    assert _json_lines(output / "decisions.jsonl") == []
+    assert manifest["status"] == "failed" and manifest["elapsed_days"] == 7
+    assert _json_lines(output / "decisions.jsonl")[0]["decision_source"] == "protocol_fixed"
 
 
 @pytest.mark.parametrize("kind", ["auth", "unexpected", "legacy_note", "persistent_flush", "persistent_close"])
@@ -780,7 +784,7 @@ def test_runner_preserves_fatal_and_safe_audit_error_after_prior_week(protocol, 
     output = tmp_path / "compound-call-failure"
     with pytest.raises(type(original)) as caught:
         run_episode(protocol, controller, output, 90001,
-                    scenario_options={"population": 30, "initial_infections": 1, "execution_days": 9})
+                    scenario_options={"population": 30, "initial_infections": 1, "execution_days": 16})
     assert caught.value is original
     traceback_frames = []
     traceback = caught.value.__traceback__
@@ -791,12 +795,12 @@ def test_runner_preserves_fatal_and_safe_audit_error_after_prior_week(protocol, 
     assert "complete" in traceback_frames and "disk_failure" not in traceback_frames
     assert original.__notes__[0] == "Call audit delivery also failed (OSError)"
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["status"] == "failed" and manifest["elapsed_days"] == 7
+    assert manifest["status"] == "failed" and manifest["elapsed_days"] == 14
     assert len(transport.messages) == len(deliveries) == 2
-    assert len(_json_lines(output / "decisions.jsonl")) == 1
+    assert len(_json_lines(output / "decisions.jsonl")) == 2
     assert len(_json_lines(output / "llm_calls.jsonl")) == (2 if kind == "persistent_flush" else 1)
     for filename in ("public_daily.csv", "private_daily.csv"):
-        assert len((output / filename).read_text(encoding="utf-8").splitlines()) == 8
+        assert len((output / filename).read_text(encoding="utf-8").splitlines()) == 15
     failure = json.loads((output / "failure.json").read_text(encoding="utf-8"))
     assert failure["error_type"] == type(original).__name__
     assert failure["details"]["call_audit_error"] == {

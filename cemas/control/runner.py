@@ -18,7 +18,7 @@ from .logging import (
 )
 from .protocol import ControlProtocol
 from .rewards import V1RewardCalculator
-from .types import ActionProposal, ExecutedAction, PublicCost
+from .types import ActionProposal, ActionVector, ExecutedAction, PublicCost
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +78,7 @@ def make_public_prompt_config(protocol: ControlProtocol, *, template_path=None):
         if section == "task":
             engine = protocol.definition["engine"]
             spec[section] = {"decision_interval_days": engine["decision_interval_days"],
+                             "initial_baseline_days": engine["initial_baseline_days"],
                              "history_weeks": engine["history_weeks"], "quarantine_days": engine["quar_period"]}
         else:
             source = protocol.definition[section]
@@ -253,7 +254,10 @@ def episode_summary(protocol, snapshot, population):
             changes[index] += abs(after - before)
     return {
         "status": "completed", "elapsed_days": snapshot.elapsed_days,
-        "execution_days": snapshot.horizon, "decision_count": len(snapshot.windows),
+        "execution_days": snapshot.horizon,
+        "execution_window_count": len(snapshot.windows), "fixed_window_count": 1,
+        "decision_count": len(snapshot.windows) - 1,
+        "autonomous_decision_count": len(snapshot.windows) - 1,
         "population": population, "delivered_diagnoses": diagnoses,
         "private_metrics": resolved_snapshot(terminal), "public_cost": resolved_snapshot(cost),
         "total_reward": reward, "positive_cost": -reward,
@@ -307,6 +311,7 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         "world_seed": world_seed, "controller_type": controller_type,
         "purpose": purpose, "mode": mode, "train_seed": None,
         "controller_seed": getattr(controller, "_controller_seed", None),
+        "initial_baseline_days": protocol.definition["engine"]["initial_baseline_days"],
         "paired_world": world_seed, "started_at": datetime.now(timezone.utc).isoformat(),
     }
     if controller_type == "llm":
@@ -342,36 +347,42 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
             decision_time = datetime.now(timezone.utc)
             started = perf_counter()
             call_audits, decision_evidence = (), ()
-            decision_error = None
-            try:
-                proposal = controller.decide(observation)
-            except BaseException as error:
-                decision_error = error
-                raise
-            finally:
-                elapsed_ms = (perf_counter() - started) * 1000
+            fixed_initial = observation.decision_day == 0
+            if fixed_initial:
+                proposal = ActionProposal(ActionVector((0, 0, 0, 0, 0)), "Protocol-fixed initial baseline")
+                elapsed_ms = 0.0
+                next_observation, _, terminated, truncated, _ = environment.advance_initial_week()
+            else:
+                decision_error = None
                 try:
-                    call_audits = controller.drain_call_audits()
-                    logger.write_llm_calls(call_audits, metadata=controller.run_metadata()
-                                           if controller_type == "llm" else None)
-                    decision_evidence = controller.drain_decision_evidence()
-                    logger.write_decision_evidence(decision_evidence)
-                except Exception as audit_error:
-                    if decision_error is None:
-                        raise
-                    call_audit_error = {"stage": "call_audit_delivery", "error_type": type(audit_error).__name__,
-                                        "error": "Call audit delivery failed"}
-                    _add_error_note(decision_error,
-                                    f"Call audit delivery also failed ({type(audit_error).__name__})")
-            failure_reason = controller.consume_failure_reason()
-            if proposal is None and (type(failure_reason) is not str or not failure_reason.strip()):
-                raise ValueError("a missing proposal requires a nonempty controller failure reason")
-            if proposal is not None and failure_reason is not None:
-                raise ValueError("a proposal cannot also carry a controller failure reason")
-            if proposal is not None and type(proposal) is not ActionProposal:
-                raise TypeError("controllers must return ActionProposal or None")
-            next_observation, _, terminated, truncated, _ = environment.step_proposal(
-                proposal, fallback_reason=failure_reason)
+                    proposal = controller.decide(observation)
+                except BaseException as error:
+                    decision_error = error
+                    raise
+                finally:
+                    elapsed_ms = (perf_counter() - started) * 1000
+                    try:
+                        call_audits = controller.drain_call_audits()
+                        logger.write_llm_calls(call_audits, metadata=controller.run_metadata()
+                                               if controller_type == "llm" else None)
+                        decision_evidence = controller.drain_decision_evidence()
+                        logger.write_decision_evidence(decision_evidence)
+                    except Exception as audit_error:
+                        if decision_error is None:
+                            raise
+                        call_audit_error = {"stage": "call_audit_delivery", "error_type": type(audit_error).__name__,
+                                            "error": "Call audit delivery failed"}
+                        _add_error_note(decision_error,
+                                        f"Call audit delivery also failed ({type(audit_error).__name__})")
+                failure_reason = controller.consume_failure_reason()
+                if proposal is None and (type(failure_reason) is not str or not failure_reason.strip()):
+                    raise ValueError("a missing proposal requires a nonempty controller failure reason")
+                if proposal is not None and failure_reason is not None:
+                    raise ValueError("a proposal cannot also carry a controller failure reason")
+                if proposal is not None and type(proposal) is not ActionProposal:
+                    raise TypeError("controllers must return ActionProposal or None")
+                next_observation, _, terminated, truncated, _ = environment.step_proposal(
+                    proposal, fallback_reason=failure_reason)
             snapshot = environment.audit_snapshot()
             window = snapshot.windows[-1]
             resolution = window.resolution
@@ -386,12 +397,16 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
                 retrieved_case_ids=tuple(decision_evidence[-1].get("selected_case_ids", ())) if decision_evidence else (),
                 elapsed_ms=elapsed_ms,
                 llm_attempt_count=len(call_audits),
-                llm_succeeded=(proposal is not None) if controller_type == "llm" else None,
+                llm_succeeded=(proposal is not None) if controller_type == "llm" and not fixed_initial else None,
+                decision_source="protocol_fixed" if fixed_initial else "controller",
             )
             logger.write_decision(decision, observation=observation, resolution=resolution)
             logger.write_snapshot(snapshot)
             logger.write_evidence_resolution(decision_evidence, resolution)
-            controller.observe(window.feedback)
+            if fixed_initial:
+                controller.observe_initial_week(observation, window.feedback)
+            else:
+                controller.observe(window.feedback)
             logger.write_memory_revisions(controller.drain_case_revisions())
             if public_transition_sink is not None:
                 public_transition_sink(observation, window.feedback)
@@ -458,7 +473,8 @@ def memory_source_compatibility(protocol, calibration_artifact=None, *, executio
     if calibration_artifact is not None:
         artifact_sha = load_calibration_artifact(calibration_artifact, protocol, require_evaluation=True, data_path=data_path).sha256
     return {"source_code_sha256": snapshot_sha256(source), "calibration_artifact_sha256": artifact_sha,
-            "execution_days": days, "objective_sha256": snapshot_sha256(objective)}
+            "execution_days": days, "objective_sha256": snapshot_sha256(objective),
+            "initial_baseline_days": protocol.definition["engine"]["initial_baseline_days"]}
 
 
 def make_memory_llm_controller(protocol, *, endpoint, api_key_env="DASHSCOPE_API_KEY", tokenizer_manifest,

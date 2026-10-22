@@ -22,7 +22,7 @@ from .scenarios import (
     population_configuration,
 )
 from .types import (
-    ActionProposal, ActionResolution, ExecutedAction, PrivateDailyMetrics,
+    ActionProposal, ActionResolution, ActionVector, ExecutedAction, PrivateDailyMetrics,
     PrivateMetrics, PublicCost, PublicDailyRecord, PublicInfo, PublicWeekFeedback,
 )
 
@@ -157,6 +157,7 @@ class WeeklyControlEnvironment:
             self._manifest = _freeze({
                 **dict(bundle.private_metadata),
                 "mode": self.mode,
+                "initial_baseline_days": self.protocol.definition["engine"]["initial_baseline_days"],
                 "calibration_verified": calibration is not None,
                 "beta_provenance": ("verified_e0_artifact" if calibration is not None
                                     else bundle.private_metadata["beta_provenance"]),
@@ -226,6 +227,14 @@ class WeeklyControlEnvironment:
             legal_action_mask=self.action_masks(),
         )
 
+    def advance_initial_week(self):
+        """Execute the common minimum through the existing weekly transition."""
+        self._require_running()
+        if self._elapsed_days != 0:
+            raise RuntimeError("the initial baseline window has already been executed")
+        return self.step_proposal(ActionProposal(ActionVector((0, 0, 0, 0, 0)),
+                                                 "Protocol-fixed initial baseline"))
+
     def step(self, action_id):
         self._require_running()
         try:
@@ -239,6 +248,9 @@ class WeeklyControlEnvironment:
         self._require_running()
         if proposal is not None and type(proposal) is not ActionProposal:
             raise TypeError("proposal must be ActionProposal or None")
+        if self._elapsed_days == 0 and (proposal is None
+                or proposal.action.values != (0, 0, 0, 0, 0) or fallback_reason is not None):
+            raise ValueError("day0 requires the protocol-fixed minimum action")
         bundle = self._bundle
         resolution = resolve_action(
             proposal, bundle.executor.current_action, bundle.executor.resources,

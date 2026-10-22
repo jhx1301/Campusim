@@ -2,6 +2,8 @@
 
 本阶段实现 `llm_no_explicit_memory`，沿用 P3 的观察、动作、执行器、目标和 E0 门禁。配置数值以 [协议 JSON](control_protocol_v1.json) 为唯一来源；固定文案以 `cemas/control/prompts/public_v1.json` 为唯一来源。实施与实际验收记录分开登记。
 
+时序适用范围：本文实际验收中的首周LLM调用、H112共16次决策及fatal停在7日等数字保留为P4历史证据。2026-10-20修订后，首周统一最低干预且无LLM调用，day7首次自主决策；当前H112含1个固定窗口和15个自主决策窗口。旧验收不代表新规则已通过；day0 provider探针仍是独立输入验收，不是生产回合调用。
+
 ## 1. 输入、接口与阶段边界
 
 `build_public_messages(observation, prompt_config, *, memory_context=None)` 只接受精确的 `PublicObservation` 和不可变公共配置。runner 工厂白名单投影公共动作、资源、活动、目标、观察解释和固定检疫期限，不传完整协议、manifest、seed、beta、私有感染或奖励。N/H、容量和历史只从 observation 读取。

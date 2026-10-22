@@ -84,14 +84,14 @@ class SmokeEpisodePlan:
         return result
 
 
-def make_smoke_gym(private_record_sink=None):
+def make_smoke_gym(private_record_sink=None, *, mode="training", execution_days=8):
     from cemas.control.environment import WeeklyControlEnvironment
     from cemas.control.rl.env import GymControlEnv
 
     protocol = load_protocol(PROTOCOL_PATH)
     environment = WeeklyControlEnvironment(
-        protocol, mode="training", scenario_options={
-            "population": 80, "execution_days": 8, "initial_infections": 2})
+        protocol, mode=mode, scenario_options={
+            "population": 80, "execution_days": execution_days, "initial_infections": 2})
     return GymControlEnv(environment, SmokeEpisodePlan(), reference_population=12000,
                          reference_horizon=112, private_record_sink=private_record_sink)
 
@@ -109,14 +109,15 @@ def test_gym_reuses_exact_world_transitions_and_private_accounting():
     try:
         # Covasim owns process-global RNG state: finish each world sequentially.
         observation, _ = plain.reset(91240)
-        initial = encode_rl_observation(observation, 12000, 112)
-        expected_results = [plain.step(0), plain.step(0)]
+        initial_window = plain.advance_initial_week()
+        initial = encode_rl_observation(initial_window[0], 12000, 112)
+        expected_results = [plain.step(0)]
         expected_audit = plain.audit_snapshot()
         plain.close()
         encoded, info = gym_environment.reset(seed=11)
         np.testing.assert_array_equal(encoded, initial)
         assert set(info) == {"resolution", "feedback", "next_mask"}
-        for expected_day, expected in zip((7, 8), expected_results):
+        for expected_day, expected in zip((8,), expected_results):
             result = gym_environment.step(np.int64(0))
             np.testing.assert_array_equal(result[0], encode_rl_observation(expected[0], 12000, 112))
             assert result[1:4] == expected[1:4]
@@ -126,19 +127,70 @@ def test_gym_reuses_exact_world_transitions_and_private_accounting():
         assert gym_environment.environment.audit_snapshot() == expected_audit
         assert records[0]["event"] == "initializing" and records[0]["elapsed_days"] == 0
         assert records[1]["event"] == "initialized" and records[1]["elapsed_days"] == 0
-        assert [row["elapsed_days"] for row in records if row["event"] == "transition"] == [7, 8]
+        assert [row["elapsed_days"] for row in records if row["event"] == "transition"] == [8]
         assert records[-1]["event"] == "completed"
         assert records[-1]["summary"]["positive_cost"] == pytest.approx(
             -sum(window.reward for window in expected_audit.windows))
         gym_environment.reset()
         assert records[-1]["world_seed"] == 91241
-        assert records[-1]["event"] == "initialized"
-        assert records[-1]["episode_transitions"] == records[-1]["elapsed_days"] == 0
+        assert records[-1]["event"] == "fixed_window"
+        assert records[-1]["episode_transitions"] == 0
+        assert records[-1]["elapsed_days"] == 7
     finally:
         gym_environment.close()
         plain.close()
     assert records[-1]["event"] == "closed"
-    assert records[-1]["elapsed_days"] == 0
+    assert records[-1]["elapsed_days"] == 7
+
+
+@pytest.mark.parametrize("mode,record", [("training", True), ("training", False), ("evaluation", False)])
+def test_gym_nonterminal_windows_skip_full_audit_when_cost_is_already_available(monkeypatch, mode, record):
+    pytest.importorskip("gymnasium")
+    records = []
+    environment = make_smoke_gym(records.append if record else None, mode=mode, execution_days=15)
+    audit = environment.environment.audit_snapshot
+    calls = []
+
+    def counted_audit():
+        snapshot = audit()
+        calls.append(snapshot.status)
+        return snapshot
+
+    monkeypatch.setattr(environment.environment, "audit_snapshot", counted_audit)
+    try:
+        environment.reset()
+        _, reward, terminated, _, _ = environment.step(0)
+        assert not terminated
+        # reset closes the empty pre-world state once; neither execution window needs an audit.
+        assert calls == ["new"]
+        if record:
+            snapshot = audit()
+            for event, window in zip(("fixed_window", "transition"), snapshot.windows):
+                row = next(row for row in records if row["event"] == event)
+                assert row["positive_cost"] == pytest.approx(-window.reward)
+            assert records[-1]["positive_cost"] == pytest.approx(-reward)
+    finally:
+        environment.close()
+
+
+def test_gym_evaluation_private_cost_does_not_use_zero_public_reward():
+    pytest.importorskip("gymnasium")
+    records = []
+    environment = make_smoke_gym(records.append, mode="evaluation")
+    try:
+        environment.reset()
+        # A nonzero intervention ensures the true cost differs from the hidden reward.
+        _, reward, terminated, _, _ = environment.step(8)
+        assert terminated and reward == 0.0
+        audit = environment.environment.audit_snapshot()
+        for event, window in zip(("fixed_window", "transition"), audit.windows):
+            row = next(row for row in records if row["event"] == event)
+            assert row["positive_cost"] == pytest.approx(-window.reward)
+        assert records[-2]["positive_cost"] > 0
+        assert records[-1]["summary"]["positive_cost"] == pytest.approx(
+            sum(row["positive_cost"] for row in records if row["event"] in ("fixed_window", "transition")))
+    finally:
+        environment.close()
 
 
 @pytest.mark.parametrize("action", [True, np.bool_(False), 1.5, np.float64(1), np.asarray([0])])
@@ -149,7 +201,7 @@ def test_gym_never_truncates_noninteger_actions(action):
         environment.reset()
         with pytest.raises(TypeError, match="integer scalars"):
             environment.step(action)
-        assert environment._observation.decision_day == 0
+        assert environment._observation.decision_day == 7
     finally:
         environment.close()
 
@@ -162,10 +214,9 @@ def test_spawn_vec_auto_reset_preserves_terminal_observation_and_mask():
     environment = SubprocVecEnv([make_smoke_gym], start_method="spawn")
     try:
         environment.reset()
-        environment.step(np.asarray([0]))
         observation, _, done, infos = environment.step(np.asarray([0]))
         assert done.tolist() == [True]
-        assert observation[0, 0] == 0  # New world, not the terminal observation.
+        assert observation[0, 0] == pytest.approx(7 / 8)  # New world, not the terminal observation.
         assert infos[0]["terminal_observation"][0] == 1
         assert not np.array_equal(infos[0]["next_mask"], environment.env_method("action_masks")[0])
         assert set(infos[0]) == {"resolution", "feedback", "next_mask",
@@ -179,6 +230,7 @@ def test_gym_failure_records_partial_days_without_a_successful_transition(monkey
     pytest.importorskip("gymnasium")
     records = []
     environment = make_smoke_gym(records.append)
+    environment.environment._scenario_options["execution_days"] = 10
     try:
         environment.reset()
         original_step = environment.environment._bundle.sim.step
@@ -194,7 +246,7 @@ def test_gym_failure_records_partial_days_without_a_successful_transition(monkey
         with pytest.raises(RuntimeError, match="world failed"):
             environment.step(0)
         assert records[-1] == {
-            "event": "failed", "world_seed": 91240, "elapsed_days": 1,
+            "event": "failed", "world_seed": 91240, "elapsed_days": 8,
             "episode_transitions": 0, "error_type": "RuntimeError"}
         assert not any(record["event"] in ("transition", "completed") for record in records)
     finally:
@@ -437,3 +489,62 @@ def test_maskable_ppo_synthetic_update_then_save_load(tmp_path):
         assert loaded.predict(features, mask) == 1
     finally:
         model.get_env().close()
+
+
+def test_gym_initial_window_failure_accounts_partial_days(monkeypatch):
+    pytest.importorskip("gymnasium")
+    import covasim as cv
+
+    records = []
+    environment = make_smoke_gym(records.append)
+    step = cv.Sim.step
+    calls = []
+
+    def fail_after_one_day(sim):
+        if calls:
+            raise RuntimeError("fixed window failed")
+        calls.append(True)
+        return step(sim)
+
+    monkeypatch.setattr(cv.Sim, "step", fail_after_one_day)
+    try:
+        with pytest.raises(RuntimeError, match="fixed window failed"):
+            environment.reset()
+        assert [row["event"] for row in records] == ["initializing", "initialized", "failed"]
+        assert records[-1]["elapsed_days"] == 1 and records[-1]["episode_transitions"] == 0
+    finally:
+        environment.close()
+
+
+def test_gym_and_runner_match_full_public_trajectory_and_cost(tmp_path):
+    pytest.importorskip("gymnasium")
+    from cemas.control.controllers import MinimumController
+    from cemas.control.runner import run_episode
+    import csv
+
+    protocol = load_protocol(PROTOCOL_PATH)
+    world_seed = protocol.definition["seeds"]["smoke"][0]
+    environment = make_smoke_gym()
+    environment.episode_plan = lambda seed=None: {
+        "world_seed": world_seed, "scenario_options": {"screening_capacity_ratio": .02}}
+    try:
+        environment.reset()
+        _, reward, terminated, _, _ = environment.step(0)
+        assert terminated and environment._episode_transitions == 1
+        audit = environment.environment.audit_snapshot()
+        assert reward == audit.windows[1].reward
+        expected = audit.public_daily
+        full_cost = -sum(window.reward for window in audit.windows)
+    finally:
+        environment.close()
+    result = run_episode(protocol, MinimumController(), tmp_path / "runner", world_seed,
+        scenario_options={"population": 80, "execution_days": 8, "initial_infections": 2,
+                          "screening_capacity_ratio": .02})
+    with (result.output_dir / "public_daily.csv").open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [int(row["delivered_diagnoses"]) for row in rows] == [day.delivered_diagnoses for day in expected]
+    for name in ("clinical_tests", "screening_tests", "delivered_notifications", "union_person_days",
+                 "school_restriction_person_days", "work_restriction_person_days",
+                 "community_restriction_person_days"):
+        assert [float(row[name]) for row in rows] == [getattr(day.cost, name) for day in expected]
+    assert result.summary["positive_cost"] == pytest.approx(full_cost)

@@ -58,6 +58,11 @@ def main(argv=None):
     protocol = load_protocol(args.protocol)
     if args.seed not in protocol.definition["seeds"]["smoke"]:
         parser.error("offline memory smoke requires a protocol smoke seed")
+    minimum_days = protocol.definition["engine"]["initial_baseline_days"] + 1
+    days = protocol.execution_days if args.days is None else args.days
+    if days < minimum_days:
+        parser.error(f"memory smoke requires at least {minimum_days} days "
+                     "to exercise an autonomous decision")
     store = None
     if args.mode in ("global", "both"):
         if args.store is None or args.store_manifest is None:

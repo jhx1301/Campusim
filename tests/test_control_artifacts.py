@@ -27,8 +27,7 @@ def write_json(path, value):
 
 
 def threshold_parameters(protocol):
-    return {"thresholds": protocol.definition["controllers"]["threshold"]["base_thresholds_per_1000_per_week"],
-            "hysteresis": .75}
+    return {"thresholds": protocol.definition["controllers"]["threshold"]["base_thresholds_per_1000_per_week"]}
 
 
 def test_baseline_roundtrip_binds_code_and_e0_file_separately(tmp_path, protocol):
@@ -92,7 +91,7 @@ def synthetic_evaluation(tmp_path, protocol):
                    "positive_cost": 1., "reward_breakdown": {"normalized": [0, 0, 0, 0, .25]},
                    "private_metrics": {"terminal_active_infections": 0}}
         manifest = {"status": "completed", "purpose": "scientific", "run_purpose": "scientific", "mode": "evaluation",
-                    "world_seed": seed, "controller_type": "minimum", "calibration_verified": True,
+                    "world_seed": seed, "controller_type": "minimum", "calibration_verified": True, "initial_baseline_days": 7,
                     "calibration": {"artifact_sha256": "a" * 64, "beta_scale": condition["beta_scale"]}}
         write_json(directory / "manifest.json", manifest)
         write_json(directory / "summary.json", summary)

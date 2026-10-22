@@ -104,8 +104,9 @@ def test_id_and_proposal_training_and_evaluation_have_identical_worlds(protocol)
 
 @pytest.mark.parametrize("invalid_id", [True, 1.5, -1, 324, np.int64(0)])
 def test_invalid_ids_use_shared_fallback_without_coercion(protocol, invalid_id):
-    environment = make_environment(protocol, 2)
+    environment = make_environment(protocol, 8)
     environment.reset(91242)
+    environment.advance_initial_week()
     _, _, terminated, _, info = environment.step(invalid_id)
     assert terminated
     assert info.resolution.requested_action is None
@@ -124,13 +125,14 @@ def test_illegal_screening_preserves_request_and_both_entries_resolve_once(proto
         return original(*args, **kwargs)
 
     monkeypatch.setattr(environment_module, "resolve_action", counted_resolve)
-    environment = make_environment(protocol, 8, screening_capacity_ratio=.02)
+    environment = make_environment(protocol, 15, screening_capacity_ratio=.02)
     environment.reset(91243)
+    environment.advance_initial_week()
     result = environment.step(323)
     assert result[4].resolution.requested_action == decode_action(323)
     assert result[4].resolution.fallback_reason == "screening_capacity_exceeded"
     environment.step_proposal(None, fallback_reason="controller_unavailable")
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
 def test_close_aborts_without_finalize_and_reset_drops_previous_state(protocol, monkeypatch):

@@ -372,12 +372,10 @@ def test_collection_loads_threshold_artifact_and_requires_it_before_output(tmp_p
 
     protocol_path = Path(__file__).resolve().parents[1] / "docs/control_protocol_v1.json"
     protocol = load_protocol(protocol_path)
-    parameters = {"thresholds": protocol.definition["controllers"]["threshold"]["base_thresholds_per_1000_per_week"],
-                  "hysteresis": .75}
+    parameters = {"thresholds": protocol.definition["controllers"]["threshold"]["base_thresholds_per_1000_per_week"]}
     artifact = save_baseline_artifact(tmp_path / "threshold", protocol, "threshold", parameters=parameters)
     controller = _controller("tuned_threshold", 0, protocol, artifact)
     assert controller.controller_type == "threshold"
-    assert controller.hysteresis == .75
     assert controller.thresholds["T"] == (1, 5)
     args = Namespace(protocol=protocol_path, seed=None, smoke=False, artifact=tmp_path / "e0.json",
                      population=None, days=None, initial_infections=None, policy=None,

@@ -78,14 +78,28 @@ class GymControlEnv(gym.Env):
         self._episode_transitions = 0
         self._terminated = False
         self._failed = False
+        days = episode["scenario_options"].get("execution_days", self.environment.protocol.execution_days)
+        if (self.environment.purpose == "scientific"
+                and days <= self.environment.protocol.definition["engine"]["initial_baseline_days"]):
+            raise ValueError("RL training requires at least one autonomous decision window")
         self._record("initializing", scenario_options=resolved_snapshot(episode["scenario_options"]))
         try:
             self._observation, info = self.environment.reset(
                 self._world_seed, options=episode["scenario_options"])
+            self._record("initialized", scenario_options=resolved_snapshot(episode["scenario_options"]))
+            self._observation, reward, self._terminated, truncated, info = self.environment.advance_initial_week()
+            if truncated:
+                raise RuntimeError("the fixed initial window cannot be truncated")
+            if self.private_record_sink is not None:
+                positive_cost = (-reward if self.environment.mode == "training"
+                                 else -self.environment.audit_snapshot().windows[-1].reward)
+                self._record("fixed_window", terminated=self._terminated,
+                             positive_cost=positive_cost,
+                             public_cost=resolved_snapshot(info.feedback.week.cost))
+            self._record_completed()
         except Exception as error:
             self._record_failure(error)
             raise
-        self._record("initialized", scenario_options=resolved_snapshot(episode["scenario_options"]))
         return self._encode(), self._public_info(info)
 
     def step(self, action):
@@ -101,15 +115,21 @@ class GymControlEnv(gym.Env):
         self._observation = observation
         self._episode_transitions += 1
         self._terminated = terminated
-        self._record("transition", terminated=terminated)
-        if terminated and self.private_record_sink is not None:
+        if self.private_record_sink is not None:
+            positive_cost = (-reward if self.environment.mode == "training"
+                             else -self.environment.audit_snapshot().windows[-1].reward)
+            self._record("transition", terminated=terminated, positive_cost=positive_cost)
+        self._record_completed()
+        return self._encode(), reward, terminated, truncated, self._public_info(info)
+
+    def _record_completed(self):
+        if self._terminated and self.private_record_sink is not None:
             from ..runner import episode_summary
 
             summary = episode_summary(
                 self.environment.protocol, self.environment.audit_snapshot(),
-                observation.population.population)
+                self._observation.population.population)
             self._record("completed", summary=summary)
-        return self._encode(), reward, terminated, truncated, self._public_info(info)
 
     def action_masks(self):
         if self._observation is None:

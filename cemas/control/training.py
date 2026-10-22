@@ -12,9 +12,10 @@ import sys
 
 import numpy as np
 
-from .logging import resolved_snapshot
+from .logging import resolved_snapshot, snapshot_sha256
 from .protocol import source_grid
-from .artifacts import budget_extension, horizon_report, training_budget
+from .artifacts import (THRESHOLD_ALGORITHM_SEMANTICS, budget_extension,
+                        horizon_report, training_budget)
 
 
 def _write(path, value):
@@ -65,8 +66,7 @@ def threshold_candidates(protocol):
             config["base_thresholds_per_1000_per_week"][name]]
             for name, scale in zip(protocol.action_order, scales)}
         result.append({"candidate_id": identity, "scales": scales.tolist(),
-                       "parameters": {"thresholds": thresholds,
-                           "hysteresis": float(rng.choice(config["hysteresis_candidates"]))}})
+                       "parameters": {"thresholds": thresholds}})
     return result
 
 
@@ -120,12 +120,16 @@ def evaluate_source(protocol, controller_spec, output_dir, calibration_artifact,
 
 
 def tune_threshold(protocol, output_dir, calibration_artifact, *, calibration_data_path=None, evaluator=None):
-    from .artifacts import save_baseline_artifact
+    from .artifacts import baseline_task_configuration, save_baseline_artifact
 
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=False)
     candidates = threshold_candidates(protocol)
-    _write(output / "candidates.json", candidates)
+    _write(output / "candidates.json", {
+        "algorithm_semantics": THRESHOLD_ALGORITHM_SEMANTICS,
+        "task_sha256": snapshot_sha256(baseline_task_configuration(protocol)),
+        "candidate_generator_seed": protocol.definition["controllers"]["threshold"]["candidate_generator_seed"],
+        "candidates": candidates})
     for candidate in candidates:
         spec = {"method": "threshold", "parameters": candidate["parameters"]}
         candidate["validation_A"] = evaluate_source(protocol, spec,
@@ -143,7 +147,8 @@ def tune_threshold(protocol, output_dir, calibration_artifact, *, calibration_da
             pool="validation_B", calibration_data_path=calibration_data_path, evaluator=evaluator)
     selected = min(finalists, key=lambda row: ranking(row, "validation_B"))
     report = {"purpose": "fixture" if evaluator else "source_development",
-              "method": "threshold", "candidates": candidates,
+              "method": "threshold", "algorithm_semantics": THRESHOLD_ALGORITHM_SEMANTICS,
+              "task_sha256": snapshot_sha256(baseline_task_configuration(protocol)), "candidates": candidates,
               "selected_candidate_id": selected["candidate_id"],
               "validation_episode_count": sum(len(row["validation_A"]["records"]) +
                   len(row.get("validation_B", {}).get("records", ())) for row in candidates)}
@@ -191,6 +196,8 @@ def train_controller(protocol, method, output_dir, calibration_artifact, *, cali
     """Train three independent learners in 2048-step chunks, then select per seed."""
     if method not in ("ppo", "ddqn"):
         raise ValueError("training supports ppo and ddqn")
+    if protocol.execution_days <= protocol.definition["engine"]["initial_baseline_days"]:
+        raise ValueError("RL training requires at least one autonomous decision window")
     # Optional dependencies are loaded only when actual training is requested.
     import torch
     from stable_baselines3.common.vec_env import SubprocVecEnv

@@ -105,11 +105,11 @@ Controller 不拿世界 seed、beta、私有 reward、完整协议或完整审�
 
 - `Box(-inf,+inf,(198,),float32)`、`Discrete(324)`；维数由已有特征表核对。
 - 在库边界将整数标量转换为普通 int；拒绝浮点截断，不放宽原 decoder。
-- `info` 为普通字典，只投影公共 resolution、feedback、该步 next Mask；不放私有 audit。
+- `info` 为普通字典，只投影公共 resolution、feedback、该步 next Mask；不放私有 audit。Gym reset先执行固定首周，返回day7观察及该首周的公共info；首周不进入学习样本或训练步数。
 - `action_masks()` 使用缓存的当前公共观察；不建立另一套容量计算。
 - H 到期是 `terminated=True,truncated=False`，不包 TimeLimit；异常使运行失败。
 - `reset(seed=...)` 初始化训练调度流，实际 world_seed 来自已登记的私有回合计划；不能把 train_seed=11 当作 world_seed=11。自动 reset 继续下一行计划，不重设整个计划。
-- 两算法共用一个单 worker SubprocVecEnv；DDQN 终点 next observation 取 `terminal_observation`，next Mask 取该步 info，不能取自动 reset 后的 day0。
+- 两算法共用一个单 worker SubprocVecEnv；DDQN 终点 next observation 取 `terminal_observation`，next Mask 取该步 info，不能取自动 reset 后新回合的day7观察。
 - CPU 首版、每任务 n_envs=1。三个 seed 的模型/优化器/buffer 分开，暂停世界可驻留，同一时刻只推进一个世界。切换 seed 时保存/恢复 Python、NumPy、PyTorch CPU RNG；A/B 在独立进程评估。
 - worker 只接收普通可序列化配置与路径，子进程自行加载协议；不跨进程传活动 simulator 或 MappingProxy 协议。无自建 RPC、自动恢复器或后台训练线程。
 
@@ -117,16 +117,16 @@ Controller 不拿世界 seed、beta、私有 reward、完整协议或完整审�
 
 ### 4.1 Threshold
 
-基础指标、五维基础边界、loguniform 缩放和迟滞候选读取 JSON `controllers.threshold`。执行语义固定为：
+基础指标、五维基础边界和 loguniform 缩放读取 JSON `controllers.threshold`。执行语义固定为：
 
 1. 每完整有效周 `z=D/N*1000*clip(2**(g/2),.5,2)`，增长无效取 g=0，该周仍有效。
 2. `z >= 边界` 进入高档；基准是 observation.current_action 的实际档位。
-3. day0 保持当前动作；只有一周时可升不可降。升档可直接跨级。
-4. 降档对每条拟跨越边界检查最近两周均严格小于该边界×迟滞；可跨越全部已确认边界，不另限每周一级。
+3. day0–6 由协议统一执行最低干预；day7 首次读取完整首周公共记录并自主决策，H 不额外延长。
+4. 从第二周开始，升档、降档都按最近完整周指标直接到达目标档位，允许跨级，不设等待或迟滞。
 5. 根据公共 Mask，将建议 S 限到不高于目标的最高合法档；容量缩减立即生效。不能把非法 S 直接交 resolver，否则它会回退整份提案。
-6. 不重复保存历史或迟滞计数器；reset/observe 无学习状态。
+6. 不重复保存历史；reset/observe 无学习状态。
 
-候选生成：局部 `Generator(82001)`，candidate_id=0..31；每候选按 `[T,S,C,E,A]` 顺序抽五个 `exp(uniform(log(.5),log(2)))`，再从 `[.5,.75]` 抽一个共同迟滞比例。保存完整候选表，不在各处重新生成。
+候选生成：局部 `Generator(82001)`，candidate_id=0..31；每候选按 `[T,S,C,E,A]` 顺序抽五个 `exp(uniform(log(.5),log(2)))`。保存完整候选表，并记录新算法语义与任务身份，不在各处重新生成。
 
 32 候选各跑 A 九世界，按 `(mean_positive_cost,mean_normalized_activity,candidate_id)` 精确排序取4，再跑 B 十八世界选1。活动取共同 RewardBreakdown 的未加权 activity 分量。无额外基础候选、近似同分容差或 B 上手工追加搜索。
 
@@ -164,7 +164,7 @@ replay仅存 `(obs,action_id,reward,next_obs,terminated,next_mask)`，不存私�
 
 A/B/建库共用映射：pool起点a、每单元重复R；`i=seed-a; cell=i//R; beta=scales[cell//len(capacities)]; capacity=capacities[cell%len(capacities)]; replicate=i%R`。数值从JSON读取，不能复制第二套常量。
 
-训练清单用 `SeedSequence(train_seed)` 派生世界顺序、beta、容量三个局部流：世界无放回抽取，beta∈[.85,1.15]均匀，三个静态容量等概率。同seed两算法共用同一回合计划；探索/replay流与该计划无关。记录实际使用清单，包括自动reset后已初始化但未推进的世界，预算以实际日步和周transition分别计数。
+训练清单用 `SeedSequence(train_seed)` 派生世界顺序、beta、容量三个局部流：世界无放回抽取，beta∈[.85,1.15]均匀，三个静态容量等概率。同seed两算法共用同一回合计划；探索/replay流与该计划无关。记录实际使用清单，包括自动reset后已执行固定首周、尚无自主决策的世界，预算以实际模拟日、固定首周窗口和自主决策transition分别计数；固定首周不占RL学习步数。
 
 每算法以2048为检查点串行推进三个seed：初始2048/4096/6144/8192，各检查点各seed跑完整A。某算法三个seed的A成本先平均，最近两个检查点改善 `(old-new)/max(old,1e-12) >= .02` 时，可在已记录资源上限内同升至16384、再32768；上限不超JSON阶梯。PPO/DDQN具有相同可用上限，实际训练量分列。到上限仍改善，报告训练不足。
 
@@ -172,7 +172,7 @@ A/B/建库共用映射：pool起点a、每单元重复R；`i=seed-a; cell=i//R; 
 
 所有评估通过 `run_episode(...mode="evaluation")`，评分读取真实positive_cost。禁止普通EvalCallback或Monitor的零return选模。基础设施失败保留同身份attempt并按现有规则重做，不换世界、不对残缺样本平均；正常LLM回退轨迹保留计分。
 
-四个H112回合只有64周步：pilot分别测首次JIT、稳态模拟、初始化、内存与推理；梯度更新另用标记清楚的合成批次计时，不改变PPO rollout/DDQN warmup假装真实短训练。真正短训练另列。记录训练、A/B、阈值360回合、建库108回合及LLM调用的独立预算，不预承诺耗时。
+四个H112回合共有64个执行窗口，其中60个是自主决策窗口；pilot分别测首次JIT、稳态模拟、初始化、内存与推理；梯度更新另用标记清楚的合成批次计时，不改变PPO rollout/DDQN warmup假装真实短训练。真正短训练另列。记录训练、A/B、阈值360回合、建库108回合及LLM调用的独立预算，不预承诺耗时。
 
 不中断的预算续训保留对象与随机状态；普通推理checkpoint不声称包含replay、活动世界或精确故障恢复能力。
 
@@ -180,7 +180,7 @@ A/B/建库共用映射：pool起点a、每单元重复R；`i=seed-a; cell=i//R; 
 
 Threshold选定后，用原 `public_transition_sink → PublicTransitionRecorder → PublicEpisodeMemory → PublicCaseBuilder` 链采集四策略；采集时不调阈值。公共case只含公共观察、实际动作、后效和负担；参数产物hash、seed、beta、来源、选择成本留私有JSON。
 
-先生成development库供LLM开发，不等待evaluation_ready。H112上限108×16=1728首窗，不把周案例或同世界四轨迹当独立世界，不按隐藏reward筛掉反例。
+先生成development库供LLM开发，不等待evaluation_ready。H112包含16个执行窗口，其中首周固定、15个自主决策；RL训练预算只计自主决策窗口，完整回合成本仍计入首周。不把周案例或同世界四轨迹当独立世界，不按隐藏reward筛掉反例。
 
 在现有覆盖报告上只补明确缺项：九单元、每维档位、S/容量、联合及转移动作、历史长度、持续时间、测量变化、后效/负担、来源世界/策略。每维档位和可用容量下S档覆盖按v1检查；不要求324组合均匀。缺覆盖时先报告，确需增加源池或策略应单独修订，不临时填入测试世界。
 
@@ -206,7 +206,7 @@ lambda=.5/2为v1规定的独立敏感性批次：复用代码，分别重新调T
 
 不建设管理平台，只用普通JSON与实际权重/数据文件，复用现有规范化快照/hash函数：
 
-- **baseline artifact**：schema/方法/算法语义；Threshold最终边界与rho或PPO zip/DDQN online state_dict路径和hash；编码与Mask/动作版本；参考N/H；任务数值、人口/基础模型/E0身份；训练seed、步数、训练清单和A/B选择报告身份；实际依赖版本。
+- **baseline artifact**：schema/方法/算法语义；Threshold最终边界与新算法语义或PPO zip/DDQN online state_dict路径和hash；编码与Mask/动作版本；参考N/H；任务数值、人口/基础模型/E0身份；训练seed、步数、训练清单和A/B选择报告身份；实际依赖版本。
 - **phase6 release**：共同任务数值与H；七主方法的实际模型/配置身份；B结果与H报告；知识/prompt/retrieval/tokenizer身份；实际源库及private manifest hash、108来源与Threshold身份；覆盖/世界留出报告；软件与预算记录；未完成项和明确限制。
 
 只在外部加载边界校验一次。完整协议hash用于溯源，兼容性比较相关语义，单纯objective.status变化不使相同数值任务失效。产物加载不依赖训练器，也不把私有元数据交给Controller。
@@ -254,7 +254,7 @@ phase6 release登记已验证development数据hash，发布清单引用release h
 | 步骤 | 工作与依赖 | 最小验收/出口 |
 |---|---|---|
 | P6.0 契约与前置核对 | 核对当前checkout、环境、E0实际兼容性；落实本文补足；确认依赖/真实运行授权范围 | 配置/用途/产物字段明确；无提前训练或API；缺依赖单独登记 |
-| P6.1 共同接入与Threshold | Controller、runner放行、网格/评分、固定RL编码、Threshold与加载 | 边界/迟滞/S容量/公共权限/零评估reward正确计分；旧入口不回归 |
+| P6.1 共同接入与Threshold | Controller、runner放行、网格/评分、固定RL编码、Threshold与加载 | 边界/即时升降档/S容量/公共权限/零评估reward正确计分；旧语义产物拒绝加载 |
 | P6.2 Gym与进程 | Gym、单SubprocVecEnv、回合计划、RNG隔离与私有预算记录 | scalar转换、info白名单、Mask、尾窗、terminal、自动reset不串回合；同动作轨迹一致 |
 | P6.3 PPO与DDQN | 现成PPO、具体DDQN、推理/保存/加载、2048分段与三seed选择 | Double手算oracle、非法最大Q、terminal不bootstrap、warmup/同步/epsilon；PPO更新后checkpoint；加载动作一致 |
 | P6.4 编排与发布工程 | A/B/预算/H有限循环、四策略采集接入、覆盖/世界留出、baseline/release/promotion、薄CLI | mock/fixture证明三seed全保留、池隔离、失败不静默删、108证据缺失拒绝；不把fixture发布正式库；工程回归通过后记录源码身份 |

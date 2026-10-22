@@ -33,29 +33,30 @@ def observation(diagnoses=(), current=(0, 0, 0, 0, 0), capacity=100, growth=0, g
 
 
 def test_threshold_day_zero_and_first_week_upgrade():
-    controller = ThresholdController(BOUNDARIES, .5)
+    controller = ThresholdController(BOUNDARIES)
     assert controller.decide(observation()).action.values == (0, 0, 0, 0, 0)
     assert controller.decide(observation((15,))).action.values == (2, 3, 2, 2, 2)
-    assert controller.decide(observation((0,), current=(2, 3, 2, 2, 2))).action.values == (2, 3, 2, 2, 2)
+    assert controller.decide(observation((0,), current=(2, 3, 2, 2, 2))).action.values == (0, 0, 0, 0, 0)
 
 
-def test_downgrade_is_strict_two_weeks_and_can_cross_multiple_boundaries():
-    controller = ThresholdController(BOUNDARIES, .5)
+def test_downgrade_uses_latest_week_and_can_cross_multiple_boundaries():
+    controller = ThresholdController(BOUNDARIES)
     assert controller.decide(observation((0, 0), current=(2, 3, 2, 2, 2))).action.values == (0, 0, 0, 0, 0)
-    assert controller.decide(observation((0, 5), current=(0, 0, 0, 0, 2))).action.values[4] == 2
+    assert controller.decide(observation((0, 5), current=(0, 0, 0, 0, 2))).action.values[4] == 1
+    assert controller.decide(observation((0, 10), current=(0, 0, 0, 0, 2))).action.values[4] == 2
     assert controller.decide(observation((0, 4), current=(0, 0, 0, 0, 2))).action.values[4] == 1
 
 
 def test_capacity_drop_is_immediate_without_losing_other_dimensions():
-    action = ThresholdController(BOUNDARIES, .5).decide(observation((15,), capacity=20)).action
+    action = ThresholdController(BOUNDARIES).decide(observation((15,), capacity=20)).action
     assert action.values == (2, 1, 2, 2, 2)
-    day_zero = ThresholdController(BOUNDARIES, .5).decide(observation(current=(2, 3, 2, 2, 2), capacity=0))
+    day_zero = ThresholdController(BOUNDARIES).decide(observation(current=(2, 3, 2, 2, 2), capacity=0))
     assert day_zero.action.values == (2, 0, 2, 2, 2)
 
 
 @pytest.mark.parametrize("growth,valid,expected", [(2, True, 2), (-2, True, 1), (0, False, 1)])
 def test_growth_uses_valid_measurement_and_clipped_multiplier(growth, valid, expected):
-    action = ThresholdController(BOUNDARIES, .5).decide(observation((3,), growth=growth, growth_valid=valid)).action
+    action = ThresholdController(BOUNDARIES).decide(observation((3,), growth=growth, growth_valid=valid)).action
     assert action.values[0] == expected
 
 
@@ -78,9 +79,9 @@ def test_threshold_artifact_roundtrip_and_tampered_task(tmp_path):
     import json
     protocol = load_protocol(PROTOCOL)
     path = save_baseline_artifact(tmp_path, protocol, "threshold",
-                                  parameters={"thresholds": BOUNDARIES, "hysteresis": .75})
+                                  parameters={"thresholds": BOUNDARIES})
     loaded, metadata = load_baseline_controller(protocol, path)
-    assert loaded.decide(observation((10,))).action == ThresholdController(BOUNDARIES, .75).decide(observation((10,))).action
+    assert loaded.decide(observation((10,))).action == ThresholdController(BOUNDARIES).decide(observation((10,))).action
     assert not hasattr(loaded, "protocol") and metadata["method"] == "threshold"
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["task"]["execution_days"] = 140
@@ -136,9 +137,9 @@ def test_threshold_trial_metadata_is_not_mistaken_for_a_loaded_model(tmp_path, m
     protocol = load_protocol(PROTOCOL)
     monkeypatch.setattr(calibration, "load_calibration_artifact",
                         lambda *args, **kwargs: SimpleNamespace(beta=.01, sha256="a" * 64))
-    controller = ThresholdController(BOUNDARIES, .5)
+    controller = ThresholdController(BOUNDARIES)
     _BASELINE_METADATA[controller] = {"method": "threshold", "parameters": {
-        "thresholds": BOUNDARIES, "hysteresis": .5}}
+        "thresholds": BOUNDARIES}}
     result = run_episode(protocol, controller, tmp_path / "trial", 20001,
                          purpose="scientific", scenario_options={
                              "execution_days": 2, "calibration_artifact": "verified-by-test"})

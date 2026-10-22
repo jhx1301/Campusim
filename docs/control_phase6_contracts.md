@@ -12,12 +12,12 @@
 - `encode_rl_observation(observation, reference_population, reference_horizon)` 复用原 198 维编码，仅缩放原始 N/H 两项；原编码不变。不使用测试拟合、动态归一化或 reward normalization。
 - `source_grid(protocol,pool_name,seed)` 位于轻量协议模块，供 A/B、参考策略和案例采集共用；不让正常案例加载依赖训练器。
 
-Threshold 只读取公共完整周与当前实际动作；升档不限级，降档需连续两周严格低于每条边界乘迟滞比例。先按公共 Mask 下调建议 S，再交共同 resolver。day0 无历史时保持当前档位，同时执行容量约束。候选固定 32→4→1，不在 B 上追加搜索。
+Threshold 只读取公共完整周与当前实际动作；升档、降档都按最近完整周的共同指标立即到达目标档位，允许跨级。先按公共 Mask 下调建议 S，再交共同 resolver。所有方法 day0–6 统一执行最低干预，day7 首次自主决策；候选固定 32→4→1，不在 B 上追加搜索。
 
 ## 2. 模型与训练入口
 
 - `load_baseline_controller(protocol, artifact_path)` 返回 Controller 和独立私有 metadata。RL 依赖延迟加载；正常控制/记忆导入不加载 Torch、Gym 或 SB3。
-- `GymControlEnv` 投影现有环境；`info` 只含公共 resolution/feedback/next_mask。H 是任务终止，不是截断；自动 reset 后 DDQN replay 使用 `terminal_observation` 和终点 next_mask。
+- `GymControlEnv` 投影现有环境；reset先执行固定首周，返回day7观察，`info` 含该首周的公共 resolution/feedback/next_mask。首周不进入学习样本或训练步数；之后step的info仍只含公共字段。H 是任务终止，不是截断；自动 reset 后 DDQN replay 使用 `terminal_observation` 和终点 next_mask。
 - MaskablePPO 使用原库 loss、rollout 和历史 Mask；2048 步 `learn` 返回后保存。冻结推理显式传 Mask，保持确定性。
 - DDQN 使用 online 合法 argmax、target 估值；终点不查询下一状态网络。replay 容量50000，warmup512，之后每步更新，512倍数更新后同步；epsilon 前4096步降到.05，预算升级不重置。
 - 三训练 seed 各有独立模型、优化器、buffer、世界调度流；单 worker `SubprocVecEnv(spawn)`。每段切换保存/恢复学习器随机状态，独立进程评估。
@@ -56,14 +56,16 @@ release 必须关联当前任务/H/目标/E0/代码身份、108来源、实际�
 
 ## 4. 当前证据
 
+2026-10-21共同首周修订后的本地回归：使用指定simulation解释器运行全部control测试，886 passed、99项无关测试未选中、无跳过，保留1条既有pytest `env`配置警告；包含实际Gym轨迹、spawn自动重置、PPO合成更新及DDQN更新/存取验证。以下原有验收数字保留为历史证据，不替代新协议下的正式训练与科学评价。
+
 - 指定 simulation 环境已安装并实测 Gymnasium1.4.0、SB3/contrib2.9.0、Torch2.14.1+cpu；原 tokenizer 加载栈按项目固定版本补齐。`pip check` 通过，依赖快照见 `requirements-control-rl-v1.lock.txt`。
 - 控制测试整合验收849 passed，无跳过；最终删减重复代码及合并唯一预算/H公式后相关81项再次通过；CEMAS/人口兼容检查5项通过。保留一项现有 pytest 配置 `env` 未识别警告，不为此修改无关测试配置。
 - RL 独立验收23 passed，无依赖跳过，包含实际 Gym 轨迹对照、spawn、Double 手算、真实梯度和模型存取。
 - 合成2048步短训练仅为工程验收：PPO参数实际更新；DDQN1537梯度更新、4次target同步，二者加载动作一致。报告：`results/phase6_engineering/rl_synthetic_20261018T072730Z/report.json`。
 - E0 已在 `results/phase6_engineering/e0_primary` 完成100trial×3世界与20独立验证世界，并通过当前兼容性加载。beta为0.03999548144249928，接近预定搜索上界；独立验证RMSE约11.223、normalized MSE约1.168，这是重构聚合数据的拟合证据，不表示真实世界预测验证。
 - 真实四回合pilot位于 `results/phase6_engineering/pilot`：首次8.07秒，后续7.55/7.87/7.60秒；初始化约0.12–0.21秒；worker进程峰值驻留内存最高约247 MiB。
-- 生产 `TrainingEnvFactory` 检查通过：单spawn推进16个周transition/112日，终点观察、自动reset、Mask、公开info和奖励对账正确；第二世界已初始化但未step，独立记账。报告位于 `results/phase6_engineering/rl_source_short/factory_boundary`。
-- 真实源环境短训练完成，汇总位于 `results/phase6_engineering/rl_source_short/summary.json`；PPO256周步/1792日，约160.84秒、40次优化步；DDQN512周步/3584日，约340.43秒、首次梯度更新与hardcopy成功。模型加载后动作一致且合法，父进程＋worker采样峰值约846/843 MiB。同训练seed的两算法世界计划前缀一致，超参数未降低；这些模型没有进行A/B选模，不能替代正式训练。
+- 生产 `TrainingEnvFactory` 历史检查通过：单spawn推进16个旧口径周transition/112日；当前 Gym reset 会先执行固定首周，训练记录将把它单列，不计入学习transition。终点观察、自动reset、Mask、公开info和奖励对账仍需按当前协议重新登记；第二世界已初始化但未step，独立记账。报告位于 `results/phase6_engineering/rl_source_short/factory_boundary`。
+- 真实源环境短训练完成（该历史记录采用旧首周计数口径；当前协议将固定首周与自主决策分开记账），汇总位于 `results/phase6_engineering/rl_source_short/summary.json`；PPO256周步/1792日，约160.84秒、40次优化步；DDQN512周步/3584日，约340.43秒、首次梯度更新与hardcopy成功。模型加载后动作一致且合法，父进程＋worker采样峰值约846/843 MiB。同训练seed的两算法世界计划前缀一致，超参数未降低；这些模型没有进行A/B选模，不能替代正式训练。
 
 独立review已修复：重复训练seed导致字典覆盖模型；极小epsilon比例经整数化后除零；holdout命令清单文件名错误；Threshold候选参数元数据被误当成完整模型产物。另增加已加载产物的共同H/E0核对，并移除重复decoder、Gym范围检查与Threshold重复构造验证。未新增算法注册器、manager、重试器或仿真分支。
 
@@ -73,7 +75,7 @@ release 必须关联当前任务/H/目标/E0/代码身份、108来源、实际�
 
 工程、E0、pilot及短训练已完成。用户已明确选择“本轮先交付工程与预算，正式批次后续运行”，因此本轮到此交付，不启动完整非付费科学批次。当前没有后台长训练或采集任务；后续启动时再按构建计划P6.5固定实际资源上限。
 
-按112天任务的实测周步和pilot均值线性估算（包括Threshold360回合、建库108回合、两算法各3seed、所有A及最终两候选B、固定参考策略B）：
+以下是旧首周计数口径下的线性估算，保留作历史成本证据。当前H不延长：Threshold360回合、建库108回合、所有A/B及固定参考策略B的完整回合仍各为H日，不能再额外加7日。两算法各3seed的训练预算按自主决策步数计，须在这些样本的实际执行日之外，计入每个已启动世界的固定首周，包括自动reset后尚无自主决策的世界。正式训练预算以`training_budget`的`simulated_days`、`fixed_windows`和`autonomous_decisions`核算：
 
 | 每seed可用周步上限 | 两算法纯训练 | 含上述本地验证/采集的总计 |
 |---|---|---|
@@ -83,6 +85,6 @@ release 必须关联当前任务/H/目标/E0/代码身份、108来源、实际�
 
 这些是估算，不是时间保证；只测了一个训练seed和一种pilot策略，后期策略、病程及系统负载会改变成本。DDQN512步只测到首次更新，持续更新成本另有合成2048步记录，但仍需在完整曲线上报告实际消耗。
 
-表中未计付费LLM服务时间/费用、重试、H统一升级后的重开发及lambda=.5/2独立敏感性批次。四种LLM模式各只有一个预登记候选时，A/B本身共108回合、1728次决策（未计重试）；真实延迟、token与费用尚未测量，不预填收费金额。敏感性需要额外两套独立源域开发与兼容源库。
+表中历史估算未计固定自主训练样本预算之外的首周日步，也未计付费LLM服务时间/费用、重试、H统一升级后的重开发及lambda=.5/2独立敏感性批次。四种LLM模式各只有一个预登记候选时，A/B本身共108回合；当前每个H112回合含1个固定首周和15个自主决策，因此共1620个自主决策、108个固定首周窗口，合计仍为108×112个模拟日；API重试另计调用次数，不增加模拟日。真实延迟、token与费用尚未测量，不预填收费金额。敏感性需要额外两套独立源域开发与兼容源库。
 
 机器可读交付摘要与估算：`results/phase6_engineering/execution_summary.json`。已保留用户的 `docs/修改意见.md`；本地结果目录不纳入本次Git提交，发布状态以实际提交记录为准。

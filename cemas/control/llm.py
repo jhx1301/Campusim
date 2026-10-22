@@ -100,7 +100,7 @@ PUBLIC_SPEC_FIELDS = MappingProxyType({
     "observation": ("cutoff", "history_order", "history_week_valid", "weekly_fields", "context_fields",
                     "growth", "growth_requires_two_valid_weeks", "proxy", "proxy_zero_denominator",
                     "rates", "clip", "age_bands_shared"),
-    "task": ("decision_interval_days", "history_weeks", "quarantine_days"),
+    "task": ("decision_interval_days", "initial_baseline_days", "history_weeks", "quarantine_days"),
 })
 
 

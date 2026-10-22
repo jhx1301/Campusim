@@ -237,6 +237,10 @@ class MemoryLLMController(LLMController):
         self._prepared_context = None
         self._parsed_decision = None
 
+    def observe_initial_week(self, observation, feedback):
+        self.memory.stage(observation)
+        self.observe(feedback)
+
     def observe(self, feedback):
         if type(feedback) is not PublicWeekFeedback:
             raise TypeError("MemoryLLMController requires PublicWeekFeedback")

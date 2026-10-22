@@ -199,7 +199,7 @@ def test_sink_failure_preserves_executed_window_and_stops_next_decision(protocol
                     public_transition_sink=failed_sink)
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "failed" and manifest["elapsed_days"] == 7
-    assert controller.days == [0] and [week.end_day for week in completed] == [6]
+    assert controller.days == [] and [week.end_day for week in completed] == [6]
     assert len((output / "public_daily.csv").read_text(encoding="utf-8").splitlines()) == 8
 
 
@@ -209,13 +209,13 @@ def test_four_memory_modes_complete_offline_with_evidence_and_terminal_revisions
     controller, transport, counter, retriever, sleeps = _controller(protocol, mode=mode, store=store)
     output = tmp_path / mode
     result = run_episode(protocol, controller, output, 90001, scenario_options=OPTIONS)
-    assert result.status == "completed" and len(transport.messages) == len(counter.messages) == 2
+    assert result.status == "completed" and len(transport.messages) == len(counter.messages) == 1
     assert sleeps == []
     evidence = _json_lines(output / "decision_evidence.jsonl")
     prepared = [item for item in evidence if item["event"] == "prepared"]
     resolved = [item for item in evidence if item["event"] == "resolved"]
-    assert [item["decision_day"] for item in prepared] == [0, 7]
-    assert [item["decision_day"] for item in resolved] == [0, 7]
+    assert [item["decision_day"] for item in prepared] == [7]
+    assert [item["decision_day"] for item in resolved] == [7]
     assert all(item["memory_mode"] == mode and item["status"] == "success" for item in prepared)
     assert {item["context_hash"] for item in prepared} == {item["context_hash"] for item in resolved}
     decisions = _json_lines(output / "decisions.jsonl")
@@ -231,7 +231,7 @@ def test_four_memory_modes_complete_offline_with_evidence_and_terminal_revisions
             assert user["memory"]["retrieval"]["flags"] == ["disabled"]
         else:
             assert "no_case" in user["required_uncertainty_codes"]
-    assert len(retriever.queries) == (2 if mode in ("global", "both") else 0)
+    assert len(retriever.queries) == (1 if mode in ("global", "both") else 0)
     if store is not None:
         store.close()
 
@@ -242,17 +242,20 @@ def test_actual_call_and_prepared_evidence_are_durable_before_each_environment_s
     original_step = WeeklyControlEnvironment.step_proposal
 
     def checked_step(self, proposal, **kwargs):
+        if self._elapsed_days == 0:
+            assert not transport.messages
+            return original_step(self, proposal, **kwargs)
         records = _json_lines(output / "decision_evidence.jsonl")
         prepared = [item for item in records if item["event"] == "prepared"]
         calls = _json_lines(output / "llm_calls.jsonl")
         assert len(prepared) == len(days) + 1 and len(calls) == len(days) + 1
-        assert prepared[-1]["decision_day"] == len(days) * 7
+        assert prepared[-1]["decision_day"] == (len(days) + 1) * 7
         days.append(prepared[-1]["decision_day"])
         return original_step(self, proposal, **kwargs)
 
     monkeypatch.setattr(WeeklyControlEnvironment, "step_proposal", checked_step)
     run_episode(protocol, controller, output, 90001, scenario_options=OPTIONS)
-    assert days == [0, 7] and len(transport.messages) == 2
+    assert days == [7] and len(transport.messages) == 1
 
 
 def test_evidence_write_failure_prevents_world_advance_and_retains_actual_call(protocol, tmp_path, monkeypatch):
@@ -262,7 +265,11 @@ def test_evidence_write_failure_prevents_world_advance_and_retains_actual_call(p
     def failed_write(self, evidence):
         raise OSError("prepared evidence disk fixture")
 
-    def forbidden_step(*args, **kwargs):
+    original_step = WeeklyControlEnvironment.step_proposal
+
+    def forbidden_step(self, *args, **kwargs):
+        if self._elapsed_days == 0:
+            return original_step(self, *args, **kwargs)
         advances.append(True)
         raise AssertionError("world advanced without durable evidence")
 
@@ -273,7 +280,7 @@ def test_evidence_write_failure_prevents_world_advance_and_retains_actual_call(p
     assert advances == []
     assert len(_json_lines(output / "llm_calls.jsonl")) == 1
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["status"] == "failed" and manifest["elapsed_days"] == 0
+    assert manifest["status"] == "failed" and manifest["elapsed_days"] == 7
 
 
 def test_fatal_decision_and_secondary_evidence_failure_keep_primary_error_sanitized(protocol, tmp_path, monkeypatch):
@@ -302,17 +309,17 @@ def test_memory_controller_inherits_one_retry_loop_with_same_bytes_and_public_fa
     controller, transport, counter, _, sleeps = _controller(protocol, invalid_first=3)
     assert MemoryLLMController.decide is LLMController.decide
     output = tmp_path / "shared-exhaustion"
-    run_episode(protocol, controller, output, 90002, scenario_options=OPTIONS)
+    run_episode(protocol, controller, output, 90002, scenario_options={**OPTIONS, "execution_days": 16})
     assert len(transport.messages) == 4 and transport.messages[0] == transport.messages[1] == transport.messages[2]
     assert len(counter.messages) == 2 and sleeps == [2, 4]
     evidence = [item for item in _json_lines(output / "decision_evidence.jsonl") if item["event"] == "prepared"]
     assert evidence[0]["status"] == "retry_exhausted" and evidence[0]["attempt_count"] == 3
     assert evidence[0]["reason"] is None
     assert evidence[1]["status"] == "success"
-    decisions = _json_lines(output / "decisions.jsonl")
+    decisions = _json_lines(output / "decisions.jsonl")[1:]
     assert decisions[0]["fallback_reason"] == "llm_retry_exhausted"
     cases = _json_lines(output / "memory_revisions.jsonl")
-    assert cases[0]["executed_window"]["executed_action"] == decisions[0]["executed_action"]
+    assert cases[2]["executed_window"]["executed_action"] == decisions[0]["executed_action"]
     assert not any(name in json.dumps(cases) for name in ("private_metrics", "world_seed", "reward"))
 
 
@@ -374,7 +381,7 @@ def test_live_memory_path_runs_without_reports_using_offline_service(protocol, t
     monkeypatch.setattr(controller.transport, "complete", transport.complete)
     output = tmp_path / "without-reports"
     result = run_episode(protocol, controller, output, 40001, purpose="prompt_development")
-    assert result.status == "completed" and len(transport.messages) == 2
+    assert result.status == "completed" and len(transport.messages) == 1
     assert controller.token_counter.acceptance_path is None
     assert "acceptance_sha256" not in controller.token_counter.identity
 

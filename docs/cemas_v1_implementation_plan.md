@@ -316,15 +316,15 @@ close()
 先实现不依赖Gymnasium的同形接口；Phase 6增加薄适配器。动作编号经共同decoder转为提案，两入口共用唯一resolve/执行主线。环境推进、独立奖励计算、控制器决策和logger写记录分别负责，runner仅编排单回合。
 
 - 训练模式向学习器返回真实reward；评估返回 `0.0`，真实值通过私有审计写日志，两模式不改变世界轨迹。
-- Controller只接收公共观察和反馈。PublicInfo仅含resolution/feedback，reset时为空。
+- Controller只接收公共观察和反馈。基础周环境的PublicInfo仅含resolution/feedback，reset时为空；Phase 6的Gym适配器reset先执行固定首周，返回day7观察，info包含该首周的公共resolution/feedback及next_mask。
 - 真值、reward、beta、seed、未来事件、完整DecisionRecord和simulator不得进入控制器、prompt或memory。
 - `audit_snapshot()`仅供runner，返回不可变记录和配置，不返回simulator或可变runtime对象。
 
 **时序与奖励**
 
 - reset新建已经初始化的ScenarioBundle，使用实际挂接executor/analyzer，不再次initialize，周间不设seed。
-- day0先决策，历史为空；每步直接调用最多七次sim.step，保留原引擎日内顺序；公共/私有量使用相同已完成闭区间。
-- H112为112个日步、n_days111、16次决策；尾段按实际日数结算，不放大，不进入完整周观察历史，通过反馈和日志交付。
+- day0历史为空，协议统一执行day0–6最低干预，不调用控制器；day7读取完整首周记录后首次自主决策。每步直接调用最多七次sim.step，保留原引擎日内顺序；公共/私有量使用相同已完成闭区间。
+- H112为112个日步、n_days111，含1个固定首周窗口和15个自主决策窗口，不额外延长H；尾段按实际日数结算，不放大，不进入完整周观察历史，通过反馈和日志交付。
 - 到H自然terminated，不bootstrap、不额外推进、不提前交付pending事件。环境独立保存进度和finalize_attempted，完整回合只尝试finalize一次，close幂等。
 - 未完成关闭或reset记aborted，日步/finalize等基础设施异常记failed，不伪装为完整结果。
 - `V1RewardCalculator`保留RewardCalculator.compute签名，RewardBreakdown同一分项供奖励/日志使用。统一I/N及T/.12NH、L/.10NH、Q/NH、A/NH，λ=1/四项各.25；N/H回合固定，不含初始感染，不裁剪，无切换/终点额外奖励。
@@ -491,7 +491,7 @@ select_checkpoint(validation_A, validation_B) -> FrozenControllerArtifact
 - PPO 使用协议网络与超参数，mask 在环境内实现；训练和评估使用 mask-aware 路径。
 - DDQN 在线网选择合法 argmax，目标网取该动作值；探索、贪心和 bootstrap 均 mask，replay 保存 next mask。
 - 两算法均使用公共数值观察、324 动作和相同私有目标，gamma1。
-- 阈值采用 v1 指标、边界、迟滞及 32→4→1 的源域筛选。
+- 阈值采用 v1 指标、边界、最近完整周即时升降档及 32→4→1 的源域筛选；不额外设置迟滞。
 - 控制器使用本地 RNG；RL 仿真使用独立进程隔离世界随机流。先验证一个环境，不同时推进多世界。
 - 三个训练 seed 全部保留；按 A/B 选择 checkpoint，不选最好训练 seed 代表算法。
 

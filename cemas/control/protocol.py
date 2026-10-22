@@ -419,6 +419,8 @@ def _validate_v1(definition: Any) -> None:
         raise ProtocolValidationError("engine.pop_infected must not exceed pop_size")
     for key in ("decision_interval_days", "history_weeks"):
         _integer(_required(engine, key, "engine"), f"engine.{key}", 1)
+    if type(engine.get("initial_baseline_days")) is not int or engine["initial_baseline_days"] != 7:
+        raise ProtocolValidationError("engine.initial_baseline_days must be 7 for v1")
     if engine["decision_interval_days"] != 7:
         raise ProtocolValidationError("engine.decision_interval_days must be 7 for v1")
     if engine["history_weeks"] != 4:
@@ -511,19 +513,11 @@ def _validate_baselines(definition):
     _number(high, "threshold.scale.upper", positive=True)
     if low >= high:
         raise ProtocolValidationError("threshold scale bounds must increase")
-    for rho in threshold["hysteresis_candidates"]:
-        _probability(rho, "threshold.hysteresis")
-        if not 0 < rho < 1:
-            raise ProtocolValidationError("threshold hysteresis must be strictly between zero and one")
-    if not threshold["hysteresis_candidates"]:
-        raise ProtocolValidationError("threshold hysteresis candidates cannot be empty")
     for key in ("candidate_count", "finalists"):
         _integer(threshold.get(key), f"threshold.{key}", 1)
     if threshold["finalists"] > threshold["candidate_count"]:
         raise ProtocolValidationError("threshold finalists exceed candidate count")
     _integer(threshold.get("candidate_generator_seed"), "threshold.candidate_generator_seed")
-    if threshold.get("downgrade_confirmation_weeks") != 2 or threshold.get("upgrade_unrestricted") is not True:
-        raise ProtocolValidationError("threshold requires two-week downgrade and unrestricted upgrade")
 
     ppo = _section(controllers, "ppo", "controllers")
     ddqn = _section(controllers, "ddqn", "controllers")

@@ -2,6 +2,8 @@
 
 本契约记录2026-10-15确认的 P3 设计及接口，与[推荐协议](llm_recommended_protocol_v1.md)、[JSON](control_protocol_v1.json)和[工程计划](cemas_v1_implementation_plan.md)配套。实施前代码基线为 `feature/control-protocol-v1@8324a81`；具体测试和运行证据见末节，不由接口存在推断验收已经完成。
 
+时序适用范围：本文的day0先决策、H112共16次决策及末节验收数字保留为P3历史记录。2026-10-20修订后，所有方法day0–6固定最低干预，day7首次自主决策；H112仍为112日，含1个固定窗口和15个自主决策窗口。当前行为以[Phase 6契约](control_phase6_contracts.md)为准，旧验收不代表新规则已通过。
+
 P3 交付统一周环境、独立奖励、最低/最高资源合法两个固定参照、日志和最小单回合 runner、共享人口 E0 及其产物门禁。仍固定五维动作、324组合、七日周期。LLM、PPO/DDQN、调优阈值、memory、训练和完整实验编排留到后续阶段，旧 t18 及绘图保留。
 
 ## 1. 奖励和冻结边界

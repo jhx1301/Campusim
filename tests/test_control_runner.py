@@ -64,7 +64,7 @@ def test_complete_small_reference_reconciles_tail_and_keeps_truth_private(protoc
     result = run_episode(protocol, controller, output, 90001,
                          scenario_options={"population": 40, "execution_days": 9, "initial_infections": 2})
     assert result.status == "completed" and controller.resets == 1
-    assert controller.days == [0, 7] and controller.feedback == [(0, 6), (7, 8)]
+    assert controller.days == [7] and controller.feedback == [(0, 6), (7, 8)]
     public = _read_csv(output / "public_daily.csv")
     private = _read_csv(output / "private_daily.csv")
     weekly = _read_csv(output / "private_weekly_rewards.csv")

@@ -99,6 +99,7 @@ class DecisionRecord:
     elapsed_ms: float = 0.0
     llm_attempt_count: int = 0
     llm_succeeded: bool | None = None
+    decision_source: str = "controller"
 
     def __post_init__(self) -> None:
         if (type(self.observation_hash) is not str or len(self.observation_hash) != 64
@@ -132,6 +133,13 @@ class DecisionRecord:
             raise ValueError("llm_attempt_count must be a nonnegative ordinary integer")
         if self.llm_succeeded is not None and type(self.llm_succeeded) is not bool:
             raise TypeError("llm_succeeded must be boolean or None")
+        if self.decision_source not in ("protocol_fixed", "controller"):
+            raise ValueError("unknown decision_source")
+        if self.decision_source == "protocol_fixed" and (
+                self.decision_day != 0 or self.executed_action.values != (0, 0, 0, 0, 0)
+                or self.fallback_used or self.adjustment_reason is not None
+                or self.llm_attempt_count or self.llm_succeeded is not None):
+            raise ValueError("invalid protocol-fixed decision record")
 
     def to_dict(self) -> dict:
         record = asdict(self)

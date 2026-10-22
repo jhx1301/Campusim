@@ -98,7 +98,8 @@ def evaluate_job(job):
                                   "process_peak_resident": getattr(memory, "peak_wset", None)}
         decisions = [json.loads(line) for line in
                      (result.output_dir / "decisions.jsonl").read_text(encoding="utf-8").splitlines()]
-        timing["decision_elapsed_ms"] = [row["elapsed_ms"] for row in decisions]
+        timing["decision_elapsed_ms"] = [row["elapsed_ms"] for row in decisions
+                                         if row["decision_source"] == "controller"]
     return {"world_seed": job["world_seed"], "summary": summary, **timing,
             "last_window_infections": sum(int(row["new_infections"]) for row in days[-width:]),
             "elapsed_seconds": perf_counter() - started, "llm_usage": usage,
