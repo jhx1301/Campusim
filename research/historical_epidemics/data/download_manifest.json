@@ -1,0 +1,153 @@
+[
+  {
+    "file": "bigten_raw.csv",
+    "url": "https://raw.githubusercontent.com/wadefagen/college-covid19-dataset/master/data/raw.csv",
+    "retrieved_at": "2026-10-15T06:20:46.278258+00:00",
+    "status": "downloaded",
+    "final_url": "https://raw.githubusercontent.com/wadefagen/college-covid19-dataset/master/data/raw.csv",
+    "content_type": "text/plain; charset=utf-8",
+    "bytes": 33491,
+    "sha256": "ea2a39130f0ce8bd8505f253059d6025a1dff55a99a9297ad57e2b5173e98922"
+  },
+  {
+    "file": "uiuc_detail.csv",
+    "url": "https://raw.githubusercontent.com/wadefagen/college-covid19-dataset/master/data/detailed/uiuc.csv",
+    "retrieved_at": "2026-10-15T06:20:46.278258+00:00",
+    "status": "downloaded",
+    "final_url": "https://raw.githubusercontent.com/wadefagen/college-covid19-dataset/master/data/detailed/uiuc.csv",
+    "content_type": "text/plain; charset=utf-8",
+    "bytes": 37083,
+    "sha256": "eb0996ce3ea6835741d0cf5b15719608150824cd0b14fd80b13e1aafda4bf34e"
+  },
+  {
+    "file": "uw_madison_2020.html",
+    "url": "https://covidresponse.wisc.edu/dashboard-2020/",
+    "retrieved_at": "2026-10-15T06:20:46.279762+00:00",
+    "status": "downloaded",
+    "final_url": "https://covidresponse.wisc.edu/dashboard-2020/",
+    "content_type": "text/html; charset=UTF-8",
+    "bytes": 370117,
+    "sha256": "d1181161526d3690a5eb4eb9bd0f436f26b340192977b55086c5147aa18aff84"
+  },
+  {
+    "file": "uw_madison_2021_spring.html",
+    "url": "https://covidresponse.wisc.edu/dashboard-2021-jan-may/",
+    "retrieved_at": "2026-10-15T06:20:46.279762+00:00",
+    "status": "downloaded",
+    "final_url": "https://covidresponse.wisc.edu/dashboard-2021-jan-may/",
+    "content_type": "text/html; charset=UTF-8",
+    "bytes": 446993,
+    "sha256": "89291e904f9bcc7c0252b7308037f6bb71cea029e03aefab4b5d536dd833d73b"
+  },
+  {
+    "file": "tianjin_2014.xlsx",
+    "url": "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0184527.s001&type=supplementary",
+    "retrieved_at": "2026-10-15T06:20:46.279762+00:00",
+    "status": "downloaded",
+    "final_url": "https://storage.googleapis.com/plos-corpus-prod/10.1371/journal.pone.0184527/1/pone.0184527.s001.xlsx",
+    "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "bytes": 9614,
+    "sha256": "942eee7e98923fe2db40d064e0f980e52ee738235488962b95818c68e44d46a4"
+  },
+  {
+    "file": "csdh_cases.zip",
+    "url": "https://assets.ctfassets.net/9fbw4onh0qc1/Iz122B08nXi5KAj7Ibxqs/134dc4172e422bae944910a7893e1477/CSDH_COVID-19_Data_CSV.zip",
+    "retrieved_at": "2026-10-15T06:20:47.855546+00:00",
+    "status": "downloaded",
+    "final_url": "https://assets.ctfassets.net/9fbw4onh0qc1/Iz122B08nXi5KAj7Ibxqs/134dc4172e422bae944910a7893e1477/CSDH_COVID-19_Data_CSV.zip",
+    "content_type": "application/zip",
+    "bytes": 6797127,
+    "sha256": "8d7403f7d0c7083f03b96a6fd969f864f1ba731176a73ee4c9489a2ec55d436c"
+  },
+  {
+    "file": "shanghai_2022.csv",
+    "url": "https://raw.githubusercontent.com/junlingm/Shanghai-COVID-19-Mar-June-2022/main/Shanghai-COVID-19-Mar-Jun-2022.csv",
+    "retrieved_at": "2026-10-15T06:20:48.000957+00:00",
+    "status": "downloaded",
+    "final_url": "https://raw.githubusercontent.com/junlingm/Shanghai-COVID-19-Mar-June-2022/main/Shanghai-COVID-19-Mar-Jun-2022.csv",
+    "content_type": "text/plain; charset=utf-8",
+    "bytes": 1933,
+    "sha256": "2f35e129076506858318b41347180b83358e35275e04bfec8aa8716a86b83e4d"
+  },
+  {
+    "file": "cambridge_2020.xlsx",
+    "url": "https://media.springernature.com/original/springer-static/esm/art%3A10.1038%2Fs41467-021-27942-w/MediaObjects/41467_2021_27942_MOESM7_ESM.xlsx",
+    "retrieved_at": "2026-10-15T06:20:49.350888+00:00",
+    "status": "downloaded",
+    "final_url": "https://media.springernature.com/original/springer-static/esm/art%3A10.1038%2Fs41467-021-27942-w/MediaObjects/41467_2021_27942_MOESM7_ESM.xlsx",
+    "content_type": "application/octet-stream",
+    "bytes": 76651,
+    "sha256": "3310e6aed161573bcd83a1ea00a8a136dbe3c8a03aa67eb63cffb850d2497d96"
+  },
+  {
+    "file": "nyc_daily.csv",
+    "url": "https://raw.githubusercontent.com/nychealth/coronavirus-data/master/trends/data-by-day.csv",
+    "retrieved_at": "2026-10-15T06:20:49.571952+00:00",
+    "status": "downloaded",
+    "final_url": "https://raw.githubusercontent.com/nychealth/coronavirus-data/master/trends/data-by-day.csv",
+    "content_type": "text/plain; charset=utf-8",
+    "bytes": 355935,
+    "sha256": "a2795d9da4f68d23ca95410df6fe350f7eed0e62392bb377c1c8c3efc05092f5"
+  },
+  {
+    "file": "italy_national.csv",
+    "url": "https://raw.githubusercontent.com/pcm-dpc/COVID-19/master/dati-andamento-nazionale/dpc-covid19-ita-andamento-nazionale.csv",
+    "retrieved_at": "2026-10-15T06:20:50.918725+00:00",
+    "status": "downloaded",
+    "final_url": "https://raw.githubusercontent.com/pcm-dpc/COVID-19/master/dati-andamento-nazionale/dpc-covid19-ita-andamento-nazionale.csv",
+    "content_type": "text/plain; charset=utf-8",
+    "bytes": 253811,
+    "sha256": "30f6a1bd3aa3d99d9072af0e9be8ab23c7cab78e09651e1017b37ae0b97a050b"
+  },
+  {
+    "file": "illinois_k8.csv",
+    "url": "https://databank.illinois.edu/datafiles/dg2y7/download",
+    "retrieved_at": "2026-10-15T06:20:53.233872+00:00",
+    "status": "unavailable",
+    "error": "HTTPError: HTTP Error 403: Forbidden"
+  },
+  {
+    "file": "illinois_k8_dictionary.csv",
+    "url": "https://databank.illinois.edu/datafiles/86k9e/download",
+    "retrieved_at": "2026-10-15T06:20:54.720081+00:00",
+    "status": "unavailable",
+    "error": "HTTPError: HTTP Error 403: Forbidden"
+  },
+  {
+    "file": "duke_2020.html",
+    "url": "https://coronavirus.duke.edu/covid-testing-old/fall-2020-duke-covid-testing-tracker/",
+    "retrieved_at": "2026-10-15T06:20:56.683099+00:00",
+    "status": "redirected_no_data",
+    "final_url": "https://today.duke.edu/",
+    "content_type": "text/html; charset=UTF-8",
+    "bytes": 53038,
+    "sha256": "9c4a1bd592fdadfa8794c81e1c7387f002ddf8947f193db4f4c25e08436c3d69",
+    "note": "Current URL redirects to the Duke homepage; no historical table was obtained."
+  },
+  {
+    "file": "uw_madison_population.pdf",
+    "url": "https://profs.wisc.edu/wp-content/uploads/2021/09/UW-Madison-Fact-Sheet-2021.pdf",
+    "retrieved_at": "2026-10-15T06:20:56.942210+00:00",
+    "status": "downloaded",
+    "final_url": "https://profs.wisc.edu/wp-content/uploads/2021/09/UW-Madison-Fact-Sheet-2021.pdf",
+    "content_type": "application/pdf",
+    "bytes": 976440,
+    "sha256": "8b3ea012cba475d94964cf9dd5728ae35cde90dce1e5d13496079d4a4d82e5d8"
+  },
+  {
+    "file": "csdh_learning_models.zip",
+    "url": "https://assets.ctfassets.net/9fbw4onh0qc1/3JXV9ahOubLLnh9aHTHgKv/6e3c8a2baf1f2e0517edd9e454ee5c74/CSDH_District_Files_-_CSV.zip",
+    "retrieved_at": "2026-10-15T06:28:44.857666+00:00",
+    "status": "downloaded",
+    "bytes": 1241735,
+    "sha256": "265362b7d77e8298aaf7aaef6ecee8d56fdca2fb674e288d0841bac7ce36f4bf"
+  },
+  {
+    "file": "csdh_masking.zip",
+    "url": "https://assets.ctfassets.net/9fbw4onh0qc1/5CvsELupAMEAjAASxlDEcU/dad40bde6fd21bf8587a75920d6c5f41/Masking_Data_CSV.zip",
+    "retrieved_at": "2026-10-15T06:28:44.858666+00:00",
+    "status": "downloaded",
+    "bytes": 430147,
+    "sha256": "933fb29f450ddfff1070db56101983b46ce67b0bfb4f35699baa2853d4a7cc6f"
+  }
+]

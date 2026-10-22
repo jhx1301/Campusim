@@ -1,0 +1,2 @@
+# Preserve downloaded snapshots byte-for-byte for their recorded SHA-256 hashes.
+data/raw/** -text
