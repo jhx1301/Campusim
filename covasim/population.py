@@ -270,7 +270,16 @@ def make_randpop(pars, use_age_data=True, use_household_data=True, sex_ratio=0.5
         age_data_range = age_data_max - age_data_min
         age_data_prob  = campus_age_data[:, 2].astype(cvd.default_float)
         age_data_prob /= age_data_prob.sum()
-        age_bins = cvu.n_multinomial(age_data_prob, pop_size)
+        campus_age_counts = pop_pars.get('campus_age_counts', None)
+        if campus_age_counts is not None:
+            counts = np.asarray(campus_age_counts, dtype=cvd.default_int)
+            if (counts.ndim != 1 or len(counts) != len(campus_age_data)
+                    or np.any(counts < 0) or int(counts.sum()) != pop_size):
+                raise ValueError('campus_age_counts must be nonnegative integers matching campus_age_data bins and pop_size')
+            age_bins = np.repeat(np.arange(len(counts)), counts)
+            np.random.shuffle(age_bins)
+        else:
+            age_bins = cvu.n_multinomial(age_data_prob, pop_size)
         ages = age_data_min[age_bins] + age_data_range[age_bins] * np.random.random(pop_size)
         popdict['age'] = ages
 

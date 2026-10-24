@@ -1,5 +1,7 @@
 # CEMAS control v1：Phase 2 执行与公共观察契约
 
+> 2026-10-23：本文的旧校准、人口及验收数字为历史记录。当前唯一标准和运行入口以 [UW 控制接入](uw_control_integration.md) 为准；旧结果不作为 UW 验收。
+
 Phase 2 建立统一的运行时数据路径：
 
 ```text

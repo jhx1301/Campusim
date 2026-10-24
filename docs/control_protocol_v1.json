@@ -1,8 +1,8 @@
 {
   "protocol_id": "cemas-control-v1",
-  "status": "phase4_offline_llm_implemented_provider_acceptance_pending",
+  "status": "uw_e0_integrated_source_development",
   "authored_date": "2026-10-12",
-  "reviewed_date": "2026-10-16",
+  "reviewed_date": "2026-10-23",
   "experiment_scope": "partially_observable_campus_control_and_frozen_synthetic_transfer",
   "architecture_constraints": {
     "schema_version": "cemas-control-schema-v1",
@@ -34,12 +34,12 @@
     ]
   },
   "engine": {
-    "pop_size": 12000,
+    "pop_size": 69457,
     "pop_scale": 1,
     "rescale": false,
     "pop_infected": 30,
     "pop_type": "campus",
-    "start_day": "2020-08-03",
+    "start_day": "2020-08-17",
     "execution_days": 112,
     "n_days": 111,
     "decision_interval_days": 7,
@@ -86,7 +86,7 @@
       [
         17,
         23,
-        0.6
+        0.456
       ],
       [
         24,
@@ -96,7 +96,7 @@
       [
         31,
         65,
-        0.2
+        0.344
       ]
     ],
     "campus_undergrad_age_window": [
@@ -111,8 +111,8 @@
       31,
       66
     ],
-    "campus_teacher_ratio": 0.08,
-    "campus_staff_ratio": 0.12,
+    "campus_teacher_ratio": 0.016557006493226025,
+    "campus_staff_ratio": 0.3277855363750234,
     "campus_p_ug_in_lab": 0.1,
     "campus_p_grad_in_class": 0.35,
     "campus_class_size_mean": 40,
@@ -126,7 +126,12 @@
     "campus_k_ls": 4,
     "campus_lab_stability": 0.3,
     "fixed_handling": "isolation_until_engine_recovery_and_quarantine_until_investigation_day_plus_14",
-    "parameter_provenance": "remaining_disease_defaults_frozen_from_current_engine_and_exported_in_resolved_manifest"
+    "parameter_provenance": "remaining_disease_defaults_frozen_from_current_engine_and_exported_in_resolved_manifest",
+    "campus_age_counts": [
+      31650,
+      13890,
+      23917
+    ]
   },
   "environment_configuration": {
     "fixed_baseline": {
@@ -564,65 +569,10 @@
     "initial_infections_in_reward": false
   },
   "calibration": {
-    "method_version": "cemas-e0-v1",
-    "population_interpretation": "synthetic_total_not_notre_dame_student_census",
-    "data_provenance": "reconstructed_aggregate_series",
-    "primary_window": [
-      "2020-08-03",
-      "2020-08-18"
-    ],
-    "fit_parameter": "beta",
-    "beta_range": [
-      0.005,
-      0.04
-    ],
-    "fixed_layer_weights": true,
-    "use_waning": false,
-    "optimizer_seed": 84001,
-    "exploratory_train_seeds": [
-      10101,
-      10102,
-      10103
-    ],
-    "trials": 100,
-    "repeats_per_trial": 3,
-    "loss": "daily_diagnoses_MSE_normalized_by_observed_mean_plus_1_squared",
-    "r_eff_penalty": false,
-    "independent_fit_runs": 20,
-    "fit_band_quantiles": [
-      0.05,
-      0.95
-    ],
-    "exploratory_fit_window": [
-      "2020-08-03",
-      "2020-08-14"
-    ],
-    "exploratory_holdout": [
-      "2020-08-15",
-      "2020-08-18"
-    ],
-    "primary_demography": "shared_v1_engine_population",
-    "testing": {
-      "symp_test": 80,
-      "quar_test": 30,
-      "sensitivity": 0.95,
-      "loss_prob": 0,
-      "test_delay": 0
-    },
-    "tests": "fixed_observed_reconstructed_daily_schedule_test_num_sensitivity_.95_loss_0_delay_0",
-    "reject_claims": [
-      "unqualified_real_world_predictive_validation",
-      "causal_effect_from_post_mitigation_counterfactual_gap"
-    ],
-    "primary_execution_days": 16,
-    "primary_n_days": 15,
-    "exploratory_fit_execution_days": 12,
-    "exploratory_fit_n_days": 11,
-    "exploratory_holdout_seed_range_inclusive": {
-      "start": 10121,
-      "end": 10140
-    },
-    "exploratory_holdout_state": "initialize_from_fit_start_and_continue_without_truth_reset_at_holdout"
+    "config": "docs/e0_protocol_v2.json",
+    "artifact_schema": "cemas-uw-control-anchor-v1",
+    "selection_case": "main",
+    "evidence_scope": "W1_in_sample_parameter_anchor_and_consistency_check_not_predictive_or_external_validation"
   },
   "source": {
     "beta_scale_uniform": [
@@ -686,15 +636,6 @@
       90001,
       90002
     ],
-    "calibration": [
-      10001,
-      10002,
-      10003
-    ],
-    "fit_evaluation": {
-      "start_inclusive": 10021,
-      "end_inclusive": 10040
-    },
     "validation_A": {
       "start_inclusive": 20001,
       "end_inclusive": 20009
@@ -959,7 +900,7 @@
     "E3": {
       "beta_scale": 1,
       "screening_capacity_ratio": 0.05,
-      "pop_size": 12000,
+      "pop_size": 69457,
       "resource_events": false,
       "public_disease_semantics": "same_beta_prior_and_abstract_setting_weights",
       "city_A": {

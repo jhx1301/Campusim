@@ -149,5 +149,15 @@
     "status": "downloaded",
     "bytes": 430147,
     "sha256": "933fb29f450ddfff1070db56101983b46ce67b0bfb4f35699baa2853d4a7cc6f"
+  },
+  {
+    "file": "uw_madison_2020_residence_study.html",
+    "url": "https://wwwnc.cdc.gov/eid/article/27/11/21-1306_article",
+    "retrieved_at": "2026-10-22T07:46:22.062961+00:00",
+    "status": "downloaded",
+    "final_url": "https://wwwnc.cdc.gov/eid/article/27/11/21-1306_article",
+    "content_type": "text/html; charset=utf-8",
+    "bytes": 410491,
+    "sha256": "56c9513c7e706eec7d330a674e1f6a5efc0eb36bf0fe2c289c1e094580013027"
   }
 ]

@@ -1,0 +1,4 @@
+test_reason,tests_administered,asymptomatic,symptomatic,presymptomatic,source_id,locator,period_start,period_end
+Surveillance,66577,248,,180,phr_europepmc_supplement,Supplementary Table 1,2020-08-10,2020-11-20
+Reported symptoms,4015,,485,,phr_europepmc_supplement,Supplementary Table 1,2020-08-10,2020-11-20
+Contact tracing or exposure (no reported symptoms),2898,141,,144,phr_europepmc_supplement,Supplementary Table 1,2020-08-10,2020-11-20

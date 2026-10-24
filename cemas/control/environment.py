@@ -197,7 +197,7 @@ class WeeklyControlEnvironment:
                               ("initial_infections", self.protocol.initial_infections)):
             if key in settings and (type(settings[key]) is not int or settings[key] != expected):
                 raise ValueError(f"scientific {key} must match the calibrated protocol")
-        from .calibration import load_calibration_artifact
+        from ..e0.artifacts import load_calibration_artifact
 
         verified = load_calibration_artifact(artifact, self.protocol, data_path=data_path)
         settings["beta"] = verified.beta * scale

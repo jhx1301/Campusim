@@ -1,5 +1,7 @@
 # Phase 6 接口与验收记录
 
+> 2026-10-23：本文的旧校准、人口及验收数字为历史记录。当前唯一标准和运行入口以 [UW 控制接入](uw_control_integration.md) 为准；旧结果不作为 UW 验收。
+
 更新：2026-10-18。实施基线：`feature/control-protocol-v1@1a13d9e`。
 
 当前已接入 Threshold、MaskablePPO、DDQN、源域训练/选择与案例库发布工程。工程验证、短训练、正式源域实验和共同冻结分别登记；工程通过不表示控制收益或 Phase 7 已就绪。
@@ -31,9 +33,9 @@ $env:OMP_NUM_THREADS = '1'
 $env:MKL_NUM_THREADS = '1'
 $env:MKL_THREADING_LAYER = 'SEQUENTIAL'
 & $python -m examples.control_v1.baselines --help
-& $python -m examples.control_v1.baselines pilot --artifact results/phase6_engineering/e0_primary/artifact.json --reference maximum_feasible --output results/phase6_pilot
-& $python -m examples.control_v1.baselines tune --artifact results/phase6_engineering/e0_primary/artifact.json --output results/phase6_threshold
-& $python -m examples.control_v1.baselines train --artifact results/phase6_engineering/e0_primary/artifact.json --method ppo --maximum-budget 8192 --output results/phase6_ppo
+& $python -m examples.control_v1.baselines pilot --artifact results/e0_v2/full/control_anchor.json --reference maximum_feasible --output results/phase6_pilot
+& $python -m examples.control_v1.baselines tune --artifact results/e0_v2/full/control_anchor.json --output results/phase6_threshold
+& $python -m examples.control_v1.baselines train --artifact results/e0_v2/full/control_anchor.json --method ppo --maximum-budget 8192 --output results/phase6_ppo
 ```
 
 这些是可调用入口，不表示已运行上述正式调参/训练。输出使用新目录，错误保留原运行证据；推理 checkpoint 不提供 replay/活动世界的精确崩溃恢复。

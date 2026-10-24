@@ -459,7 +459,7 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
 def memory_source_compatibility(protocol, calibration_artifact=None, *, execution_days=None, data_path=None):
     """Compute private source compatibility outside every public memory component."""
     import hashlib
-    from .calibration import load_calibration_artifact
+    from ..e0.artifacts import load_calibration_artifact
     root = Path(__file__).resolve().parents[2]
     source = {}
     for directory in (root / "cemas/control", root / "covasim"):
@@ -471,7 +471,7 @@ def memory_source_compatibility(protocol, calibration_artifact=None, *, executio
     objective["execution_days"] = days
     artifact_sha = None
     if calibration_artifact is not None:
-        artifact_sha = load_calibration_artifact(calibration_artifact, protocol, require_evaluation=True, data_path=data_path).sha256
+        artifact_sha = load_calibration_artifact(calibration_artifact, protocol, data_path=data_path).sha256
     return {"source_code_sha256": snapshot_sha256(source), "calibration_artifact_sha256": artifact_sha,
             "execution_days": days, "objective_sha256": snapshot_sha256(objective),
             "initial_baseline_days": protocol.definition["engine"]["initial_baseline_days"]}

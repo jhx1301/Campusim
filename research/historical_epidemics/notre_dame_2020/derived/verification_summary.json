@@ -1,0 +1,133 @@
+{
+  "testing": {
+    "rows": 1003,
+    "start": "2020-08-10",
+    "end": "2020-12-04",
+    "observed_dates": 117,
+    "missing_dates": [],
+    "roles": [
+      "faculty",
+      "other",
+      "staff",
+      "student"
+    ],
+    "test_reasons": [
+      "Contact_Tracing",
+      "ST_Random",
+      "ST_Targeted",
+      "Symptomatic"
+    ],
+    "totals_by_role": {
+      "faculty": {
+        "tests": 3151,
+        "positive_results": 32
+      },
+      "other": {
+        "tests": 494,
+        "positive_results": 11
+      },
+      "staff": {
+        "tests": 12233,
+        "positive_results": 207
+      },
+      "student": {
+        "tests": 72314,
+        "positive_results": 2263
+      }
+    },
+    "unique_people_verified": false
+  },
+  "wastewater": {
+    "rows": 120,
+    "start": "2020-08-03",
+    "end": "2020-11-30",
+    "complete_rna_dates": 87,
+    "missing_rna_dates": [
+      "2020-08-06",
+      "2020-08-10",
+      "2020-08-11",
+      "2020-09-02",
+      "2020-09-03",
+      "2020-09-04",
+      "2020-09-05",
+      "2020-09-06",
+      "2020-09-07",
+      "2020-09-08",
+      "2020-09-12",
+      "2020-09-13",
+      "2020-09-21",
+      "2020-09-22",
+      "2020-09-23",
+      "2020-09-24",
+      "2020-09-25",
+      "2020-09-26",
+      "2020-09-27",
+      "2020-09-28",
+      "2020-09-29",
+      "2020-09-30",
+      "2020-10-01",
+      "2020-10-02",
+      "2020-10-03",
+      "2020-10-04",
+      "2020-10-05",
+      "2020-10-06",
+      "2020-10-07",
+      "2020-10-08",
+      "2020-10-09",
+      "2020-10-10",
+      "2020-10-11"
+    ],
+    "flow_observed_dates": 22,
+    "paper_vs_file_warning": "Paper says sampling interrupted September 1-9, but file has RNA on September 1 and September 9. No dates were shifted."
+  },
+  "isolation_linked": {
+    "rows": 102,
+    "start": "2020-08-10",
+    "end": "2020-11-20",
+    "missing_dates": [
+      "2020-10-03"
+    ],
+    "occupancy_or_entry_semantics_verified": false,
+    "Total_Pos_Daily_sum_not_unique_people": 2838
+  },
+  "supplement": {
+    "testing_reason_rows": 3,
+    "sar_rows": 42,
+    "symptom_cohort_cases": 1198,
+    "testing_reason_total_tests": 73490,
+    "first_positive_only": true,
+    "contact_groups_overlap": true
+  },
+  "demographics": {
+    "demographic_rows": 24,
+    "symptom_definitions": 11,
+    "represents_whole_campus": false
+  },
+  "repository_commit": "7ee3a5a1afb1ee5a1dd01ada37bf94ae41aa8b7b",
+  "inputs": {
+    "COVID_Surveillance_Impact_20200810-20201204.csv": "29f9c98eb7d2127b8c7ecb33e638e3ccb9077513fc1c1e6234ff9bcd540001ab",
+    "NDCampus_ddPCRdata_cleanedrawdata_0s.csv": "fec7ee901f0a9db184369d8b4bebb9a63433f2ec52a1f4c1bd09ee53b183d4a6",
+    "Sewage_Sampling_Fall_Data_20210507.csv": "6853f0663f628d14beff71ce358e4ab8afc686b2aebc04ac6c22f376b12d8e66",
+    "phr_europepmc_supplement.zip": "3553f4f3f5fd9bbb7113336c3863d95f21f53d9ce3b3a8a514c1a803ef9cfdee",
+    "phr_europepmc.xml": "e779317f86fd25187931f748dede932a5bc90fc00b775edbffbdc00995112c1f"
+  },
+  "manual_context": {
+    "context_observations.csv": {
+      "rows": 51,
+      "sha256": "88d08dadcf99360b6264d4206f77547416ae44821628b4ef544a0996d97a8173"
+    },
+    "events.csv": {
+      "rows": 19,
+      "sha256": "a8b0ed8922cf35ced78436ec87b2e3572b1c55baec4a2b140e72b1b77c714e79"
+    }
+  },
+  "outputs": {
+    "case_demographics.csv": "81e2948aaa684c9c09d4c868cb2ef96b3a2de00cddba00074ee6674caadba9b5",
+    "isolation_author_daily.csv": "d8513bbd867b960e4ebabd77a7c55b2330ec9ee05e8c2ee04c02719418dce4a8",
+    "secondary_attack_rates.csv": "813e638a5f1c3d6c20cadd034235fb2cc677ef66176fe7639e484f91ddc161c1",
+    "supplement_testing_reasons.csv": "29e4225079d4d5b16b4a225d3a0c58ed038ecf3e83762708e0cdd2101e01185d",
+    "symptom_definitions.csv": "03b3f6f853266dc08668dca1533078394ffdf7d9005d9b036a30a7223cc880aa",
+    "testing_by_role_reason.csv": "e44057062bcfeef9ac1837a81a0dfb083e46058634e3346d3a9b265d15cf894b",
+    "wastewater_daily.csv": "2e06e55fabfb93e722f44686525a7f18f101d7851412ed69cd2f1ab270a29716"
+  }
+}

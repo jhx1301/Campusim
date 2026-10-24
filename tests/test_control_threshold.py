@@ -130,7 +130,7 @@ def test_source_configuration_rejects_seed_loss_and_zero_epsilon_horizon(tmp_pat
 
 def test_threshold_trial_metadata_is_not_mistaken_for_a_loaded_model(tmp_path, monkeypatch):
     from types import SimpleNamespace
-    import cemas.control.calibration as calibration
+    import cemas.e0.artifacts as calibration
     from cemas.control.controllers import _BASELINE_METADATA
     from cemas.control.runner import run_episode
 

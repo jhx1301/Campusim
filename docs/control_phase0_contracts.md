@@ -1,5 +1,7 @@
 # CEMAS control v1：Phase 0 接口与 schema
 
+> 2026-10-23：本文的旧校准、人口及验收数字为历史记录。当前唯一标准和运行入口以 [UW 控制接入](uw_control_integration.md) 为准；旧结果不作为 UW 验收。
+
 本文件记录 2026-10-13 确认的工程契约，补充[推荐协议 v1](llm_recommended_protocol_v1.md)和[机器配置](control_protocol_v1.json)。schema 版本为 `cemas-control-schema-v1`。
 
 Phase 0 只实现协议静态加载/验证、不可变数据类型、抽象接口、公共序列化及 hash、DecisionRecord schema、环境清点和测试。没有具体控制器、动作编解码或 mask 算法、reward 公式、模拟环境、记忆检索、RL 训练或实验编排。

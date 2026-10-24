@@ -140,6 +140,10 @@ def resolve_campus_parameters(protocol: ControlProtocol, world_seed: int, *, bet
     pars = cv.make_pars(set_prognoses=True, prog_by_age=protocol.definition["engine"]["prog_by_age"])
     pars.update({key: _thaw(value) for key, value in protocol.definition["engine"].items()
                  if key in pars})
+    # Small smoke worlds sample the same UW age fractions. Exact census counts
+    # belong to the full population; scientific environments forbid resizing.
+    if population != protocol.population:
+        pars["campus_age_counts"] = None
     pars.update(pop_size=population, pop_infected=initial_infections,
                 n_days=execution_days - 1, end_day=None, beta=beta, rand_seed=world_seed, verbose=0,
                 iso_factor=dict(d=.3, clu=.1, clg=.1, of=.1, ta=.2, cm=.1),

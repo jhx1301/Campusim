@@ -64,6 +64,7 @@ def make_pars(set_prognoses=False, prog_by_age=True, version=None, **kwargs):
         [31, 60, 0.19],
         [61, 99, 0.01],
     ], dtype=cvd.default_float)
+    pars['campus_age_counts'] = None  # Optional exact per-bin counts; None keeps random sampling
 
     # Disjoint windows are required
     pars['campus_undergrad_age_window'] = [17, 24]   # [min, max)

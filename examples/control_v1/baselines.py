@@ -61,8 +61,8 @@ def main(argv=None):
     elif args.command == "horizon":
         result = horizon_report(protocol, json.loads(args.records.read_text(encoding="utf-8")))
     else:
-        from cemas.control.calibration import load_calibration_artifact
-        load_calibration_artifact(args.artifact, protocol, require_evaluation=True, data_path=args.data)
+        from cemas.e0.artifacts import load_calibration_artifact
+        load_calibration_artifact(args.artifact, protocol, data_path=args.data)
         kwargs = {"calibration_data_path": args.data}
         if args.command == "tune":
             result = tune_threshold(protocol, args.output, args.artifact, **kwargs)

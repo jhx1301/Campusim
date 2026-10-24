@@ -993,9 +993,9 @@
   ],
   "context_tables": {
     "events.csv.gz": {
-      "rows": 336966,
-      "sha256": "1c8d8fa18eda869ab983fecb039878b1c8d7822164da22f97fab2ef3a4443ece",
-      "bytes": 3464154,
+      "rows": 336978,
+      "sha256": "2038e16b937cd06db4de8c99a267866930a7f92ab8c41acc9f22b97ca4fc977e",
+      "bytes": 3467949,
       "entity_count": 12338,
       "metrics": [],
       "date_start": null,
@@ -1003,19 +1003,24 @@
       "quality_counts": {
         "quality:official_announced_schedule": 1,
         "quality:official_announced_schedule_open_end": 4,
-        "quality:official_retrospective_record": 4,
+        "quality:official_retrospective_record": 9,
         "quality:primary_outbreak_report_retrospective": 2,
         "quality:primary_outbreak_report_retrospective_open_end": 1,
         "quality:primary_research_historical_context": 3,
+        "quality:published_research_retrospective_record": 1,
+        "quality:published_research_regime_dates_unknown": 1,
+        "quality:official_dashboard_revision_backfill_unknown": 3,
+        "quality:official_retrospective_record_announced_end": 1,
+        "quality:official_retrospective_record_open_end": 1,
         "quality:recorded_period_state": 313945,
         "quality:effective_date_not_reported": 22260,
         "quality:recorded_policy": 746
       }
     },
     "populations.csv.gz": {
-      "rows": 322239,
-      "sha256": "0ec2293ee0dd2aa660ab1c088ca3305201b7c1359786a4ebc68ca650d657ea1e",
-      "bytes": 2646567,
+      "rows": 322241,
+      "sha256": "4ba53470d22a410e593c542b83e02d06577d2b6e090067f6499b753fdd6e0dbc",
+      "bytes": 2647162,
       "entity_count": 6791,
       "metrics": [],
       "date_start": "2020-08-01",
@@ -1028,6 +1033,8 @@
         "quality:approximate_primary_report_population": 1,
         "quality:author_defined_census_aggregation": 2,
         "quality:official_census_snapshot": 1,
+        "quality:published_research_residence_roster_snapshot": 1,
+        "quality:published_research_tested_people_interval": 1,
         "quality:observed": 322229
       }
     },
@@ -1055,6 +1062,8 @@
   "limitations": [
     "Datasets can share upstream observations; do not treat archive copies as independent outbreaks.",
     "Population registration, tested cohorts, and residential populations are not interchangeable.",
+    "UW observation-process audit: sources/evidence/uw_madison_2020_observation_audit.md; dashboard revision dates do not establish historical backfill boundaries.",
+    "UW has no full-campus daily unique tested-person counts or sampling composition; 5820 tested residence students is only the August 25-31 move-in cohort interval, not full-campus coverage.",
     "Missing/suppressed cells are not zero; bounded source strings are retained in raw_value.",
     "NCES numeric identifiers are padded to their standard widths; original IDs are retained in entities.csv.gz.",
     "CSDH school and district statistics must not be copied or summed across nested geographic levels.",

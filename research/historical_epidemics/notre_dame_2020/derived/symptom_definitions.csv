@@ -1,0 +1,12 @@
+symptom,definition,source_id,locator
+Body aches/chills,Body aches and chills (not explained by exercise or cold environment),phr_europepmc_xml,Symptom Box
+Congestion,Persistent congestion or runny nose (not from a chronic or known condition),phr_europepmc_xml,Symptom Box
+Diarrhea,Diarrhea (>3 loose stools in 24 h),phr_europepmc_xml,Symptom Box
+Fatigue,Unexplained fatigue (not from a lack of sleep),phr_europepmc_xml,Symptom Box
+Fever,Fever of ≥100.4 °F on 2 occasions 5 min apart,phr_europepmc_xml,Symptom Box
+Headache,Headache (not from a known or chronic condition),phr_europepmc_xml,Symptom Box
+Nausea or vomiting,Nausea or vomiting,phr_europepmc_xml,Symptom Box
+New dry cough,New dry cough (not from a known or chronic condition),phr_europepmc_xml,Symptom Box
+Loss of taste/smell,New loss of taste or smell,phr_europepmc_xml,Symptom Box
+Shortness of breath,New shortness of breath or difficulty breathing (not from a known or chronic condition),phr_europepmc_xml,Symptom Box
+Sore throat,Painful sore throat (not from a known or chronic condition),phr_europepmc_xml,Symptom Box

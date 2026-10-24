@@ -1,0 +1,52 @@
+period_label,metric,population,value,unit,qualifier,source_id,source_locator,limitation
+Fall 2020,fall_enrollment,all_students,12809,people,reported,annual_report_2022,PDF page 6 printed page 5 / academic year ending May 2021,Enrollment snapshot is not daily campus presence
+Fall 2020,fall_enrollment,undergraduates,8874,people,reported,annual_report_2022,PDF page 6 printed page 5 / academic year ending May 2021,Do not use the column headed 2020 for Fall 2020
+Fall 2020,fall_enrollment,graduate_and_professional,3935,people,reported,annual_report_2022,PDF page 6 printed page 5 / academic year ending May 2021,Includes professional degree programs
+Fall 2020,student_population,all_students,12000,people,approximate,cdc_mmwr,Preparations and introductory paragraph,Approximation differs from annual enrollment definition
+Fall 2020,student_population,undergraduates,8000,people,approximate,cdc_mmwr,Introductory paragraph,Approximation not an exact census
+Fall 2020,on_campus_residence_fraction,undergraduates,0.85,fraction,approximate,cdc_mmwr,Introductory paragraph,Denominator is undergraduates only
+Before entry Fall 2020,preentry_tested_people,students,11836,people,reported,cdc_mmwr,Preparations for Fall Semester,Preentry screening is outside the daily on-campus testing table
+Before entry Fall 2020,preentry_positive,students,33,people,reported,cdc_mmwr,Preparations for Fall Semester,Positive students required clearance before entry
+2020-08-16/2020-08-22,confirmed_cases,all_roles,371,people,reported,cdc_mmwr,Campus Outbreak and Response,Keep period total; do not expand to daily values
+2020-08-16/2020-08-22,confirmed_cases,undergraduates,355,people,reported,cdc_mmwr,Campus Outbreak and Response,Subset of the 371-case outbreak total
+2020-08-16/2020-08-22,confirmed_cases,graduate_students,13,people,reported,cdc_mmwr,Campus Outbreak and Response,Subset of the 371-case outbreak total
+2020-08-16/2020-08-22,confirmed_cases,faculty,1,people,reported,cdc_mmwr,Campus Outbreak and Response,Subset of the 371-case outbreak total
+2020-08-16/2020-08-22,confirmed_cases,staff,2,people,reported,cdc_mmwr,Campus Outbreak and Response,Subset of the 371-case outbreak total
+2020-08-16/2020-08-22,off_campus_residence_fraction,undergraduate_cases,0.62,fraction,reported,cdc_mmwr,Campus Outbreak and Response,Denominator is undergraduate cases rather than all undergraduates
+Before August surge,isolation_quarantine_capacity,combined_facilities,250,beds,reported,cdc_mmwr,Campus Outbreak and Response,Exact capacity-change date unavailable
+During August surge,isolation_quarantine_capacity,combined_facilities,1007,beds,reported,cdc_mmwr,Campus Outbreak and Response,Capacity is not occupied beds; exact change date unavailable
+2020-08-16/2020-08-29,isolation_or_quarantine_placements,students,1250,people,reported,cdc_mmwr,Campus Outbreak and Response,Combined period total is not daily occupancy
+2020-08-16/2020-08-29,quarantined,students,802,people,reported,cdc_mmwr,Campus Outbreak and Response,Do not sum with the combined placements total
+2020-08-16/2020-08-29,eventually_positive_in_quarantine,quarantined_students,83,people,reported,cdc_mmwr,Campus Outbreak and Response,Subset of the 802 quarantined students
+Before August surge,contact_tracers,full_time_staff,9,people,reported,cdc_mmwr,Campus Outbreak and Response,Exact workforce-change date unavailable
+During August surge,contact_tracers,full_time_staff,11,people,reported,cdc_mmwr,Campus Outbreak and Response,Not the whole university faculty/staff population
+During August surge,contact_tracers,part_time_staff,13,people,reported,cdc_mmwr,Campus Outbreak and Response,Headcount not FTE
+2020-09-01/2020-11-11,quarantine_cohort,student_close_contacts,1355,people,reported,quarantine_pmc,Results,Study enrollment interval is not policy introduction date
+2020-09-01/2020-11-11,ineligible_for_shortened_protocol,student_close_contacts,45,people,reported,quarantine_pmc,Results,Symptomatic or otherwise positive before shortened-release assessment
+2020-09-01/2020-11-11,eligible_for_shortened_protocol,student_close_contacts,1310,people,reported,quarantine_pmc,Results,1355 minus 45
+2020-09-01/2020-11-11,positive_day4_pcr,eligible_close_contacts,143,people,reported,quarantine_pmc,Results,Subset of 1310 eligible students
+2020-09-01/2020-11-11,tested_day7_antigen,day4_negative_contacts,1167,people,reported,quarantine_pmc,Results,1310 minus 143
+2020-09-01/2020-11-11,positive_day7_antigen,day7_tested_contacts,15,people,reported,quarantine_pmc,Results,Subset of 1167 day7-tested students
+2020-09-01/2020-11-11,released_day7,negative_asymptomatic_contacts,1152,people,reported,quarantine_pmc,Results,1167 minus 15; not cumulative campus recoveries
+2020-09-01/2020-11-11,subsequently_positive,released_day7_contacts,74,people,reported,quarantine_pmc,Results,Follow-up through study end rather than equal follow-up for every contact
+2020-09-01/2020-11-11,positive_after_day14,released_day7_contacts,56,people,reported,quarantine_pmc,Results,Subset of the 74 subsequent positives
+2020-09-01/2020-11-11,positive_within_day14,released_day7_contacts,18,people,reported,quarantine_pmc,Results,Subset of the 74 subsequent positives
+2020-09-01/2020-11-11,tested_after_release,released_day7_contacts,1048,people,reported,quarantine_pmc,Results,Subset of the 1152 released students
+Through 2020-08-25,general_surveillance_tests,nonathlete_students,1000,tests,greater_than,nd_aug25,Surveillance Testing,Lower bound; not an exact daily count
+Through 2020-08-25,general_surveillance_positivity,nonathlete_students,0.011,fraction,reported,nd_aug25,Surveillance Testing,Window and group differ from later reports
+Through 2020-08-28,general_surveillance_tests,nonathlete_community,1400,tests,greater_than,nd_resume,Surveillance Testing,Lower bound; cumulative through communication date
+Through 2020-08-28,general_surveillance_positivity,nonathlete_community,0.008,fraction,reported,nd_resume,Surveillance Testing,Not unique-person infection prevalence
+Week ending 2020-10-10,all_tests,campus_testing,3981,tests,reported,cdc_mmwr,Implementation of Screening,Weekly total
+Week ending 2020-10-10,diagnostic_tests,campus_testing,521,tests,reported,cdc_mmwr,Implementation of Screening,Subset of weekly all-tests total
+Week ending 2020-10-10,screening_tests,campus_testing,3460,tests,reported,cdc_mmwr,Implementation of Screening,Subset of weekly all-tests total
+Semester ending 2020-11-20,reported_cases,all_roles,1737,people,reported,nd_semester,Final-semester totals paragraph,Retrospective published total; distinct from author positive-result sums
+Semester ending 2020-11-20,reported_cases,undergraduates,1423,people,reported,nd_semester,Final-semester totals paragraph,Subset of 1737 reported cases
+Semester ending 2020-11-20,reported_cases,graduate_students,143,people,reported,nd_semester,Final-semester totals paragraph,Subset of 1737 reported cases
+Semester ending 2020-11-20,reported_cases,employees,171,people,reported,nd_semester,Final-semester totals paragraph,Subset of 1737 reported cases
+Through 2020-12-16,reported_positive_cases,all_roles,1871,people,figure_read,plos_figure,Top summary / updated 2020-12-17,Subgroup labels sum to 1867 rather than 1871; unresolved
+Through 2020-12-16,reported_positive_cases,undergraduates,1438,people,figure_read,plos_figure,Top summary,Do not force subgroup sum to match total
+Through 2020-12-16,reported_positive_cases,graduate_students,159,people,figure_read,plos_figure,Top summary,Do not force subgroup sum to match total
+Through 2020-12-16,reported_positive_cases,employees,270,people,figure_read,plos_figure,Top summary,Do not force subgroup sum to match total
+Through 2020-12-16,all_tests,campus_testing,95032,tests,figure_read,plos_figure,Top summary,Snapshot rather than recovered daily table
+Through 2020-12-16,diagnostic_tests,campus_testing,13160,tests,figure_read,plos_figure,Top summary,Subset of 95032 tests
+Through 2020-12-16,surveillance_tests,campus_testing,81872,tests,figure_read,plos_figure,Top summary,Subset of 95032 tests

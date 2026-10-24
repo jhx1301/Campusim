@@ -246,6 +246,8 @@ def build():
         "datasets": datasets, "context_tables": context,
         "limitations": ["Datasets can share upstream observations; do not treat archive copies as independent outbreaks.",
                         "Population registration, tested cohorts, and residential populations are not interchangeable.",
+                        "UW observation-process audit: sources/evidence/uw_madison_2020_observation_audit.md; dashboard revision dates do not establish historical backfill boundaries.",
+                        "UW has no full-campus daily unique tested-person counts or sampling composition; 5820 tested residence students is only the August 25-31 move-in cohort interval, not full-campus coverage.",
                         "Missing/suppressed cells are not zero; bounded source strings are retained in raw_value.",
                         "NCES numeric identifiers are padded to their standard widths; original IDs are retained in entities.csv.gz.",
                         "CSDH school and district statistics must not be copied or summed across nested geographic levels.",

@@ -1,6 +1,6 @@
 # 历史疫情数据调研与验证资料
 
-核查与整理日期：2026-10-15。本目录将公开历史聚合数据整理成统一观测长表、历史事件、人口和机构表，并提供 CEMAS 读取接口。完整选型分析见[主调研报告](reports/campus_epidemic_data_review.md)及其四个分册。
+核查与整理日期：2026-10-15；UW观测审计补充：2026-10-22。本目录将公开历史聚合数据整理成统一观测长表、历史事件、人口和机构表，并提供 CEMAS 读取接口。完整选型分析见[主调研报告](reports/campus_epidemic_data_review.md)及其四个分册。
 
 当前交付 **85 条来源目录、40 个观测数据集、2,007,056 条观测行**。观测行按“指标×人群×时间”计数，**不是感染人数或独立疫情数**。40个数据集来自8组一般观测提取和32个CSDH州/学校或学区文件；CSDH的32个文件不等于32个州。Florida文件的部分源年份存在疑点，已标记，不能直接用于日历对齐。
 
@@ -39,8 +39,8 @@ historical_epidemics/
 | [sources/records.json](sources/records.json)、[CSV](sources/catalog.csv) | 85条广泛调研来源；保留公开、受限、仅图表、仅接触等访问说明，不能等同于85套已下载观测 |
 | [download_manifest.json](data/download_manifest.json) | 每个原始下载的URL、获取时间、响应状态、字节数和SHA-256；包括获取失败与跳转记录 |
 | `data/observations/*.csv.gz` | 分数据集压缩长表；每个值都带来源URL、字段/单元格定位及原始字符串 |
-| [events.csv.gz](data/events.csv.gz) | 336,966条历史措施/教学状态记录，含15条逐项核查的校园/上海事件；大部分是CSDH按期状态，不能当作同等数量的独立政策变化 |
-| [populations.csv.gz](data/populations.csv.gz) | 322,239条分母记录，含10条人工核查的机构/研究队列/普查分母；同一机构跨期重复记录不能相加 |
+| [events.csv.gz](data/events.csv.gz) | 336,978条历史措施/教学状态记录，含27条逐项核查的事件/制度背景；其中UW为15条（含日期未知的研究制度描述）；大部分是CSDH按期状态，不能当作同等数量的独立政策变化 |
+| [populations.csv.gz](data/populations.csv.gz) | 322,241条人口/队列记录，含12条人工核查的机构/研究队列/普查或受检人数记录；同一机构跨期重复记录不能相加 |
 | [entities.csv.gz](data/entities.csv.gz) | 29,215个CSDH机构键、名称、学校/学区层级及原始NCES ID；不是个体成员表 |
 | [quality_issues.csv.gz](data/quality_issues.csv.gz) | 8处隔离记录：7个原始日期逆序行和1个非数值病例单元格；原始文件保留以便复核 |
 | [manual_context.json](sources/manual_context.json) | 逐条人工核查的历史事件/人口及原文定位，是生成上下文表的输入 |
@@ -59,6 +59,18 @@ historical_epidemics/
 | `nyc_daily` | 2020-02-29—2025-10-13 | 全市和5行政区的确诊、疑似病例、按入院日住院病例、死亡；49,296行 | 适合城市/社区多结局验证。不是大学数据；各指标日期含义不同，末7日原始非布尔标记保留。[官方数据](https://github.com/nychealth/coronavirus-data) |
 | `italy_national` | 2020-02-24—2025-01-08 | 全国病例、累计死亡、在院/ICU存量、新ICU入院、累计检测/受检者；16,029行 | 适合全国聚合及医疗结局；早期检测字段缺失保留，原始修订不强行调平。[官方DPC](https://github.com/pcm-dpc/COVID-19) |
 | `csdh_cases_*`，32份 | 原文件2020–21学年统计；每州/层级独立日期见catalog；Florida需复核 | 学校/学区新增、累计、active及14日窗口病例；保留学生/员工/合计/未知分类 | 以NCES键配教学、口罩和登记人数。报告周期、隐私抑制和日期疑点不同，不能无条件合并。[CSDH方法](https://www.covidschooldatahub.com/methods) |
+
+## UW2020观测审计与设计限制
+
+详细证据、事件适用范围和审计完成度见[UW观测口径与审计边界](sources/evidence/uw_madison_2020_observation_audit.md)。检测点、入住筛查、宿舍定期复检、9/3整合PHMDC、9/16身份/90日既往阳性排除、10/2校外报告日与跨来源去重说明已进入`events.csv.gz`。E0构建另补齐9/2开课、9/7—21本科生活动限制、9/26部分线下恢复、11/30全线上和本科生留家建议，UW共15条。网页更新日不等于历史数据定义的切换日，回填范围未知；制度日期未知时保留空值。
+
+全校137日逐日去重受检人数、重复检测分布及症状/住宿/检测路径构成仍缺失。新增归档的EID研究只给出入住周宿舍队列5,820/6,162受检人数，已进入`populations.csv.gz`；不能分摊成每日人数或外推全校覆盖率。该表现在同时含队列/受检人数，不是每行都可作为全校检测分母。
+
+[E0研究与构建计划](e0_calibration_research_plan.md)冻结W1（8/17—9/6）总阳性累计误差主目标，0/1/2天输出日期偏移分别拟合beta、比较残差；实际时钟仍未知。主场景I0=30、symp_test=80，仅做I0=10/100、symp_test=20/200单因素和周合计损失敏感性，本次不含W2/W3或合成恢复。1SE仅为描述性候选范围，曲线模拟分位带不等于参数置信区间。
+
+E0采用精确合成人口69,457（31,650本科、13,890非本科学生、23,917员工；教师1,150、职员22,767）；这不是已核实去重总人口或真实年龄分布。UW是后续所有基准的目标场景，本次仅实施独立E0，不改变旧12,000人控制场景与旧校准加载器。运行结果以独立E0产物为准，不由数据构建通过推导仿真成功。
+
+W1日行总阳性/检测为589/18,314。8/17学生零检测但员工有1次，8/24才是两组都零检测；阳性率的零分母保留缺失。模型阳性与实际受检量同批平移，窗口前待报告队列为空作初始条件、尾部越窗单存。阳性率只描述受检样本，不能消除选择偏差或证明总体感染率。原始HTML与规范化表逐值一致只能验证本地转换，不能证明上游从未插补、回填或完整去重；累计/周聚合也不能修复这些定义限制。
 
 ## 在系统中直接使用
 
@@ -125,7 +137,7 @@ entities = pd.read_csv(base / "entities.csv.gz", dtype=str, keep_default_na=Fals
 
 ## 已发现并保留的具体差异
 
-1. **Wisconsin2020日表与页脚不同**：137日日表学生合计为3,704阳性/136,584测试；同页页脚为3,711/136,826，差7/242。已逐单元格对照原HTML，未发现解析漏行；原因未由本次证据解释。没有缩放或补造缺失日以强行配平。
+1. **Wisconsin2020日表与页脚不同**：137日日表学生3,704阳性/136,584测试、员工230/20,582；同页页脚分别为3,711/136,826、233/21,025，差学生7/242、员工3/443。已逐单元格对照原HTML，未发现解析漏行；原因未由本次证据解释。拟合使用逐日原值，没有缩放或补造缺失日强行配平。
 2. **Florida源年份疑点**：CSDH 2020–21包中Florida文件把部分1–5月区间写成2020年，包含2020-02-29。保留原日期并加`source_date_review_required`，不擅自改为2021年或重写闰日。该数据可读取检查，但相关系列不能自动导出为日历验证表。精确位置见原ZIP内`CSDH_FL_COVID_Schools.csv`。
 3. **纽约原始标记**：末7日`INCOMPLETE=61030`，不是只含0/1。规范化后保留`source_incomplete_flag=61030`，本轮不推测编码含义；尾部观测不应当作最终完整值。
 4. **获取状态**：Illinois K–8两个下载端返回403，Duke旧fall tracker实际跳转大学新闻主页。这些列为候选/访问问题，未冒充已整理的数据集。部分大型跨校CSV同样仍需完整获取。
@@ -136,16 +148,16 @@ entities = pd.read_csv(base / "entities.csv.gz", dtype=str, keep_default_na=Fals
 ```powershell
 # 从项目根目录运行。单独复制任务目录时，可在该目录使用 scripts/prepare_historical_epidemics.py。
 # 完全离线：从已保存原始文件和结构化来源重建全部观测、上下文和目录
-& 'D:/programfile/miniconda3/envs/simulation/python.exe' research/historical_epidemics/scripts/prepare_historical_epidemics.py build
+& 'E:/pytroch/anaconda3/envs/simulation/python.exe' research/historical_epidemics/scripts/prepare_historical_epidemics.py build
 
 # 完全离线：重算原始/规范化/上下文哈希，检查每行来源、日期、数值和行数
-& 'D:/programfile/miniconda3/envs/simulation/python.exe' research/historical_epidemics/scripts/prepare_historical_epidemics.py verify
+& 'E:/pytroch/anaconda3/envs/simulation/python.exe' research/historical_epidemics/scripts/prepare_historical_epidemics.py verify
 
 # 可选联网：只重取缺失/不匹配的公开文件；不会把访问失败写成已成功
-& 'D:/programfile/miniconda3/envs/simulation/python.exe' research/historical_epidemics/scripts/prepare_historical_epidemics.py fetch
+& 'E:/pytroch/anaconda3/envs/simulation/python.exe' research/historical_epidemics/scripts/prepare_historical_epidemics.py fetch
 
 # 数据准备测试与系统兼容性检查
-& 'D:/programfile/miniconda3/envs/simulation/python.exe' -m pytest research/historical_epidemics/tests tests/test_historical_data.py tests/test_cemas_import.py -q
+& 'E:/pytroch/anaconda3/envs/simulation/python.exe' -m pytest research/historical_epidemics/tests tests/test_historical_data.py tests/test_cemas_import.py -q
 ```
 
 构建仅依赖本目录的原始下载、`sources/records.json`、`sources/manual_context.json`与下载清单；准备脚本只用Python标准库。此前两套来源清单已合并；重复生成器和目录视图已移除，原始专题证据保存在 `sources/evidence/`。Notre Dame重建数据和控制协议保持原状。此交付不包含参数拟合、仿真结果或现实防控方案。

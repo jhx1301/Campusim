@@ -1,0 +1,57 @@
+{
+  "protocol_id": "cemas-uw-e0-v1",
+  "method_version": "cemas-uw-e0-v1",
+  "base_protocol": "docs/control_protocol_v1.json",
+  "window": {
+    "start": "2020-08-17",
+    "end": "2020-09-06"
+  },
+  "data_path": "data/uw_madison_2020_w1.csv",
+  "provenance_path": "data/uw_madison_2020_w1.provenance.json",
+  "population": 69457,
+  "target_groups": {
+    "students": 45540,
+    "employees": 23917
+  },
+  "target_roles": {
+    "undergraduate_students": 31650,
+    "non_undergraduate_students": 13890,
+    "teachers": 1150,
+    "staff": 22767
+  },
+  "initial_infections": 30,
+  "engine_overrides": {
+    "campus_age_data": [
+      [17, 23, 0.456],
+      [24, 30, 0.2],
+      [31, 65, 0.344]
+    ],
+    "campus_age_counts": [31650, 13890, 23917],
+    "campus_teacher_ratio": 0.016557006493226025,
+    "campus_staff_ratio": 0.3277855363750234
+  },
+  "testing": {
+    "symp_test": 80,
+    "quar_test": 30,
+    "sensitivity": 0.95,
+    "loss_prob": 0,
+    "test_delay": 0
+  },
+  "beta_range": [0.005, 0.16],
+  "coarse_points": 16,
+  "refinement_factor": 4,
+  "scan_seeds": [12001, 12002, 12003, 12004, 12005, 12006, 12007, 12008, 12009, 12010, 12011, 12012, 12013, 12014, 12015, 12016, 12017, 12018, 12019, 12020],
+  "fit_seeds": [12101, 12102, 12103, 12104, 12105, 12106, 12107, 12108, 12109, 12110, 12111, 12112, 12113, 12114, 12115, 12116, 12117, 12118, 12119, 12120, 12121, 12122, 12123, 12124, 12125, 12126, 12127, 12128, 12129, 12130, 12131, 12132, 12133, 12134, 12135, 12136, 12137, 12138, 12139, 12140],
+  "evaluation_seeds": [12201, 12202, 12203, 12204, 12205, 12206, 12207, 12208, 12209, 12210, 12211, 12212, 12213, 12214, 12215, 12216, 12217, 12218, 12219, 12220, 12221, 12222, 12223, 12224, 12225, 12226, 12227, 12228, 12229, 12230, 12231, 12232, 12233, 12234, 12235, 12236, 12237, 12238, 12239, 12240],
+  "alignments": [0, 1, 2],
+  "primary_alignment": 1,
+  "primary_metric": "cumulative",
+  "baseline_days": 7,
+  "sensitivities": [
+    {"name": "i0_10", "initial_infections": 10},
+    {"name": "i0_100", "initial_infections": 100},
+    {"name": "symp20", "symp_test": 20},
+    {"name": "symp200", "symp_test": 200}
+  ],
+  "evidence_scope": "W1_in_sample_parameter_anchor_and_consistency_check_not_predictive_or_external_validation"
+}

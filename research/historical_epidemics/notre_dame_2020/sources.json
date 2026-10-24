@@ -1,0 +1,23 @@
+[
+  {"id":"cdc_mmwr","file":"cdc_mmwr.html","url":"https://www.cdc.gov/mmwr/volumes/70/wr/mm7004a3.htm","role":"official outbreak investigation, August to October 2020"},
+  {"id":"nd_dashboard","file":"nd_dashboard.html","url":"https://here.nd.edu/our-approach/dashboard/fall-2020-data/","role":"original fall 2020 dashboard endpoint"},
+  {"id":"plos_pivot","file":"plos_pivot.html","url":"https://journals.plos.org/plospathogens/article?id=10.1371/journal.ppat.1009390","role":"semester-wide retrospective and dashboard figure"},
+  {"id":"phr_transmission","file":"phr_transmission.html","url":"https://journals.sagepub.com/doi/10.1177/00333549221110300","role":"August to November symptom/contact study"},
+  {"id":"phr_supplement","file":"phr_supplement.docx","url":"https://journals.sagepub.com/doi/suppl/10.1177/00333549221110300/suppl_file/sj-docx-1-phr-10.1177_00333549221110300.docx","role":"published aggregate symptom and transmission tables"},
+  {"id":"npj_adaptive","file":"npj_adaptive.html","url":"https://www.nature.com/articles/s41746-022-00562-4","role":"2021 intervention paper; fall 2020 context only"},
+  {"id":"nd_remote","file":"nd_remote.html","url":"https://global.nd.edu/news-events/news/notre-dame-enacts-two-weeks-of-remote-instruction/","role":"August 18 announcement"},
+  {"id":"nd_resume","file":"nd_resume.html","url":"https://politicalscience.nd.edu/news-and-events/news/provost-miranda-evp-cullinan-message-on-resumption-of-in-person-instruction/","role":"August 28 detailed reopening/testing/tracing communication"},
+  {"id":"nd_aug25","file":"nd_aug25.pdf","url":"https://provost.nd.edu/assets/400679/fullsize/reopening_letter_no_15_august_2020.pdf","role":"August 25 test-date and dashboard definition"},
+  {"id":"nd_saliva","file":"nd_saliva.html","url":"https://research.nd.edu/news-and-events/news/we-are-here-to-conduct-surveillance-testing-to-keep-the-university-open/","role":"saliva lab operations and surveillance changes"},
+  {"id":"nd_semester","file":"nd_semester.html","url":"https://magazine.nd.edu/stories/a-most-unusual-semester/","role":"official semester retrospective"},
+  {"id":"nd_foe","file":"nd_foe.html","url":"https://magazine.nd.edu/stories/a-formidable-foe/","role":"official contemporaneous September retrospective"},
+  {"id":"wastewater_repo_tree","file":"wastewater_repo_tree.json","url":"https://api.github.com/repos/scavany/wastewater_shedding_period/git/trees/master?recursive=1","role":"author research repository commit and file listing"},
+  {"id":"wastewater_cases","file":"COVID_Surveillance_Impact_20200810-20201204.csv","url":"https://raw.githubusercontent.com/scavany/wastewater_shedding_period/master/COVID_Surveillance_Impact_20200810-20201204.csv","role":"author aggregate case/surveillance/isolation series"},
+  {"id":"wastewater_samples","file":"NDCampus_ddPCRdata_cleanedrawdata_0s.csv","url":"https://raw.githubusercontent.com/scavany/wastewater_shedding_period/master/NDCampus_ddPCRdata_cleanedrawdata_0s.csv","role":"author campus wastewater assay measurements"},
+  {"id":"wastewater_fall","file":"Sewage_Sampling_Fall_Data_20210507.csv","url":"https://raw.githubusercontent.com/scavany/wastewater_shedding_period/master/Sewage_Sampling_Fall_Data_20210507.csv","role":"author processed wastewater/case analysis data"},
+  {"id":"wastewater_methods","file":"shedding_analysis_quarantine_recovery.R","url":"https://raw.githubusercontent.com/scavany/wastewater_shedding_period/master/shedding_analysis_quarantine_recovery.R","role":"author variable meanings, preprocessing and model"},
+  {"id":"wastewater_license","file":"wastewater_LICENSE","url":"https://raw.githubusercontent.com/scavany/wastewater_shedding_period/master/LICENSE","role":"author repository license"},
+  {"id":"nd_cds","file":"CDS_2020-2021.pdf","url":"https://www3.nd.edu/~instres/CDS/2020-2021/CDS_2020-2021.pdf","role":"official fall enrollment, housing, teaching statistics"},
+  {"id":"wastewater_paper","file":"wastewater_paper.pdf","url":"https://par.nsf.gov/servlets/purl/10342009","role":"published wastewater study with measurement definitions"},
+  {"id":"plos_figure","file":"plos_dashboard.png","url":"https://journals.plos.org/plospathogens/article/figure/image?size=large&id=10.1371/journal.ppat.1009390.g001","role":"published December dashboard snapshot, not machine-readable daily values"}
+]

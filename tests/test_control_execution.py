@@ -277,7 +277,7 @@ def test_configured_activity_budget_matches_prompt_execution_and_reward(tmp_path
     from cemas.control.types import ExecutedAction, PrivateMetrics, PublicObservation
 
     definition = json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
-    definition["engine"].update(pop_size=100, pop_infected=0, execution_days=7, n_days=6)
+    definition["engine"].update(execution_days=7, n_days=6)
     definition["activity"].update(daily_budget_school_or_work=.6, daily_budget_community=.4,
                                   dual_school_work_each=.3, neither_school_nor_work_community=1)
     path = tmp_path / "activity_protocol.json"

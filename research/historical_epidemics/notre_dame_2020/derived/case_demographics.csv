@@ -1,0 +1,25 @@
+characteristic,group,symptom_category,cases,category_cases,percentage,source_id,locator
+Sex,Male,asymptomatic,257,389,66.1,phr_europepmc_xml,Main Table
+Sex,Male,symptomatic,289,485,59.6,phr_europepmc_xml,Main Table
+Sex,Male,presymptomatic,192,324,59.3,phr_europepmc_xml,Main Table
+Sex,Female,asymptomatic,132,389,33.9,phr_europepmc_xml,Main Table
+Sex,Female,symptomatic,196,485,40.4,phr_europepmc_xml,Main Table
+Sex,Female,presymptomatic,132,324,40.7,phr_europepmc_xml,Main Table
+Race,White,asymptomatic,312,389,80.2,phr_europepmc_xml,Main Table
+Race,White,symptomatic,340,485,70.1,phr_europepmc_xml,Main Table
+Race,White,presymptomatic,240,324,74.1,phr_europepmc_xml,Main Table
+Race,Black or African American,asymptomatic,5,389,1.3,phr_europepmc_xml,Main Table
+Race,Black or African American,symptomatic,7,485,1.4,phr_europepmc_xml,Main Table
+Race,Black or African American,presymptomatic,11,324,3.4,phr_europepmc_xml,Main Table
+Race,Hispanic,asymptomatic,36,389,9.3,phr_europepmc_xml,Main Table
+Race,Hispanic,symptomatic,69,485,14.2,phr_europepmc_xml,Main Table
+Race,Hispanic,presymptomatic,35,324,10.8,phr_europepmc_xml,Main Table
+Race,Asian,asymptomatic,6,389,1.5,phr_europepmc_xml,Main Table
+Race,Asian,symptomatic,13,485,2.7,phr_europepmc_xml,Main Table
+Race,Asian,presymptomatic,8,324,2.5,phr_europepmc_xml,Main Table
+Race,≥2 Races,asymptomatic,13,389,3.3,phr_europepmc_xml,Main Table
+Race,≥2 Races,symptomatic,19,485,3.9,phr_europepmc_xml,Main Table
+Race,≥2 Races,presymptomatic,13,324,4.0,phr_europepmc_xml,Main Table
+Race,Other,asymptomatic,17,389,4.4,phr_europepmc_xml,Main Table
+Race,Other,symptomatic,37,485,7.6,phr_europepmc_xml,Main Table
+Race,Other,presymptomatic,17,324,5.2,phr_europepmc_xml,Main Table

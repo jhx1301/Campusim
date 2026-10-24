@@ -216,12 +216,13 @@
     "italy_national.csv",
     "uw_madison_population.pdf",
     "csdh_learning_models.zip",
-    "csdh_masking.zip"
+    "csdh_masking.zip",
+    "uw_madison_2020_residence_study.html"
   ],
   "observation_count": 2007056,
   "context_row_counts": {
-    "events.csv.gz": 336966,
-    "populations.csv.gz": 322239,
+    "events.csv.gz": 336978,
+    "populations.csv.gz": 322241,
     "entities.csv.gz": 29215,
     "quality_issues.csv.gz": 8
   },

@@ -6,7 +6,6 @@ objective; source validation and the horizon gate precede final parameter freeze
 """
 
 from dataclasses import dataclass, field
-from datetime import date
 import hashlib
 import json
 import math
@@ -268,7 +267,7 @@ def _seed_range(value: Any, location: str, *, exclusive: bool = False) -> tuple[
 def _validate_world_seeds(definition: dict) -> None:
     seeds = _section(definition, "seeds", "protocol")
     required_uses = {
-        "smoke", "calibration", "fit_evaluation", "validation_A", "validation_B",
+        "smoke", "validation_A", "validation_B",
         "memory_collection", "prompt_development", "E1_E2", "E3_city_A", "E3_city_B", "E4",
     }
     missing = required_uses - set(seeds)
@@ -292,16 +291,9 @@ def _validate_world_seeds(definition: dict) -> None:
     for index, pool in enumerate(pools):
         intervals.append(_seed_range(pool, f"source.source_world_pools[{index}]", exclusive=True))
 
-    calibration = _section(definition, "calibration", "protocol")
-    intervals.extend(_seed_list(
-        _required(calibration, "exploratory_train_seeds", "calibration"),
-        "calibration.exploratory_train_seeds",
-    ))
-    holdout = _required(calibration, "exploratory_holdout_seed_range_inclusive", "calibration")
-    # This existing field explicitly declares inclusive endpoints in its name.
-    if isinstance(holdout, dict) and set(holdout) == {"start", "end"}:
-        holdout = {"start_inclusive": holdout["start"], "end_inclusive": holdout["end"]}
-    intervals.append(_seed_range(holdout, "calibration.exploratory_holdout_seed_range_inclusive"))
+    config = _uw_config(definition)
+    for stage in ("scan", "fit", "evaluation"):
+        intervals.extend(_seed_list(config[f"{stage}_seeds"], f"uw_e0.{stage}_seeds"))
     # World identities are distinct from optimizer, training, and controller RNG seeds.
     for index, (use, start, end) in enumerate(intervals):
         for other_use, other_start, other_end in intervals[:index]:
@@ -338,68 +330,34 @@ def _validate_objective(definition: Mapping[str, Any]) -> None:
         raise ProtocolValidationError("reward formula confirmation and parameter freeze phases must be explicit")
 
 
-def _validate_calibration(definition: Mapping[str, Any]) -> None:
+def _uw_config(definition):
     spec = _section(definition, "calibration", "protocol")
-    for key, expected in (("method_version", "cemas-e0-v1"),
-                          ("primary_demography", "shared_v1_engine_population"),
-                          ("fit_parameter", "beta"), ("trials", 100),
-                          ("repeats_per_trial", 3), ("fixed_layer_weights", True),
-                          ("use_waning", False), ("r_eff_penalty", False),
-                          ("independent_fit_runs", 20),
-                          ("loss", "daily_diagnoses_MSE_normalized_by_observed_mean_plus_1_squared"),
-                          ("data_provenance", "reconstructed_aggregate_series")):
-        value = spec.get(key)
-        if type(value) is not type(expected) or value != expected:
-            raise ProtocolValidationError(f"calibration.{key} must match v1 semantics")
-    limits = spec.get("beta_range")
-    if not isinstance(limits, list) or len(limits) != 2:
-        raise ProtocolValidationError("calibration.beta_range must have two endpoints")
-    for value in limits:
-        _number(value, "calibration.beta_range", positive=True)
-    if limits[0] >= limits[1]:
-        raise ProtocolValidationError("calibration.beta_range must be increasing")
-    for window_key, execution_key, n_days_key in (
-            ("primary_window", "primary_execution_days", "primary_n_days"),
-            ("exploratory_fit_window", "exploratory_fit_execution_days", "exploratory_fit_n_days")):
-        window = spec.get(window_key)
-        try:
-            if not isinstance(window, list) or len(window) != 2:
-                raise ValueError()
-            start, end = (date.fromisoformat(item) for item in window)
-            days = (end - start).days + 1
-        except (TypeError, ValueError) as exc:
-            raise ProtocolValidationError(f"invalid calibration.{window_key}") from exc
-        if days <= 0 or spec.get(execution_key) != days or spec.get(n_days_key) != days - 1:
-            raise ProtocolValidationError(f"calibration.{window_key} actual days do not match n_days")
-    testing = _section(spec, "testing", "calibration")
-    expected_testing = {"symp_test": 80, "quar_test": 30, "sensitivity": 0.95,
-                        "loss_prob": 0, "test_delay": 0}
-    if set(testing) != set(expected_testing):
-        raise ProtocolValidationError("calibration.testing must explicitly specify test_num parameters")
-    for key, expected in expected_testing.items():
-        if type(testing[key]) is not type(expected) or testing[key] != expected:
-            raise ProtocolValidationError(f"calibration.testing.{key} must match v1")
-    if len(definition["seeds"]["calibration"]) != spec["repeats_per_trial"]:
-        raise ProtocolValidationError("calibration repeats must match the calibration world list")
-    if len(spec["exploratory_train_seeds"]) != spec["repeats_per_trial"]:
-        raise ProtocolValidationError("auxiliary calibration requires three fitting worlds")
-    primary_evaluation = definition["seeds"]["fit_evaluation"]
-    auxiliary_evaluation = spec["exploratory_holdout_seed_range_inclusive"]
-    if (primary_evaluation["end_inclusive"] - primary_evaluation["start_inclusive"] + 1 != 20
-            or auxiliary_evaluation["end"] - auxiliary_evaluation["start"] + 1 != 20):
-        raise ProtocolValidationError("independent calibration evaluation requires twenty worlds")
-    if spec.get("fit_band_quantiles") != [0.05, 0.95]:
-        raise ProtocolValidationError("calibration.fit_band_quantiles must be [0.05, 0.95]")
+    expected = {"config", "artifact_schema", "selection_case", "evidence_scope"}
+    if (set(spec) != expected or spec.get("artifact_schema") != "cemas-uw-control-anchor-v1"
+            or spec.get("selection_case") != "main"):
+        raise ProtocolValidationError("calibration must use the sole UW E0 main anchor")
+    value = spec.get("config")
+    if not isinstance(value, str) or Path(value).is_absolute() or ".." in Path(value).parts:
+        raise ProtocolValidationError("calibration.config must be project-relative")
     try:
-        auxiliary_start, auxiliary_end = map(date.fromisoformat, spec["exploratory_fit_window"])
-        holdout_start, holdout_end = map(date.fromisoformat, spec["exploratory_holdout"])
-        primary_start, primary_end = map(date.fromisoformat, spec["primary_window"])
-        if (auxiliary_start != primary_start or (holdout_start - auxiliary_end).days != 1
-                or holdout_end < holdout_start or holdout_end != primary_end):
-            raise ValueError()
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ProtocolValidationError("auxiliary holdout must continuously follow fitting through the primary end") from exc
-    _integer(spec.get("optimizer_seed"), "calibration.optimizer_seed")
+        config = json.loads((Path(__file__).resolve().parents[2] / value).read_text(encoding="utf-8"))
+        if not isinstance(config, dict) or config.get("protocol_id") != "cemas-uw-e0-v1":
+            raise ValueError("expected UW E0 configuration")
+        return config
+    except (OSError, ValueError) as exc:
+        raise ProtocolValidationError(f"calibration.config: {exc}") from exc
+
+
+def _validate_calibration(definition):
+    config = _uw_config(definition)
+    engine = definition["engine"]
+    expected = {"pop_size": config["population"], "pop_infected": config["initial_infections"],
+                "start_day": config["window"]["start"], **config["engine_overrides"]}
+    for key, value in expected.items():
+        if engine.get(key) != value:
+            raise ProtocolValidationError(f"engine.{key} must match UW E0 calibration")
+    if definition["calibration"]["evidence_scope"] != config["evidence_scope"]:
+        raise ProtocolValidationError("calibration.evidence_scope must match UW E0")
 
 
 def _validate_v1(definition: Any) -> None:

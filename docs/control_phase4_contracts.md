@@ -1,5 +1,7 @@
 # CEMAS control v1：Phase 4 公共 LLM 控制器契约
 
+> 2026-10-23：本文的旧校准、人口及验收数字为历史记录。当前唯一标准和运行入口以 [UW 控制接入](uw_control_integration.md) 为准；旧结果不作为 UW 验收。
+
 本阶段实现 `llm_no_explicit_memory`，沿用 P3 的观察、动作、执行器、目标和 E0 门禁。配置数值以 [协议 JSON](control_protocol_v1.json) 为唯一来源；固定文案以 `cemas/control/prompts/public_v1.json` 为唯一来源。实施与实际验收记录分开登记。
 
 时序适用范围：本文实际验收中的首周LLM调用、H112共16次决策及fatal停在7日等数字保留为P4历史证据。2026-10-20修订后，首周统一最低干预且无LLM调用，day7首次自主决策；当前H112含1个固定窗口和15个自主决策窗口。旧验收不代表新规则已通过；day0 provider探针仍是独立输入验收，不是生产回合调用。

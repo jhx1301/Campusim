@@ -1,5 +1,7 @@
 # CEMAS v1 Phase 5 实施契约
 
+> 2026-10-23：本文的旧校准、人口及验收数字为历史记录。当前唯一标准和运行入口以 [UW 控制接入](uw_control_integration.md) 为准；旧结果不作为 UW 验收。
+
 更新日期：2026-10-17。状态：**主要离线链已实现；source 导出重建仍缺入口，真实 provider/tokenizer 验收未执行。**
 
 本契约记录 Phase 5 的实际接口、边界和本次验证结果。它不把 fixture、fake tokenizer 或离线 transport 当作真实服务验收，也不把案例检索通过当作控制效果结论。

@@ -31,7 +31,7 @@ def write_protocol(tmp_path, definition):
 def test_load_v1_metadata_and_exact_source_hash():
     protocol = load_protocol(PROTOCOL_PATH)
     assert protocol.protocol_id == "cemas-control-v1"
-    assert (protocol.population, protocol.execution_days, protocol.n_days) == (12000, 112, 111)
+    assert (protocol.population, protocol.execution_days, protocol.n_days) == (69457, 112, 111)
     assert (protocol.initial_infections, protocol.decision_interval_days, protocol.history_weeks) == (30, 7, 4)
     assert protocol.action_order == ("T", "S", "C", "E", "A")
     assert protocol.action_sizes == (3, 4, 3, 3, 3)
@@ -73,7 +73,7 @@ def test_phase4_rejects_inconsistent_call_configuration(tmp_path, definition, ke
     ("engine", "pop_size", True, "engine.pop_size"),
     ("engine", "execution_days", 0, "engine.execution_days"),
     ("engine", "n_days", 112, "execution_days - 1"),
-    ("engine", "pop_infected", 12001, "must not exceed"),
+    ("engine", "pop_infected", 69458, "must not exceed"),
     ("engine", "decision_interval_days", 0, "decision_interval_days"),
     ("engine", "decision_interval_days", 14, "decision_interval_days must be 7"),
     ("engine", "history_weeks", -1, "history_weeks"),
@@ -194,10 +194,9 @@ def test_executable_objective_rejects_inconsistent_configuration(tmp_path, defin
 
 
 @pytest.mark.parametrize("key,value", [
-    ("trials", 99), ("primary_demography", "legacy_t18"),
-    ("fit_parameter", "beta_and_layers"), ("r_eff_penalty", True),
-    ("primary_n_days", 16), ("beta_range", [.04, .005]),
-    ("fit_band_quantiles", [.1, .9]), ("exploratory_holdout", ["2020-08-14", "2020-08-18"]),
+    ("artifact_schema", "cemas-e0-artifact-v1"), ("selection_case", "i0_100"),
+    ("config", "../outside.json"), ("evidence_scope", "predictive_validation"),
+    ("trials", 100),
 ])
 def test_e0_configuration_rejects_legacy_or_misaligned_definitions(tmp_path, definition, key, value):
     definition["calibration"][key] = value
@@ -216,7 +215,7 @@ def test_world_seed_purpose_overlap_is_rejected(tmp_path, definition, change):
     elif change == "pilot_overlap":
         definition["source"]["pilot_worlds"][0] = 90001
     elif change == "calibration_overlap":
-        definition["calibration"]["exploratory_train_seeds"][0] = 10021
+        definition["seeds"]["smoke"][0] = 12101
     else:
         definition["source"]["source_world_pools"][0] = {"start_inclusive": 50020, "end_exclusive": 50100}
     with pytest.raises(ProtocolValidationError, match="overlap|duplicate"):
@@ -244,8 +243,9 @@ def test_adjacent_half_open_training_pools_do_not_overlap(tmp_path, definition):
     assert load_protocol(write_protocol(tmp_path, definition)).definition["source"]["source_world_pools"][1]["start_inclusive"] == 1100000
 
 
-def test_named_inclusive_holdout_range_includes_its_end(tmp_path, definition):
-    definition["seeds"]["smoke"][0] = definition["calibration"]["exploratory_holdout_seed_range_inclusive"]["end"]
+def test_uw_evaluation_seed_endpoint_cannot_be_reused(tmp_path, definition):
+    config = json.loads((ROOT / definition["calibration"]["config"]).read_text())
+    definition["seeds"]["smoke"][0] = config["evaluation_seeds"][-1]
     with pytest.raises(ProtocolValidationError, match="overlap"):
         load_protocol(write_protocol(tmp_path, definition))
 

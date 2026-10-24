@@ -10,14 +10,14 @@ def main(argv=None):
     parser.add_argument("--protocol", type=Path, default=root / "docs/control_protocol_v1.json")
     parser.add_argument("--artifact", type=Path, required=True)
     parser.add_argument("--data", type=Path,
-                        help="CSV path relative to the project root (default: data/notre_dame_2020_early.csv)")
+                        help="UW W1 CSV override; bytes must match the frozen provenance")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--validation-split", choices=("A", "B"), default="A")
     parser.add_argument("--seed", type=int, action="append",
                         help="Source validation world; defaults to the first world of the chosen split")
     args = parser.parse_args(argv)
 
-    from cemas.control.calibration import load_calibration_artifact
+    from cemas.e0.artifacts import load_calibration_artifact
     from cemas.control.controllers import MinimumController, MaximumFeasibleController
     from cemas.control.protocol import load_protocol, source_grid
     from cemas.control.runner import run_episode
@@ -28,8 +28,8 @@ def main(argv=None):
     seeds = args.seed or [first]
     if len(set(seeds)) != len(seeds) or any(not first <= seed <= last for seed in seeds):
         parser.error("seeds must be distinct worlds in the selected source validation split")
-    # Loading verifies primary fitting evidence, independent report and compatibility.
-    load_calibration_artifact(args.artifact, protocol, require_evaluation=True, data_path=args.data)
+    # Loading verifies the UW main anchor, complete study evidence and model compatibility.
+    load_calibration_artifact(args.artifact, protocol, data_path=args.data)
     args.output.mkdir(parents=True, exist_ok=False)
     for seed in seeds:
         condition = source_grid(protocol, f"validation_{args.validation_split}", seed)

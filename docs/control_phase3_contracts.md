@@ -1,5 +1,7 @@
 # CEMAS control v1：Phase 3 周环境、奖励与 E0 契约
 
+> 2026-10-23：本文的旧校准、人口及验收数字为历史记录。当前唯一标准和运行入口以 [UW 控制接入](uw_control_integration.md) 为准；旧结果不作为 UW 验收。
+
 本契约记录2026-10-15确认的 P3 设计及接口，与[推荐协议](llm_recommended_protocol_v1.md)、[JSON](control_protocol_v1.json)和[工程计划](cemas_v1_implementation_plan.md)配套。实施前代码基线为 `feature/control-protocol-v1@8324a81`；具体测试和运行证据见末节，不由接口存在推断验收已经完成。
 
 时序适用范围：本文的day0先决策、H112共16次决策及末节验收数字保留为P3历史记录。2026-10-20修订后，所有方法day0–6固定最低干预，day7首次自主决策；H112仍为112日，含1个固定窗口和15个自主决策窗口。当前行为以[Phase 6契约](control_phase6_contracts.md)为准，旧验收不代表新规则已通过。

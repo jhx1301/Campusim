@@ -1,0 +1,45 @@
+{
+  "assumptions": [
+    "Counts are on-campus testing only; off-campus positives and denominators are not included.",
+    "The daily date is the dashboard receipt date, not the specimen collection date.",
+    "The 2020-09-16 90-day repeat-positive exclusion is assumed to apply to the whole published series.",
+    "Zero-test days remain zero; no imputation, forward fill or cumulative differencing is applied.",
+    "W1 ends on 2020-09-06, before the 2020-09-07 undergraduate movement restriction."
+  ],
+  "builder": "tools/build_uw_e0_data.py",
+  "builder_version": "cemas-uw-e0-data-v1",
+  "built_at": "2026-10-22T11:12:36.732580+00:00",
+  "dataset_id": "uw_madison_2020",
+  "derived_file": "data/uw_madison_2020_w2w3.csv",
+  "derived_sha256": "be45ac7b13867319149488169dbb68334e068855bde6f6d6c096fb63dbff22e4",
+  "entity_id": "university_uw_madison",
+  "groups": {
+    "employees": {
+      "positive": 76,
+      "tests": 4661
+    },
+    "students": {
+      "positive": 463,
+      "tests": 39110
+    }
+  },
+  "metrics": [
+    "new_positive_tests",
+    "new_tests"
+  ],
+  "observation_scope": "on_campus_testing",
+  "rows": 35,
+  "schema_version": "cemas-uw-e0-data-v1",
+  "source_observations_file": "research/historical_epidemics/data/observations/uw_madison_2020.csv.gz",
+  "source_observations_sha256": "e63753783a4654eb961498926a5b134339125632b145e80fad27bef337034b69",
+  "source_raw_file": "research/historical_epidemics/data/raw/uw_madison_2020.html",
+  "source_raw_sha256": "d1181161526d3690a5eb4eb9bd0f436f26b340192977b55086c5147aa18aff84",
+  "totals": {
+    "positive": 539,
+    "tests": 43771
+  },
+  "window": [
+    "2020-09-26",
+    "2020-10-30"
+  ]
+}

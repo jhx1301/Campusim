@@ -191,7 +191,8 @@ def test_scene_defaults_are_explicit_smoke_and_adapters_are_mounted(protocol):
     assert bundle.registry.public_population.population == 300
     # Population generation caps the configured staff target by the remaining
     # non-student/non-teacher pool; metadata exposes the actual draw.
-    assert len(bundle.private_metadata["registration"]["staff_indices"]) <= 36
+    assert len(bundle.private_metadata["registration"]["staff_indices"]) <= round(
+        300 * protocol.definition["engine"]["campus_staff_ratio"])
     assert not hasattr(bundle.registry.public_population, "staff_indices")
     assert bundle.sim["iso_factor"] == dict(d=.3, clu=.1, clg=.1, of=.1, ta=.2, cm=.1)
     assert bundle.sim["quar_factor"] == dict(d=.6, clu=.2, clg=.2, of=.2, ta=.4, cm=.2)

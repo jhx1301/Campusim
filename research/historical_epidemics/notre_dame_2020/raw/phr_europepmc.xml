@@ -1,0 +1,535 @@
+<?xml version="1.0" encoding="UTF-8"?><article xml:lang="en" article-type="research-article"><front><journal-meta><journal-id journal-id-type="pmc-domain-id">333</journal-id><journal-id journal-id-type="pmc-domain">pubhealthrep</journal-id><journal-title-group><journal-title>Public Health Reports</journal-title><abbrev-journal-title>Public Health Rep</abbrev-journal-title></journal-title-group><publisher><publisher-name>SAGE Publications</publisher-name></publisher></journal-meta><article-meta><article-id pub-id-type="pmcid">PMC9358125</article-id><article-id pub-id-type="pmcaid">9358125</article-id><article-id pub-id-type="pmcaiid">9379828</article-id><article-id pub-id-type="pmid">35848117</article-id><article-id pub-id-type="doi">10.1177/00333549221110300</article-id><title-group><article-title>Symptomatic, Presymptomatic, and Asymptomatic Transmission of
+SARS-CoV-2 in a University Student Population, August–November
+2020</article-title></title-group><contrib-group content-type="author"><contrib><name name-style="western"><surname>Krieg</surname><given-names initials="SJ">Steven J</given-names></name><degrees>MA</degrees><xref ref-type="aff" rid="aff1-00333549221110300">1</xref></contrib><contrib><name name-style="western"><surname>Schnur</surname><given-names initials="JJ">Jennifer J</given-names></name><degrees>BS</degrees><xref ref-type="aff" rid="aff1-00333549221110300">1</xref></contrib><contrib><name name-style="western"><surname>Miranda</surname><given-names initials="ML">Marie Lynn</given-names></name><degrees>PhD</degrees><xref ref-type="aff" rid="aff1-00333549221110300">1</xref></contrib><contrib><name name-style="western"><surname>Pfrender</surname><given-names initials="ME">Michael E</given-names></name><degrees>PhD</degrees><xref ref-type="aff" rid="aff1-00333549221110300">1</xref></contrib><contrib><name name-style="western"><surname>Chawla</surname><given-names initials="NV">Nitesh V</given-names></name><degrees>PhD</degrees><xref ref-type="aff" rid="aff1-00333549221110300">1</xref><xref rid="corresp1-00333549221110300" ref-type="author-notes">✉</xref></contrib></contrib-group><aff id="aff1-00333549221110300"><label>1</label>Lucy Family Institute for Data and
+Society, University of Notre Dame, Notre Dame, IN, USA</aff><author-notes><fn id="corresp1-00333549221110300"><label>✉</label><p>Nitesh V. Chawla, PhD, University of Notre
+Dame, Lucy Family Institute for Data and Society, 384 Nieuwland, Notre Dame, IN
+46556, USA. Email: <email>nchawla@nd.edu</email></p></fn><fn id="fn1"><label>#</label><p>Steven J. Krieg and Jennifer J. Schnur contributed equally to this work.</p></fn></author-notes><pub-date><day>16</day><month>7</month><year>2022</year></pub-date><volume>137</volume><issue>5</issue><fpage>1023</fpage><page-range>1023–1030</page-range><pub-history><event event-type="pmc-release"><date><day>10</day><month>8</month><year>2022</year></date></event></pub-history><permissions><copyright-statement>© 2022, Association of Schools and Programs of Public
+Health</copyright-statement></permissions><self-uri xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="10.1177_00333549221110300.pdf" content-type="pmc-pdf"><?cloudpmc-path b21a/9379828/7f3e5c5fb39e/10.1177_00333549221110300.pdf?><?cloudpmc-bucket app?><?size 1037630?></self-uri><abstract id="abstract1"><title>Abstract</title><sec id="section1-00333549221110300" disp-level="2"><title>Objectives:</title><p>The impact and risk of SARS-CoV-2 transmission from asymptomatic and
+presymptomatic hosts remains an open question. This study measured the
+secondary attack rates (SARs) and relative risk (RR) of SARS-CoV-2
+transmission from asymptomatic and presymptomatic index cases as compared
+with symptomatic index cases.</p></sec><sec id="section2-00333549221110300" disp-level="2"><title>Methods:</title><p>We used COVID-19 test results, daily health check reports, and contact
+tracing data to measure SARs and corresponding RRs among close contacts of
+index cases in a cohort of 12 960 young adults at the University of Notre
+Dame in Indiana for 103 days, from August 10 to November 20, 2020. Further
+analysis included Fisher exact tests to determine the association between
+symptoms and COVID-19 infection and <italic>z</italic> tests to determine
+statistical differences between SARs.</p></sec><sec id="section3-00333549221110300" disp-level="2"><title>Results:</title><p>Asymptomatic rates of transmission of SARS-CoV-2 were higher (SAR = 0.19; 95%
+CI, 0.14-0.24) than was estimated in prior studies, producing an RR of 0.75
+(95% CI, 0.54-1.07) when compared with symptomatic transmission. In
+addition, the transmission rate associated with presymptomatic cases (SAR =
+0.25; 95% CI, 0.21-0.30) was approximately the same as that for symptomatic
+cases (SAR = 0.25; 95% CI, 0.19-0.31). Furthermore, different symptoms were
+associated with different transmission rates.</p></sec><sec id="section4-00333549221110300" disp-level="2"><title>Conclusions:</title><p>Asymptomatic and presymptomatic hosts of SARS-CoV-2 are a risk for community
+spread of COVID-19, especially with new variants emerging. Moreover, typical
+symptom checks may easily miss people who are asymptomatic or presymptomatic
+but still infectious. Our study results may be used as a guide to analyze
+the spread of SARS-CoV-2 variants and help inform appropriate public health
+measures as they relate to asymptomatic and presymptomatic cases.</p></sec><sec id="kwd-group1" sec-type="kwd-group" disp-level="2"><p><bold>Keywords:</bold> COVID-19, SARS-CoV-2, secondary attack rate, asymptomatic transmission, presymptomatic</p></sec></abstract><custom-meta-group><custom-meta><meta-name>status</meta-name><meta-value>released</meta-value></custom-meta><custom-meta><meta-name>display-pdf</meta-name><meta-value>yes</meta-value></custom-meta><custom-meta><meta-name>is-olf</meta-name><meta-value>no</meta-value></custom-meta><custom-meta><meta-name>is-manuscript</meta-name><meta-value>no</meta-value></custom-meta><custom-meta><meta-name>is-preprint</meta-name><meta-value>no</meta-value></custom-meta><custom-meta><meta-name>is-journal-matter</meta-name><meta-value>no</meta-value></custom-meta><custom-meta><meta-name>is-scanned</meta-name><meta-value>no</meta-value></custom-meta><custom-meta><meta-name>is-retracted</meta-name><meta-value>no</meta-value></custom-meta></custom-meta-group></article-meta><notes notes-type="article-notes"><sec id="historyarticle-meta1" sec-type="history" disp-level="2"><p>Collection date 2022 Sep-Oct.</p></sec></notes></front><body><p>After the emergence of SARS-CoV-2 in Wuhan, China, in late 2019,<sup><xref rid="bibr1-00333549221110300" ref-type="bibr">1</xref>,<xref rid="bibr2-00333549221110300" ref-type="bibr">2</xref></sup> scientists quickly discovered the
+virus could be transmitted through asymptomatic hosts.<sup><xref rid="bibr3-00333549221110300" ref-type="bibr">3</xref>,<xref rid="bibr4-00333549221110300" ref-type="bibr">4</xref></sup> However, estimates of the
+percentage of asymptomatic cases from different studies have varied greatly, from as low
+as 30% to as high as 76.5%.<sup><xref rid="bibr5-00333549221110300" ref-type="bibr">5</xref>-<xref rid="bibr9-00333549221110300" ref-type="bibr">9</xref></sup> In addition, these estimates were
+limited by the availability of case reports and longitudinal data,<sup><xref rid="bibr10-00333549221110300" ref-type="bibr">10</xref>,<xref rid="bibr11-00333549221110300" ref-type="bibr">11</xref></sup> and they did not comprehensively
+distinguish between presymptomatic and asymptomatic cases.</p><p>Some systematic reviews have used meta-analysis to estimate secondary attack rates (SARs)
+and relative risk (RR; also called risk ratio) for asymptomatic and/or presymptomatic
+index cases. Most relevant is the work by Buitrago-Garcia et al,<sup>
+<xref rid="bibr10-00333549221110300" ref-type="bibr">10</xref>
+</sup> who estimated an RR of 0.35 (95% CI, 0.10-1.27) from 5 studies for transmission
+from asymptomatic index cases (compared with symptomatic index cases) and an RR of 0.63
+(95% CI, 0.18-2.26) from presymptomatic index cases. In another systematic review,
+Thompson et al<sup>
+<xref rid="bibr12-00333549221110300" ref-type="bibr">12</xref>
+</sup> estimated SARs of 0.14 (95% CI, 0.10-0.17) for symptomatic index cases, 0.09 (95%
+CI, 0.05-0.14) for presymptomatic index cases, and 0.02 (95% CI, 0.01-0.03) for
+asymptomatic index cases. However, the studies were heterogeneous in defining
+asymptomatic and presymptomatic cases, follow-up for close contacts, and exposure
+location—which the authors showed can significantly affect transmission rates. Madewell
+et al<sup>
+<xref rid="bibr13-00333549221110300" ref-type="bibr">13</xref>
+</sup> estimated SARs of 0.180 (95% CI, 0.142-0.221) for symptomatic index cases and
+0.007 (95% CI, 0-0.049) for asymptomatic and presymptomatic index cases among household
+and family contacts, but again, the studies were heterogeneous and had small sample
+sizes (only 7 total secondary cases). Some additional studies found that asymptomatic
+cases are generally less transmissible,<sup><xref rid="bibr14-00333549221110300" ref-type="bibr">14</xref>-<xref rid="bibr16-00333549221110300" ref-type="bibr">16</xref></sup> but others showed that
+approximately half of secondary transmissions happen during the asymptomatic or
+presymptomatic phase of a primary index case,<sup><xref rid="bibr17-00333549221110300" ref-type="bibr">17</xref>,<xref rid="bibr18-00333549221110300" ref-type="bibr">18</xref></sup> contributing to undetected
+spread.<sup><xref rid="bibr19-00333549221110300" ref-type="bibr">19</xref>,<xref rid="bibr20-00333549221110300" ref-type="bibr">20</xref></sup> Although
+asymptomatic and symptomatic cases have shown similar viral load,<sup>
+<xref rid="bibr21-00333549221110300" ref-type="bibr">21</xref>
+</sup> the impact of symptomatic or asymptomatic status on transmissibility is less
+understood.<sup><xref rid="bibr22-00333549221110300" ref-type="bibr">22</xref>-<xref rid="bibr26-00333549221110300" ref-type="bibr">26</xref></sup></p><p>With a cohort of 12 960 students and 1592 confirmed COVID-19 cases during our study
+period at the University of Notre Dame, our study used a rich longitudinal dataset that
+followed the student population for 103 days in fall 2020. This study measured SARs and
+RRs of SARS-CoV-2 transmission from asymptomatic and presymptomatic index cases,
+compared with symptomatic index cases. Our analysis considered daily health checks,
+COVID-19 test results, and contact tracing interviews to measure transmission. These
+results may help guide public health practice in the presence or absence of symptomatic
+cases.</p><sec id="section5-00333549221110300" disp-level="1"><title>Methods</title><sec id="section6-00333549221110300" disp-level="2"><title>COVID-19 and University Preparation</title><p>When Notre Dame returned to in-person classes in fall 2020, the university
+implemented a daily self-reported health check, diagnostic testing, intensive
+contact tracing protocols, quarantine/isolation policies, and regular and
+required surveillance testing.<sup>
+<xref rid="bibr27-00333549221110300" ref-type="bibr">27</xref>
+</sup> Despite these efforts, by the last day of the semester (November 20,
+2020), 1561 students on campus had received a positive COVID-19 test result.</p></sec><sec id="section7-00333549221110300" disp-level="2"><title>Inclusion Criteria</title><p>We included data according to the following constraints:</p><list list-type="bullet" id="list1-00333549221110300"><list-item><p>People in the dataset were active students (ie, enrolled in an
+undergraduate, graduate, or professional degree program and registered
+for ≥1 course) residing in the local area.</p></list-item><list-item><p>Students completed at least 50% of their health checks within the 15-day
+window centered on their positive test (7 days before the day of the
+test administration and 7 days after).</p></list-item><list-item><p>The date of a positive test administration was from August 10 (the first
+day of the fall semester) through November 20 (the last day of the
+semester).</p></list-item></list></sec><sec id="section8-00333549221110300" disp-level="2"><title>Symptom Reporting and COVID-19 Testing</title><p>Each student was required to submit electronically a daily health check,
+documenting whether they had experienced any of 11 symptoms (<xref rid="table1-00333549221110300" ref-type="table">Box</xref>) or suspected
+they had been exposed to COVID-19. If a student reported exposure to a
+COVID-19–positive individual, a primary symptom (fever, shortness of breath, or
+loss of taste/smell), or any other symptoms for 2 consecutive days, the student
+was scheduled for a same-day testing appointment and administered a Sofia SARS
+antigen fluorescent immunoassay (Quidel) rapid antigen test. If the antigen test
+yielded a negative test result, the student was immediately administered a
+reverse transcription–polymerase chain reaction (RT-PCR) test (performed by a
+local commercial laboratory primarily using a Roche platform) and temporarily
+quarantined until the RT-PCR result was returned. Of students who had a negative
+test result via a rapid antigen test, 8.1% had false-negative test results and
+received a positive test result via a same-day RT-PCR test.</p><table-wrap id="table1-00333549221110300" position="float"><?disp-level 3?><label>Box.</label><caption><p>Summary of the 11 COVID-19 symptoms monitored by daily health checks for
+students at the University of Notre Dame, Indiana, during the fall 2020
+semester</p></caption><table frame="hsides" rules="groups"><colgroup span="1"><col align="left" span="1"/><col align="char" char="." span="1"/></colgroup><thead><tr><th align="left" rowspan="1" colspan="1">Brief description</th><th align="center" rowspan="1" colspan="1">Full description</th></tr></thead><tbody><tr><td rowspan="1" colspan="1">Body aches/chills</td><td rowspan="1" colspan="1">Body aches and chills (not explained by exercise or cold
+environment)</td></tr><tr><td rowspan="1" colspan="1">Congestion</td><td rowspan="1" colspan="1">Persistent congestion or runny nose (not from a chronic or
+known condition)</td></tr><tr><td rowspan="1" colspan="1">Diarrhea</td><td rowspan="1" colspan="1">Diarrhea (&gt;3 loose stools in 24 h)</td></tr><tr><td rowspan="1" colspan="1">Fatigue</td><td rowspan="1" colspan="1">Unexplained fatigue (not from a lack of sleep)</td></tr><tr><td rowspan="1" colspan="1">Fever</td><td rowspan="1" colspan="1">Fever of ≥100.4 °F on 2 occasions 5 min apart</td></tr><tr><td rowspan="1" colspan="1">Headache</td><td rowspan="1" colspan="1">Headache (not from a known or chronic condition)</td></tr><tr><td rowspan="1" colspan="1">Nausea or vomiting</td><td rowspan="1" colspan="1">Nausea or vomiting</td></tr><tr><td rowspan="1" colspan="1">New dry cough</td><td rowspan="1" colspan="1">New dry cough (not from a known or chronic condition)</td></tr><tr><td rowspan="1" colspan="1">Loss of taste/smell</td><td rowspan="1" colspan="1">New loss of taste or smell</td></tr><tr><td rowspan="1" colspan="1">Shortness of breath</td><td rowspan="1" colspan="1">New shortness of breath or difficulty breathing (not from a
+known or chronic condition)</td></tr><tr><td rowspan="1" colspan="1">Sore throat</td><td rowspan="1" colspan="1">Painful sore throat (not from a known or chronic
+condition)</td></tr></tbody></table></table-wrap><p>When a test yielded a positive result, the student was instructed to isolate for
+14 days. A response team, consisting of clinical and nonclinical personnel,
+conducted a brief telephone-based contact-tracing interview. Confirmed close
+contacts were informed of exposure (without revealing the identity of the index
+case), instructed to quarantine, and administered an antigen test. If the test
+produced a negative result, the close contacts were administered an RT-PCR test,
+instructed to quarantine, and called for additional tests on days 4 and 7 after
+exposure. If all test results were negative by day 7, students were released
+from quarantine.</p><p>In addition to testing students who reported symptoms or exposure via close
+contact, the university introduced surveillance testing to identify asymptomatic
+or presymptomatic cases. Every day, a statistically driven sample of students
+was administered an RT-PCR test (using the ThermoFisher TaqPath assay). Students
+with positive test results were instructed to isolate themselves for 14 days.
+The number of surveillance tests administered increased during the semester, so
+some asymptomatic cases likely escaped detection earlier in the semester.</p></sec><sec id="section9-00333549221110300" disp-level="2"><title>Identifying Asymptomatic and Presymptomatic Students</title><p>We considered a person to be asymptomatic if they reported no symptoms within the
+15-day window centered on their positive test administration. If they reported
+any of the 11 symptoms at least once, we considered them to be symptomatic. We
+subcategorized symptomatic cases as presymptomatic if the student did not report
+any symptoms in the 7 days before a positive test administration or on the date
+a positive test was administered (ie, was symptomatic only after a positive
+COVID-19 test result; <xref rid="fig1-00333549221110300" ref-type="fig">Figure
+1</xref>).</p><fig id="fig1-00333549221110300" position="float"><?disp-level 3?><label>Figure 1.</label><caption><p>Summary of COVID-19 data collected during fall semester 2020 (August
+10–November 20) among students at the University of Notre Dame, Indiana.
+Each student was required to submit electronically a daily health check,
+documenting whether they had experienced any of the 11 symptoms or
+suspected they had been exposed to COVID-19.</p></caption><alternatives><graphic xmlns:xlink="http://www.w3.org/1999/xlink" content-type="image" xlink:href="10.1177_00333549221110300-fig1.jpg"><?cloudpmc-path blobs/b21a/9379828/22038b117d18/10.1177_00333549221110300-fig1.jpg?><?cloudpmc-bucket cdn?><?image-server-status LOAD_COMPLETED?><?original-height 2383?><?original-width 829?><?scaled-height 1587?><?scaled-width 552?></graphic><graphic xmlns:xlink="http://www.w3.org/1999/xlink" content-type="thumb" xlink:href="10.1177_00333549221110300-fig1.gif"><?cloudpmc-path blobs/b21a/9379828/9cba67bd757e/10.1177_00333549221110300-fig1.gif?><?cloudpmc-bucket cdn?></graphic></alternatives></fig></sec><sec id="section10-00333549221110300" disp-level="2"><title>Data Linking</title><p>Data on demographic characteristics, daily health checks, COVID-19 test results,
+and close contacts collected by the university were all recorded with unique
+identification numbers. The data used for analysis were deidentified and linked
+by using anonymized unique identification numbers.</p></sec><sec id="section11-00333549221110300" disp-level="2"><title>Transmission and SAR</title><p>SAR is commonly used by epidemiologists to quantify the contagiousness of a
+disease and is defined as the proportion of susceptible people who are infected
+after being exposed to a COVID-19–positive individual:</p>
+<disp-formula id="disp-formula1-00333549221110300"><mml:math xmlns:mml="http://www.w3.org/1998/Math/MathML" id="math1-00333549221110300" display="block" overflow="scroll"><mml:mrow><mml:mi>S</mml:mi><mml:mi>A</mml:mi><mml:mi>R</mml:mi><mml:mrow><mml:mo>(</mml:mo><mml:mi>x</mml:mi><mml:mo>)</mml:mo></mml:mrow><mml:mo>=</mml:mo><mml:mfrac><mml:mtable columnalign="left"><mml:mtr><mml:mtd><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mi>N</mml:mi><mml:mi>o</mml:mi><mml:mo>.</mml:mo><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mi>o</mml:mi><mml:mi>f</mml:mi><mml:mspace width="0.25em"/><mml:mi>s</mml:mi><mml:mi>u</mml:mi><mml:mi>s</mml:mi><mml:mi>c</mml:mi><mml:mi>e</mml:mi><mml:mi>p</mml:mi><mml:mi>t</mml:mi><mml:mi>i</mml:mi><mml:mi>b</mml:mi><mml:mi>l</mml:mi><mml:mi>e</mml:mi><mml:mspace width="0.25em"/><mml:mi>c</mml:mi><mml:mi>o</mml:mi><mml:mi>n</mml:mi><mml:mi>t</mml:mi><mml:mi>a</mml:mi><mml:mi>c</mml:mi><mml:mi>t</mml:mi><mml:mi>s</mml:mi><mml:mspace width="0.25em"/><mml:mi>w</mml:mi><mml:mi>h</mml:mi><mml:mi>o</mml:mi><mml:mspace width="0.25em"/><mml:mi>h</mml:mi><mml:mi>a</mml:mi><mml:mi>d</mml:mi><mml:mspace width="0.25em"/></mml:mtd></mml:mtr><mml:mtr><mml:mtd><mml:mi>p</mml:mi><mml:mi>o</mml:mi><mml:mi>s</mml:mi><mml:mi>i</mml:mi><mml:mi>t</mml:mi><mml:mi>i</mml:mi><mml:mi>v</mml:mi><mml:mi>e</mml:mi><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mi>t</mml:mi><mml:mi>e</mml:mi><mml:mi>s</mml:mi><mml:mi>t</mml:mi><mml:mspace width="0.25em"/><mml:mi>r</mml:mi><mml:mi>e</mml:mi><mml:mi>s</mml:mi><mml:mi>u</mml:mi><mml:mi>l</mml:mi><mml:mi>t</mml:mi><mml:mspace width="0.25em"/><mml:mi>w</mml:mi><mml:mi>i</mml:mi><mml:mi>t</mml:mi><mml:mi>h</mml:mi><mml:mi>i</mml:mi><mml:mi>n</mml:mi><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mi>x</mml:mi><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mi>d</mml:mi><mml:mi>a</mml:mi><mml:mi>y</mml:mi><mml:mi>s</mml:mi><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mi>o</mml:mi><mml:mi>f</mml:mi><mml:mspace width="0.25em"/><mml:mi>p</mml:mi><mml:mi>r</mml:mi><mml:mi>i</mml:mi><mml:mi>m</mml:mi><mml:mi>a</mml:mi><mml:mi>r</mml:mi><mml:mi>y</mml:mi><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mi>c</mml:mi><mml:mi>a</mml:mi><mml:mi>s</mml:mi><mml:mi>e</mml:mi></mml:mtd></mml:mtr></mml:mtable><mml:mrow><mml:mi>T</mml:mi><mml:mi>o</mml:mi><mml:mi>t</mml:mi><mml:mi>a</mml:mi><mml:mi>l</mml:mi><mml:mspace width="0.25em"/><mml:mi>n</mml:mi><mml:mi>o</mml:mi><mml:mo>.</mml:mo><mml:mspace width="0.25em"/><mml:mspace width="0.25em"/><mml:mi>o</mml:mi><mml:mi>f</mml:mi><mml:mspace width="0.25em"/><mml:mi>s</mml:mi><mml:mi>u</mml:mi><mml:mi>s</mml:mi><mml:mi>c</mml:mi><mml:mi>e</mml:mi><mml:mi>p</mml:mi><mml:mi>t</mml:mi><mml:mi>i</mml:mi><mml:mi>b</mml:mi><mml:mi>l</mml:mi><mml:mi>e</mml:mi><mml:mspace width="0.25em"/><mml:mi>c</mml:mi><mml:mi>o</mml:mi><mml:mi>n</mml:mi><mml:mi>t</mml:mi><mml:mi>a</mml:mi><mml:mi>c</mml:mi><mml:mi>t</mml:mi><mml:mi>s</mml:mi></mml:mrow></mml:mfrac></mml:mrow></mml:math></disp-formula>
+<p>We defined <italic>x</italic> as the number of days between the index case and
+the positive test administration of the secondary case. In computing SAR,
+household members commonly serve as a proxy for susceptible contacts. However,
+we instead used our contact tracing observations. Although our manual contact
+tracing process may have missed some close contacts, these false negatives are
+excluded from both the numerator and denominator and, thus, have less of an
+impact than false positives on SAR calculation. We defined a susceptible contact
+as any close contact who had not received a positive test result for COVID-19
+before the date of the index case’s positive test administration.</p><p>After classifying each index case as symptomatic, presymptomatic, or
+asymptomatic, we computed SARs by totaling all close contacts who (1) were
+susceptible and (2) were administered a positive test within <italic>x</italic>
+days after the index case’s positive test administration and then dividing by
+the total number of susceptible close contacts. Because it is impossible to
+determine the true source of transmission in cases of multiple exposure (absent
+genetic lineage analysis), in the infrequent cases in which a susceptible
+individual was reported as a close contact of multiple index cases, we
+attributed that individual to each index case.</p><p>To analyze the relationship of individual symptoms to transmission, we tracked
+the types of symptoms reported by symptomatic students and calculated the
+percentage of students who reported each symptom. We also tracked the average
+timing of onset and duration of each symptom. Then, for each symptom assessed
+(<xref rid="table1-00333549221110300" ref-type="table">Box</xref>), we
+computed SARs for the students who reported that symptom on each day relative to
+their positive test result. We compared these SARs with SARs for students who
+did not report that symptom and used 2-sided Fisher exact tests at the
+<italic>P</italic> = .05 level to determine significant differences.</p><p>We conducted all analyses by using Python version 3.7 (Python Software
+Foundation). We used <italic>z</italic> tests at the α = .05 level to determine
+significant differences in proportions among the 3 categories of SARs
+(symptomatic index cases, presymptomatic index cases, and asymptomatic index
+cases).</p><p>The University of Notre Dame Institutional Review Board reviewed the research
+protocol and its use of deidentified data and determined it to be exempt from
+human subjects research regulations (approval no. 20-12-6364).</p></sec></sec><sec id="section12-00333549221110300" disp-level="1"><title>Results</title><p>Our sample was composed entirely of university students, most of whom were
+undergraduates (92%), non-Hispanic White (74%), aged 18-23 years (67%), and living
+in congregate on-campus housing (60%). Of the 1198 positive cases with data on
+symptoms, 389 (32.5%) were classified as asymptomatic, 485 (40.5%) as symptomatic,
+and 324 (27.0%) as presymptomatic (<xref rid="table2-00333549221110300" ref-type="table">Table</xref>; <xref rid="fig1-00333549221110300" ref-type="fig">Figure 1</xref>; <ext-link xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://journals.sagepub.com/doi/suppl/10.1177/00333549221110300" ext-link-type="uri">Supplementary Table 1</ext-link>).</p><table-wrap id="table2-00333549221110300" position="float"><?disp-level 2?><label>Table.</label><caption><p>Summary of each COVID-19 symptom category, by race and ethnicity and sex,
+among students with COVID-19 (N = 1198) at the University of Notre Dame,
+Indiana, fall semester 2020<sup>
+<xref rid="table-fn1-00333549221110300" ref-type="table-fn">a</xref>
+</sup></p></caption><table frame="hsides" rules="groups"><colgroup span="1"><col align="left" span="1"/><col align="char" char="." span="1"/><col align="char" char="." span="1"/><col align="char" char="." span="1"/></colgroup><thead><tr><th align="left" rowspan="1" colspan="1">Characteristic</th><th align="center" rowspan="1" colspan="1">Asymptomatic<sup>
+<xref rid="table-fn2-00333549221110300" ref-type="table-fn">b</xref>
+</sup> (n = 389)</th><th align="center" rowspan="1" colspan="1">Symptomatic<sup>
+<xref rid="table-fn3-00333549221110300" ref-type="table-fn">c</xref>
+</sup> (n = 485)</th><th align="center" rowspan="1" colspan="1">Presymptomatic<sup>
+<xref rid="table-fn4-00333549221110300" ref-type="table-fn">d</xref>
+</sup> (n = 324)</th></tr></thead><tbody><tr><td colspan="4" rowspan="1">Sex</td></tr><tr><td rowspan="1" colspan="1"> Male</td><td rowspan="1" colspan="1">257 (66.1)</td><td rowspan="1" colspan="1">289 (59.6)</td><td rowspan="1" colspan="1">192 (59.3)</td></tr><tr><td rowspan="1" colspan="1"> Female</td><td rowspan="1" colspan="1">132 (33.9)</td><td rowspan="1" colspan="1">196 (40.4)</td><td rowspan="1" colspan="1">132 (40.7)</td></tr><tr><td colspan="4" rowspan="1">Race</td></tr><tr><td rowspan="1" colspan="1"> White</td><td rowspan="1" colspan="1">312 (80.2)</td><td rowspan="1" colspan="1">340 (70.1)</td><td rowspan="1" colspan="1">240 (74.1)</td></tr><tr><td rowspan="1" colspan="1"> Black or African American</td><td rowspan="1" colspan="1">5 (1.3)</td><td rowspan="1" colspan="1">7 (1.4)</td><td rowspan="1" colspan="1">11 (3.4)</td></tr><tr><td rowspan="1" colspan="1"> Hispanic</td><td rowspan="1" colspan="1">36 (9.3)</td><td rowspan="1" colspan="1">69 (14.2)</td><td rowspan="1" colspan="1">35 (10.8)</td></tr><tr><td rowspan="1" colspan="1"> Asian</td><td rowspan="1" colspan="1">6 (1.5)</td><td rowspan="1" colspan="1">13 (2.7)</td><td rowspan="1" colspan="1">8 (2.5)</td></tr><tr><td rowspan="1" colspan="1"> ≥2 Races</td><td rowspan="1" colspan="1">13 (3.3)</td><td rowspan="1" colspan="1">19 (3.9)</td><td rowspan="1" colspan="1">13 (4.0)</td></tr><tr><td rowspan="1" colspan="1"> Other</td><td rowspan="1" colspan="1">17 (4.4)</td><td rowspan="1" colspan="1">37 (7.6)</td><td rowspan="1" colspan="1">17 (5.2)</td></tr></tbody></table><table-wrap-foot><fn id="table-fn1-00333549221110300"><label>a</label><p>Each student was required to submit electronically a daily health check,
+documenting whether they had experienced any of the 11 symptoms (<xref rid="table1-00333549221110300" ref-type="table">Box</xref>) or
+suspected they had been exposed to COVID-19. All values are number
+(percentage).</p></fn><fn id="table-fn2-00333549221110300"><label>b</label><p>Student reported no symptoms within the 15-day window centered on their
+positive test administration.</p></fn><fn id="table-fn3-00333549221110300"><label>c</label><p>Student reported 1 of 11 COVID-19 symptoms at least once.</p></fn><fn id="table-fn4-00333549221110300"><label>d</label><p>Student did not report any symptoms in the 7 days before a positive test
+was administered or on the date a positive test was administered (ie,
+was symptomatic only after a positive COVID-19 test result).</p></fn></table-wrap-foot></table-wrap><p>In the first 4 days after the index case was administered a positive test, the SAR
+was highest for symptomatic index cases, followed by presymptomatic index cases, and
+lowest for asymptomatic index cases. After day 4, the SAR for presymptomatic index
+cases exceeded the SAR for symptomatic index cases, but the 2 values became mostly
+coincident. All 3 SARs became relatively flat 7 days after the index case’s positive
+test result.</p><p>For all 3 types of cases, after accounting for a 14-day potential transmission
+window, the SAR leveled off after about day 7 (<xref rid="fig2-00333549221110300" ref-type="fig">Figure 2</xref>; <ext-link xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://journals.sagepub.com/doi/suppl/10.1177/00333549221110300" ext-link-type="uri">Supplementary Table 2</ext-link>). The final SAR was 0.19 (95% CI, 0.14-0.24)
+for asymptomatic index cases, 0.25 (95% CI, 0.21-0.30) for presymptomatic index
+cases, and 0.25 (95% CI, 0.19-0.31) for symptomatic index cases. We found no
+significant difference between symptomatic and presymptomatic SAR on day 14
+(<italic>P</italic> = .99); however, symptomatic SAR was significantly greater
+than asymptomatic SAR (<italic>P</italic> = .001). The RRs of transmission were 0.75
+(95% CI, 0.54-1.07) and 1.00 (95% CI, 0.75-1.38) for asymptomatic cases and
+presymptomatic cases, respectively, compared with symptomatic cases.</p><fig id="fig2-00333549221110300" position="float"><?disp-level 2?><label>Figure 2.</label><caption><p>Secondary attack rates (SARs), defined as the proportion of individuals who
+are infected with COVID-19 after being exposed to a COVID-19–positive
+individual, calculated for 3 categories of index cases of COVID-19 among
+students at the University of Notre Dame, Indiana, fall semester 2020
+(August 10–November 20). We calculated the SAR at each day for asymptomatic,
+symptomatic, and presymptomatic cases. Each student was required to submit
+electronically a daily health check, documenting whether they had
+experienced any of the 11 symptoms or suspected they had been exposed to
+COVID-19. Shaded regions indicate 95% CIs.</p></caption><alternatives><graphic xmlns:xlink="http://www.w3.org/1999/xlink" content-type="image" xlink:href="10.1177_00333549221110300-fig2.jpg"><?cloudpmc-path blobs/b21a/9379828/6db075cebd8d/10.1177_00333549221110300-fig2.jpg?><?cloudpmc-bucket cdn?><?image-server-status LOAD_COMPLETED?><?original-height 605?><?original-width 910?><?scaled-height 403?><?scaled-width 606?></graphic><graphic xmlns:xlink="http://www.w3.org/1999/xlink" content-type="thumb" xlink:href="10.1177_00333549221110300-fig2.gif"><?cloudpmc-path blobs/b21a/9379828/cfe2a6ecde62/10.1177_00333549221110300-fig2.gif?><?cloudpmc-bucket cdn?></graphic></alternatives></fig><sec id="section13-00333549221110300" disp-level="2"><title>Symptomatic Cases and Transmission</title><p>Of the 1198 cases with data on symptoms, 807 (67.4%) were symptomatic cases;
+among these cases, we observed significant variety in the timing and symptoms
+reported. For example, the most-reported symptoms—headache and congestion—were
+reported by 38.8% and 35.6% of the 1198 cases, respectively. All other symptoms
+were reported in fewer than 28% of cases. In addition, the most correlated pair
+of symptoms—fatigue and body aches/chills—produced a correlation coefficient of
+0.41. We observed different average onset times and durations of each symptom;
+75.2% of cases reported experiencing no symptoms on the day of their positive
+test administration. This number decreased to 50.2% at 2 days after a positive
+test administration.</p><p>The presence or absence of symptoms affected transmission rates. The difference
+in day 14 SAR (between people who reported the symptom and people who did not)
+was significant for some symptoms including fever (<italic>P</italic> &lt;
+.001), new dry cough (<italic>P</italic> = .002), shortness of breath
+(<italic>P</italic> = .04), and sore throat (<italic>P</italic> &lt; .001),
+and these symptoms were reported shortly after the positive test result (<xref rid="fig3-00333549221110300" ref-type="fig">Figure 3</xref>). For body
+aches/chills, the difference in SAR was significant (<italic>P</italic> = .003),
+but this symptom was not reported until 4 days after the index case’s positive
+test result. For all 5 of these symptoms, the SAR stabilized at roughly 30.0%,
+compared with 25.4% for all symptomatic cases. For all other symptoms, we found
+no significant difference in SAR.</p><fig id="fig3-00333549221110300" position="float"><?disp-level 3?><label>Figure 3.</label><caption><p>Secondary attack rates (SARs) based on the presence or absence of each
+reported COVID-19 symptom in the index case among students at the
+University of Notre Dame, Indiana, fall semester 2020 (August
+10–November 20). <italic>n<sub>symp</sub></italic> is the number of
+COVID-19 cases in which the student reported the symptom at least once
+in the 15-day window surrounding their positive test administration.
+Each student was required to submit electronically a daily health check,
+documenting whether they had experienced any of the 11 symptoms or
+suspected they had been exposed to COVID-19. Shaded regions indicate 95%
+CIs.</p></caption><alternatives><graphic xmlns:xlink="http://www.w3.org/1999/xlink" content-type="image" xlink:href="10.1177_00333549221110300-fig3.jpg"><?cloudpmc-path blobs/b21a/9379828/0f506b2198f7/10.1177_00333549221110300-fig3.jpg?><?cloudpmc-bucket cdn?><?image-server-status LOAD_COMPLETED?><?original-height 1247?><?original-width 1895?><?scaled-height 499?><?scaled-width 758?></graphic><graphic xmlns:xlink="http://www.w3.org/1999/xlink" content-type="thumb" xlink:href="10.1177_00333549221110300-fig3.gif"><?cloudpmc-path blobs/b21a/9379828/f6de3301e522/10.1177_00333549221110300-fig3.gif?><?cloudpmc-bucket cdn?></graphic></alternatives></fig></sec></sec><sec id="section14-00333549221110300" disp-level="1"><title>Discussion</title><p>Our key finding that the RRs of transmission were 0.75 (95% CI, 0.54-1.07) and 1.00
+(95% CI, 0.75-1.38) for asymptomatic cases and presymptomatic cases, respectively,
+compared with symptomatic cases, suggests that prior studies underestimated the
+transmissibility of asymptomatic and presymptomatic cases,<sup><xref rid="bibr10-00333549221110300" ref-type="bibr">10</xref>,<xref rid="bibr12-00333549221110300" ref-type="bibr">12</xref></sup> although we acknowledge that
+some of the CIs in our study overlap with the CIs in the previous studies. In
+particular, the meta-review provided by Buitrago-Garcia et al estimated RRs of 0.35
+(95% CI, 0.10-1.27) and 0.63 (95% CI, 0.18-2.26) for asymptomatic cases and
+presymptomatic cases, respectively, compared with symptomatic cases. These estimates
+were based on the results of 5 studies of asymptomatic transmission and 2 studies of
+presymptomatic transmission, which relied on a small number of data points and
+varied widely in their results. For asymptomatic transmission, the lowest RR (0.06;
+95% CI, 0.01-0.46) recorded only 1 secondary case among 305 close contacts of
+asymptomatic index cases,<sup>
+<xref rid="bibr28-00333549221110300" ref-type="bibr">28</xref>
+</sup> and the largest study—which considered 2644 close contacts of symptomatic
+index cases—estimated an RR of 0.64 (95% CI, 0.04-10.51) from 0 secondary cases and
+91 close contacts of asymptomatic index cases.<sup>
+<xref rid="bibr29-00333549221110300" ref-type="bibr">29</xref>
+</sup> Chaw et al<sup>
+<xref rid="bibr30-00333549221110300" ref-type="bibr">30</xref>
+</sup> recorded the highest number of secondary cases—15 among 691 close contacts of
+asymptomatic index cases—and produced the highest RR (0.78; 95% CI, 0.42-1.46). For
+presymptomatic transmission, the estimate provided by Buitrago-Garcia et al relied
+on 2 studies that considered 0 and 2 secondary cases, respectively, among 11 and 299
+close contacts of presymptomatic index cases.<sup><xref rid="bibr29-00333549221110300" ref-type="bibr">29</xref>,<xref rid="bibr31-00333549221110300" ref-type="bibr">31</xref></sup> The estimates from our study
+add substantially to the evidence base.</p><p>The higher initial SAR for symptomatic index cases is likely due to students getting
+tested late in their infections and therefore having more time to infect others
+before being isolated. Among all cases, many students were presymptomatic, which is
+relevant for designing surveillance testing programs. That all 3 SARs became
+relatively flat 7 days after the index case’s positive test result has implications
+for how long contact-traced individuals need to remain in quarantine or isolation.
+These findings are consistent with the decision of some local health departments to
+release from quarantine individuals with a negative test result after day 7 or day
+10.</p><p>In symptomatic cases, some symptoms, such as congestion and headache, manifested
+early on, whereas other symptoms, such as shortness of breath and loss of
+taste/smell, manifested later, suggesting that individuals who are experiencing even
+mild symptoms should exercise caution. However, even the most frequently reported
+symptoms (eg, headache, congestion) occurred in fewer than half of COVID-19 hosts.
+The SAR was generally higher if the individual was symptomatic, except cases in
+which the symptom was diarrhea, nausea/vomiting, or loss of taste/smell. Loss of
+taste or smell is a commonly cited symptom of COVID-19, although more recent
+evidence indicates a potential genetic linkage, which is consistent with our finding
+that it was not associated with increased risk of transmission.<sup>
+<xref rid="bibr32-00333549221110300" ref-type="bibr">32</xref>
+</sup> We additionally observed that the presence of some symptoms, such as a fever
+or a dry cough, increased the likelihood of transmission between close contacts by
+as much as 10%. These results imply that anyone exhibiting fever, body aches/chills,
+new dry cough, shortness of breath, or a sore throat should exercise caution.
+However, symptom checks might not provide sufficient details about probability of
+transmission, especially given COVID-19’s high capability for asymptomatic
+transmission.</p><sec id="section15-00333549221110300" disp-level="2"><title>Limitations</title><p>Our study had several potential limitations. First, the university setting made
+the cohort of positive COVID-19 cases relatively homogeneous (predominantly
+young and White, living in congregate housing). Second, our analysis assumed a
+closed community and cannot account for intercommunity transmission. Third, our
+symptom analysis relied on accurate and consistent self-reporting. Although we
+discarded data from students who were less than 50% compliant with health check
+completion around the time of their positive test administration, this threshold
+was arbitrary and cannot fully address other problems such as false-negative
+test results. Because an individual can be exposed via multiple index cases,
+they can also be included multiple times in the SAR calculations. For a COVID-19
+case with multiple exposures, it is impossible to discard duplicates without
+knowledge of the true source of transmission. Similarly, students who reported
+multiple exposures but did not have a positive test result were also double
+counted. In this study, 224 (12.7%) of 1757 unique susceptible contacts reported
+exposure from index cases across &gt;1 symptom presentation category
+(symptomatic, asymptomatic, presymptomatic). Although we explored approaches to
+eliminate the possibility of overlap, these approaches did not substantially
+change the results, and we acknowledge that overlap is a source of
+uncertainty.</p></sec><sec id="section16-00333549221110300" disp-level="2"><title>COVID-19 Variants</title><p>The emergence of new variants complicates the interpretation and application of
+our results because the types of symptoms experienced by people with COVID-19
+and the timing of symptom onset continue to evolve. We are not aware of any
+published or prepublished estimates of SARs related to the Omicron or Delta
+variants, and the ability to determine the SAR from population data is limited
+by an increasing unwillingness to name close contacts or even respond to
+telephone calls from contact tracers.<sup>
+<xref rid="bibr33-00333549221110300" ref-type="bibr">33</xref>
+</sup> In a preprint analysis of data collected on National Basketball
+Association players, among Omicron cases detected ≤1 day after a previous
+negative or inconclusive COVID-19 test result, 52% were deemed infectious (based
+on cycle threshold values &lt;30) 5 days after a positive test result, 25% at 6
+days after a positive test result, and 13% at 7 days after a positive test
+result. Among Omicron cases detected &gt;2 days after a previous negative or
+inconclusive test result, 39% were deemed infectious 5 days after a positive
+test result, 33% at 6 days after a positive test result, and 22% at 7 days after
+a positive test result.<sup>
+<xref rid="bibr34-00333549221110300" ref-type="bibr">34</xref>
+</sup> Although additional work is required to determine the SAR for variants
+such as Omicron, our study provides both a methodological framework and baseline
+estimates for SARs.</p><p>Finally, SARs may change for new variants of COVID-19, so additional analysis may
+be required as the virus evolves. In particular, the higher transmissibility
+and/or virulence of each subsequent major variant of concern—Alpha, Delta,
+Omicron<sup><xref rid="bibr35-00333549221110300" ref-type="bibr">35</xref>,<xref rid="bibr36-00333549221110300" ref-type="bibr">36</xref></sup>—may mean that the estimates provided here are less
+relevant, or perhaps more of a lower bound, in settings where these or
+additional other variants dominate. However, our estimates of transmission can
+be integrated with epidemiological models<sup><xref rid="bibr18-00333549221110300" ref-type="bibr">18</xref>,<xref rid="bibr37-00333549221110300" ref-type="bibr">37</xref></sup> to better characterize
+the overall reproduction rate of COVID-19 along with the speed of spread of the
+variants.</p></sec></sec><sec id="section17-00333549221110300" disp-level="1"><title>Conclusion</title><p>The breadth and variety of COVID-19 symptoms, paired with the variable timing of
+symptom onset, will continue to complicate our ability to identify and predict
+definitively who is infected. Our analysis suggests that daily health checks that
+rely on symptom reporting to determine risk might be unreliable, given that
+asymptomatic and presymptomatic hosts may be infectious. Our results also suggest
+that, in the ongoing fight against COVID-19, additional interventions that reduce
+community transmission should continue to be considered, such as the current
+recommendations of the Centers for Disease Control and Prevention for wearing face
+masks, social distancing, and getting vaccinated.<sup>
+<xref rid="bibr38-00333549221110300" ref-type="bibr">38</xref>
+</sup></p></sec><sec id="section18-00333549221110300" disp-level="1"><title>Supplemental Material</title><supplementary-material id="suppl1-00333549221110300" position="float"><?disp-level 2?><caption><title>sj-docx-1-phr-10.1177_00333549221110300 – Supplemental material for
+Symptomatic, Presymptomatic, and Asymptomatic Transmission of SARS-CoV-2 in
+a University Student Population, August–November 2020</title></caption><media xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="sj-docx-1-phr-10.1177_00333549221110300.docx" mimetype="application" mime-subtype="vnd.openxmlformats-officedocument.wordprocessingml.document"><?cloudpmc-path b21a/9379828/7c8b06ee5d55/sj-docx-1-phr-10.1177_00333549221110300.docx?><?cloudpmc-bucket app?><?size 185882?><caption><p>Click here for additional data file.</p></caption></media><p>Supplemental material, sj-docx-1-phr-10.1177_00333549221110300 for Symptomatic,
+Presymptomatic, and Asymptomatic Transmission of SARS-CoV-2 in a University
+Student Population, August–November 2020 by Steven J. Krieg, Jennifer J. Schnur,
+Marie Lynn Miranda, Michael E. Pfrender and Nitesh V. Chawla in Public Health
+Reports</p></supplementary-material></sec><sec id="ack1" sec-type="ack" disp-level="1"><title>Acknowledgments</title><p>Steven J. Krieg and Jennifer J. Schnur contributed equally to this work. The authors
+thank Carolina Avendano, PhD, Liz Rulli, MS, and Aaron Lilienfeld, MS, for the
+University of Notre Dame’s COVID-19 data collection.</p></sec><sec id="fn-group1" sec-type="fn-group" disp-level="1"><title>Footnotes</title><fn-group><fn id="fn6"><p><bold>Declaration of Conflicting Interests:</bold> The authors declared no potential conflicts of interest with respect to the
+research, authorship, and/or publication of this article.</p></fn><fn id="fn7"><p><bold>Funding:</bold> The authors received no financial support for the research, authorship, and/or
+publication of this article.</p></fn><fn id="fn8"><p><bold>ORCID iDs:</bold> Steven J. Krieg, MA <inline-graphic xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="10.1177_00333549221110300-img1.jpg"><?cloudpmc-path blobs/b21a/9379828/25169e350eda/10.1177_00333549221110300-img1.jpg?><?cloudpmc-bucket cdn?><?image-server-status NEVER_LOAD?></inline-graphic>
+<ext-link xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://orcid.org/0000-0003-4819-9541" ext-link-type="uri">https://orcid.org/0000-0003-4819-9541</ext-link></p><p>Nitesh V. Chawla, PhD <inline-graphic xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="10.1177_00333549221110300-img1.jpg"><?cloudpmc-path blobs/b21a/9379828/25169e350eda/10.1177_00333549221110300-img1.jpg?><?cloudpmc-bucket cdn?><?image-server-status NEVER_LOAD?></inline-graphic>
+<ext-link xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://orcid.org/0000-0003-3932-5956" ext-link-type="uri">https://orcid.org/0000-0003-3932-5956</ext-link></p></fn><fn id="fn9"><p><bold>Supplemental Material:</bold> Supplemental material for this article is available online.</p></fn></fn-group></sec><sec id="ref-list1" sec-type="ref-list" disp-level="1"><title>References</title><sec id="ref-list1_sec2" disp-level="2"><ref-list><ref id="bibr1-00333549221110300"><label>1.</label><mixed-citation><named-content content-type="citation-string">
+Paules CI, Marston HD, Fauci AS.
+Coronavirus infections—more than just the common
+cold. JAMA.
+2020;323(8):707-708.
+doi: 10.1001/jama.2020.0757</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1001/jama.2020.0757"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="31971553"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=JAMA&amp;title=Coronavirus infections—more than just the common cold&amp;author=CI Paules&amp;author=HD Marston&amp;author=AS. Fauci&amp;volume=323&amp;issue=8&amp;publication_year=2020&amp;pages=707-708&amp;pmid=31971553&amp;doi=10.1001/jama.2020.0757&amp;"/></mixed-citation></ref><ref id="bibr2-00333549221110300"><label>2.</label><mixed-citation><named-content content-type="citation-string">
+Li Q, Guan X, Wu P, et al. Early transmission dynamics
+in Wuhan, China, of novel coronavirus–infected pneumonia.
+N Engl J Med.
+2020;382:1199-1207.
+doi: 10.1056/NEJMoa2001316</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1056/NEJMoa2001316"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7121484"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="31995857"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=N Engl J Med&amp;title=Early transmission dynamics in Wuhan, China, of novel coronavirus–infected pneumonia&amp;author=Q Li&amp;author=X Guan&amp;author=P Wu&amp;volume=382&amp;publication_year=2020&amp;pages=1199-1207&amp;pmid=31995857&amp;doi=10.1056/NEJMoa2001316&amp;"/></mixed-citation></ref><ref id="bibr3-00333549221110300"><label>3.</label><mixed-citation><named-content content-type="citation-string">
+Nishiura H, Kobayashi T, Miyama T, et al. Estimation of the
+asymptomatic ratio of novel coronavirus infections
+(COVID-19). Int J Infect Dis.
+2020;94:154-155.
+doi: 10.1016/j.ijid.2020.03.020</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1016/j.ijid.2020.03.020"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7270890"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32179137"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Int J Infect Dis&amp;title=Estimation of the asymptomatic ratio of novel coronavirus infections (COVID-19)&amp;author=H Nishiura&amp;author=T Kobayashi&amp;author=T Miyama&amp;volume=94&amp;publication_year=2020&amp;pages=154-155&amp;pmid=32179137&amp;doi=10.1016/j.ijid.2020.03.020&amp;"/></mixed-citation></ref><ref id="bibr4-00333549221110300"><label>4.</label><mixed-citation><named-content content-type="citation-string">
+Bai Y, Yao L, Wei T, et al. Presumed asymptomatic
+carrier transmission of COVID-19. JAMA.
+2020;323(14):1406-1407.
+doi: 10.1001/jama.2020.2565</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1001/jama.2020.2565"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7042844"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32083643"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=JAMA&amp;title=Presumed asymptomatic carrier transmission of COVID-19&amp;author=Y Bai&amp;author=L Yao&amp;author=T Wei&amp;volume=323&amp;issue=14&amp;publication_year=2020&amp;pages=1406-1407&amp;pmid=32083643&amp;doi=10.1001/jama.2020.2565&amp;"/></mixed-citation></ref><ref id="bibr5-00333549221110300"><label>5.</label><mixed-citation><named-content content-type="citation-string">
+Riley S, Ainslie KE, Eales O, et al. REACT-1 round 6 updated
+report: high prevalence of SARS-CoV-2 swab positivity with reduced rate of
+growth in England at the start of November 2020.
+medRxiv. Preprint posted November 20, 2020. doi: 10.1101/2020.11.18.20233932</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1101/2020.11.18.20233932"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=medRxiv&amp;title=REACT-1 round 6 updated report: high prevalence of SARS-CoV-2 swab positivity with reduced rate of growth in England at the start of November 2020&amp;author=S Riley&amp;author=KE Ainslie&amp;author=O Eales&amp;doi=10.1101/2020.11.18.20233932&amp;"/></mixed-citation></ref><ref id="bibr6-00333549221110300"><label>6.</label><mixed-citation><named-content content-type="citation-string">
+Petersen I, Phillips A.
+Three quarters of people with SARS-CoV-2 infection are
+asymptomatic: analysis of English household survey data.
+Clin Epidemiol.
+2020;12:1039-1043.
+doi: 10.2147/CLEP.S276825</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.2147/CLEP.S276825"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7549754"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="33116898"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Clin Epidemiol&amp;title=Three quarters of people with SARS-CoV-2 infection are asymptomatic: analysis of English household survey data&amp;author=I Petersen&amp;author=A. Phillips&amp;volume=12&amp;publication_year=2020&amp;pages=1039-1043&amp;pmid=33116898&amp;doi=10.2147/CLEP.S276825&amp;"/></mixed-citation></ref><ref id="bibr7-00333549221110300"><label>7.</label><mixed-citation><named-content content-type="citation-string">
+White EM, Santostefano CM, Feifer RA, et al. Asymptomatic and
+presymptomatic severe acute respiratory syndrome coronavirus 2 infection
+rates in a multistate sample of skilled nursing facilities.
+JAMA Intern Med.
+2020;180(12):1709-1711.
+doi: 10.1001/jamainternmed.2020.5664</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1001/jamainternmed.2020.5664"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7573793"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="33074318"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=JAMA Intern Med&amp;title=Asymptomatic and presymptomatic severe acute respiratory syndrome coronavirus 2 infection rates in a multistate sample of skilled nursing facilities&amp;author=EM White&amp;author=CM Santostefano&amp;author=RA Feifer&amp;volume=180&amp;issue=12&amp;publication_year=2020&amp;pages=1709-1711&amp;pmid=33074318&amp;doi=10.1001/jamainternmed.2020.5664&amp;"/></mixed-citation></ref><ref id="bibr8-00333549221110300"><label>8.</label><mixed-citation><named-content content-type="citation-string">
+Gudbjartsson DF, Helgason A, Jonsson H, et al. Spread of SARS-CoV-2 in the
+Icelandic population. N Engl J Med.
+2020;382(24):2302-2315.
+doi: 10.1056/NEJMoa2006100</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1056/NEJMoa2006100"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7175425"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32289214"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=N Engl J Med&amp;title=Spread of SARS-CoV-2 in the Icelandic population&amp;author=DF Gudbjartsson&amp;author=A Helgason&amp;author=H Jonsson&amp;volume=382&amp;issue=24&amp;publication_year=2020&amp;pages=2302-2315&amp;pmid=32289214&amp;doi=10.1056/NEJMoa2006100&amp;"/></mixed-citation></ref><ref id="bibr9-00333549221110300"><label>9.</label><mixed-citation><named-content content-type="citation-string">
+Hoxha A, Wyndham-Thomas C, Klamer S, et al. Asymptomatic SARS-CoV-2
+infection in Belgian long-term care facilities.
+Lancet Infect Dis.
+2020;21(4):e67. doi: 10.1016/S1473-3099(20)30560-0</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1016/S1473-3099(20)30560-0"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7333983"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32628906"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Lancet Infect Dis&amp;title=Asymptomatic SARS-CoV-2 infection in Belgian long-term care facilities&amp;author=A Hoxha&amp;author=C Wyndham-Thomas&amp;author=S Klamer&amp;volume=21&amp;issue=4&amp;publication_year=2020&amp;pmid=32628906&amp;doi=10.1016/S1473-3099(20)30560-0&amp;"/></mixed-citation></ref><ref id="bibr10-00333549221110300"><label>10.</label><mixed-citation><named-content content-type="citation-string">
+Buitrago-Garcia D, Egli-Gany D, Counotte MJ, et al. Occurrence and transmission
+potential of asymptomatic and presymptomatic SARS-CoV-2 infections: a living
+systematic review and meta-analysis. PLoS
+Med.
+2020;17(9):e1003346. doi: 10.1371/journal.pmed.1003346</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1371/journal.pmed.1003346"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7508369"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32960881"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=PLoS Med&amp;title=Occurrence and transmission potential of asymptomatic and presymptomatic SARS-CoV-2 infections: a living systematic review and meta-analysis&amp;author=D Buitrago-Garcia&amp;author=D Egli-Gany&amp;author=MJ Counotte&amp;volume=17&amp;issue=9&amp;publication_year=2020&amp;pmid=32960881&amp;doi=10.1371/journal.pmed.1003346&amp;"/></mixed-citation></ref><ref id="bibr11-00333549221110300"><label>11.</label><mixed-citation><named-content content-type="citation-string">
+Oran DP, Topol EJ.
+The proportion of SARS-CoV-2 infections that are asymptomatic: a
+systematic review. Ann Intern Med.
+2021;174(5):655-662.
+doi: 10.7326/M20-6976</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.7326/M20-6976"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7839426"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="33481642"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Ann Intern Med&amp;title=The proportion of SARS-CoV-2 infections that are asymptomatic: a systematic review&amp;author=DP Oran&amp;author=EJ. Topol&amp;volume=174&amp;issue=5&amp;publication_year=2021&amp;pages=655-662&amp;pmid=33481642&amp;doi=10.7326/M20-6976&amp;"/></mixed-citation></ref><ref id="bibr12-00333549221110300"><label>12.</label><mixed-citation><named-content content-type="citation-string">
+Thompson HA, Mousa A, Dighe A, et al. Severe acute respiratory
+syndrome coronavirus 2 (SARS-CoV-2) setting-specific transmission rates: a
+systematic review and meta-analysis. Clin Infect
+Dis.
+2021;73(3):e754-e764. doi: 10.1093/cid/ciab100</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1093/cid/ciab100"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7929012"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="33560412"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Clin Infect Dis&amp;title=Severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2) setting-specific transmission rates: a systematic review and meta-analysis&amp;author=HA Thompson&amp;author=A Mousa&amp;author=A Dighe&amp;volume=73&amp;issue=3&amp;publication_year=2021&amp;pmid=33560412&amp;doi=10.1093/cid/ciab100&amp;"/></mixed-citation></ref><ref id="bibr13-00333549221110300"><label>13.</label><mixed-citation><named-content content-type="citation-string">
+Madewell ZJ, Yang Y, Longini IM, Jr, Halloran ME, Dean NE.
+Household transmission of SARS-CoV-2: a systematic review and
+meta-analysis. JAMA Netw Open.
+2020;3(12):e2031756.
+doi: 10.1001/jamanetworkopen.2020.31756</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1001/jamanetworkopen.2020.31756"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7737089"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="33315116"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=JAMA Netw Open&amp;title=Household transmission of SARS-CoV-2: a systematic review and meta-analysis&amp;author=ZJ Madewell&amp;author=Y Yang&amp;author=IM Longini&amp;author=ME Halloran&amp;author=NE. Dean&amp;volume=3&amp;issue=12&amp;publication_year=2020&amp;pmid=33315116&amp;doi=10.1001/jamanetworkopen.2020.31756&amp;"/></mixed-citation></ref><ref id="bibr14-00333549221110300"><label>14.</label><mixed-citation><named-content content-type="citation-string">
+Shah K, Saxena D, Mavalankar D.
+Secondary attack rate of COVID-19 in household contacts: a
+systematic review. QJM.
+2020;113(12):841-850.
+doi: 10.1093/qjmed/hcaa232</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1093/qjmed/hcaa232"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7454929"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32726452"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=QJM&amp;title=Secondary attack rate of COVID-19 in household contacts: a systematic review&amp;author=K Shah&amp;author=D Saxena&amp;author=D. Mavalankar&amp;volume=113&amp;issue=12&amp;publication_year=2020&amp;pages=841-850&amp;pmid=32726452&amp;doi=10.1093/qjmed/hcaa232&amp;"/></mixed-citation></ref><ref id="bibr15-00333549221110300"><label>15.</label><mixed-citation><named-content content-type="citation-string">
+Koh WC, Naing L, Chaw L, et al. What do we know about
+SARS-CoV-2 transmission? A systematic review and meta-analysis of the
+secondary attack rate and associated risk factors.
+PLoS One.
+2020;15(10):e0240205.
+doi: 10.1371/journal.pone.0240205</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1371/journal.pone.0240205"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7544065"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="33031427"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=PLoS One&amp;title=What do we know about SARS-CoV-2 transmission? A systematic review and meta-analysis of the secondary attack rate and associated risk factors&amp;author=WC Koh&amp;author=L Naing&amp;author=L Chaw&amp;volume=15&amp;issue=10&amp;publication_year=2020&amp;pmid=33031427&amp;doi=10.1371/journal.pone.0240205&amp;"/></mixed-citation></ref><ref id="bibr16-00333549221110300"><label>16.</label><mixed-citation><named-content content-type="citation-string">
+Aguilar JB, Faust JS, Westafer LM, Gutierrez JB.
+Investigating the impact of asymptomatic carriers on COVID-19
+transmission. medRxiv. Preprint posted
+March 31, 2020. doi: 10.1101/2020.03.18.20037994</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1101/2020.03.18.20037994"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=medRxiv&amp;title=Investigating the impact of asymptomatic carriers on COVID-19 transmission&amp;author=JB Aguilar&amp;author=JS Faust&amp;author=LM Westafer&amp;author=JB. Gutierrez&amp;doi=10.1101/2020.03.18.20037994&amp;"/></mixed-citation></ref><ref id="bibr17-00333549221110300"><label>17.</label><mixed-citation><named-content content-type="citation-string">
+Sun K, Wang W, Gao L, et al. Transmission
+heterogeneities, kinetics, and controllability of
+SARS-CoV-2. Science.
+2021;371(6526):eabe2424.
+doi: 10.1126/science.abe2424</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1126/science.abe2424"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7857413"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="33234698"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Science&amp;title=Transmission heterogeneities, kinetics, and controllability of SARS-CoV-2&amp;author=K Sun&amp;author=W Wang&amp;author=L Gao&amp;volume=371&amp;issue=6526&amp;publication_year=2021&amp;pmid=33234698&amp;doi=10.1126/science.abe2424&amp;"/></mixed-citation></ref><ref id="bibr18-00333549221110300"><label>18.</label><mixed-citation><named-content content-type="citation-string">
+Subramanian R, He Q, Pascual M.
+Quantifying asymptomatic infection and transmission of COVID-19
+in New York City using observed cases, serology, and testing
+capacity. Proc Natl Acad Sci U S A.
+2021;118(9):e2019716118.
+doi: 10.1073/pnas.2019716118</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1073/pnas.2019716118"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7936345"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="33571106"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Proc Natl Acad Sci U S A&amp;title=Quantifying asymptomatic infection and transmission of COVID-19 in New York City using observed cases, serology, and testing capacity&amp;author=R Subramanian&amp;author=Q He&amp;author=M. Pascual&amp;volume=118&amp;issue=9&amp;publication_year=2021&amp;pmid=33571106&amp;doi=10.1073/pnas.2019716118&amp;"/></mixed-citation></ref><ref id="bibr19-00333549221110300"><label>19.</label><mixed-citation><named-content content-type="citation-string">
+Li R, Pei S, Chen B, et al. Substantial undocumented
+infection facilitates the rapid dissemination of novel coronavirus
+(SARS-CoV-2). Science.
+2020;368(6490):489-493.
+doi: 10.1126/science.abb3221</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1126/science.abb3221"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7164387"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32179701"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Science&amp;title=Substantial undocumented infection facilitates the rapid dissemination of novel coronavirus (SARS-CoV-2)&amp;author=R Li&amp;author=S Pei&amp;author=B Chen&amp;volume=368&amp;issue=6490&amp;publication_year=2020&amp;pages=489-493&amp;pmid=32179701&amp;doi=10.1126/science.abb3221&amp;"/></mixed-citation></ref><ref id="bibr20-00333549221110300"><label>20.</label><mixed-citation><named-content content-type="citation-string">
+Fox SJ, Pasco R, Tec M, et al. The impact of asymptomatic
+COVID-19 infections on future pandemic waves.
+medRxiv. Preprint posted June 23, 2020. doi: 10.1101/2020.06.22.20137489</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1101/2020.06.22.20137489"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=medRxiv&amp;title=The impact of asymptomatic COVID-19 infections on future pandemic waves&amp;author=SJ Fox&amp;author=R Pasco&amp;author=M Tec&amp;doi=10.1101/2020.06.22.20137489&amp;"/></mixed-citation></ref><ref id="bibr21-00333549221110300"><label>21.</label><mixed-citation><named-content content-type="citation-string">
+Lee S, Kim T, Lee E, et al. Clinical course and
+molecular viral shedding among asymptomatic and symptomatic patients with
+SARS-CoV-2 infection in a community treatment center in the Republic of
+Korea. JAMA Intern Med.
+2020;180(11):1447-1452.
+doi: 10.1001/jamainternmed.2020.3862</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1001/jamainternmed.2020.3862"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7411944"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32780793"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=JAMA Intern Med&amp;title=Clinical course and molecular viral shedding among asymptomatic and symptomatic patients with SARS-CoV-2 infection in a community treatment center in the Republic of Korea&amp;author=S Lee&amp;author=T Kim&amp;author=E Lee&amp;volume=180&amp;issue=11&amp;publication_year=2020&amp;pages=1447-1452&amp;pmid=32780793&amp;doi=10.1001/jamainternmed.2020.3862&amp;"/></mixed-citation></ref><ref id="bibr22-00333549221110300"><label>22.</label><mixed-citation><named-content content-type="citation-string">
+Ganyani T, Kremer C, Chen D, et al. Estimating the generation
+interval for coronavirus disease (COVID-19) based on symptom onset data,
+March 2020. Euro Surveill.
+2020;25(17):2000257.
+doi: 10.2807/1560-7917.ES.2020.25.17.2000257</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.2807/1560-7917.ES.2020.25.17.2000257"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7201952"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32372755"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Euro Surveill&amp;title=Estimating the generation interval for coronavirus disease (COVID-19) based on symptom onset data, March 2020&amp;author=T Ganyani&amp;author=C Kremer&amp;author=D Chen&amp;volume=25&amp;issue=17&amp;publication_year=2020&amp;pages=2000257&amp;pmid=32372755&amp;doi=10.2807/1560-7917.ES.2020.25.17.2000257&amp;"/></mixed-citation></ref><ref id="bibr23-00333549221110300"><label>23.</label><mixed-citation><named-content content-type="citation-string">
+Majumder MS, Mandl KD.
+Early transmissibility assessment of a novel coronavirus in
+Wuhan, China. SSRN. Preprint posted January
+24, 2020. doi: 10.2139/ssrn.3524675</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.2139/ssrn.3524675"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=SSRN&amp;title=Early transmissibility assessment of a novel coronavirus in Wuhan, China&amp;author=MS Majumder&amp;author=KD. Mandl&amp;doi=10.2139/ssrn.3524675&amp;"/></mixed-citation></ref><ref id="bibr24-00333549221110300"><label>24.</label><mixed-citation><named-content content-type="citation-string">
+Sanche S, Lin YT, Xu C, Romero-Severson E, Hengartner N, Ke R.
+High contagiousness and rapid spread of severe acute respiratory
+syndrome coronavirus 2. Emerg Infect Dis.
+2020;26(7):1470-1477.
+doi: 10.3201/eid2607.200282</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.3201/eid2607.200282"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7323562"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32255761"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Emerg Infect Dis&amp;title=High contagiousness and rapid spread of severe acute respiratory syndrome coronavirus 2&amp;author=S Sanche&amp;author=YT Lin&amp;author=C Xu&amp;author=E Romero-Severson&amp;author=N Hengartner&amp;volume=26&amp;issue=7&amp;publication_year=2020&amp;pages=1470-1477&amp;pmid=32255761&amp;doi=10.3201/eid2607.200282&amp;"/></mixed-citation></ref><ref id="bibr25-00333549221110300"><label>25.</label><mixed-citation><named-content content-type="citation-string">
+Ferguson NM, Laydon D, Nedjati-Gilani G, et al. Report 9: Impact of
+Non-pharmaceutical Interventions (NPIs) to Reduce COVID-19 Mortality and
+Healthcare Demand. Imperial College
+London; 2020.</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1007/s11538-020-00726-x"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7140590"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32270376"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="title=Report 9: Impact of Non-pharmaceutical Interventions (NPIs) to Reduce COVID-19 Mortality and Healthcare Demand&amp;author=NM Ferguson&amp;author=D Laydon&amp;author=G Nedjati-Gilani&amp;publication_year=2020&amp;"/></mixed-citation></ref><ref id="bibr26-00333549221110300"><label>26.</label><mixed-citation><named-content content-type="citation-string">
+Park YJ, Choe YJ, Park O, et al. Contact tracing during
+coronavirus disease outbreak, South Korea, 2020.
+Emerg Infect Dis.
+2020;26(10):2465-2468.
+doi: 10.3201/eid2610.201315</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.3201/eid2610.201315"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7510731"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32673193"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Emerg Infect Dis&amp;title=Contact tracing during coronavirus disease outbreak, South Korea, 2020&amp;author=YJ Park&amp;author=YJ Choe&amp;author=O Park&amp;volume=26&amp;issue=10&amp;publication_year=2020&amp;pages=2465-2468&amp;pmid=32673193&amp;doi=10.3201/eid2610.201315&amp;"/></mixed-citation></ref><ref id="bibr27-00333549221110300"><label>27.</label><mixed-citation><named-content content-type="citation-string">
+Fox MD, Bailey DC, Seamon MD, Miranda ML.
+Response to a COVID-19 outbreak on a university campus—Indiana,
+August 2020. MMWR Morb Mortal Wkly Rep.
+2021;70(4):118-122.
+doi: 10.15585/mmwr.mm7004a3</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.15585/mmwr.mm7004a3"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7842813"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="33507894"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=MMWR Morb Mortal Wkly Rep&amp;title=Response to a COVID-19 outbreak on a university campus—Indiana, August 2020&amp;author=MD Fox&amp;author=DC Bailey&amp;author=MD Seamon&amp;author=ML. Miranda&amp;volume=70&amp;issue=4&amp;publication_year=2021&amp;pages=118-122&amp;pmid=33507894&amp;doi=10.15585/mmwr.mm7004a3&amp;"/></mixed-citation></ref><ref id="bibr28-00333549221110300"><label>28.</label><mixed-citation><named-content content-type="citation-string">
+Luo L, Liu D, Liao Xl, et al. Modes of contact and risk of
+transmission in COVID-19: a prospective cohort study 4950 close contact
+persons in Guangzhou of China. SSRN.
+Preprint posted April 9, 2020. doi: 10.2139/ssrn.3566149</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.2139/ssrn.3566149"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=SSRN&amp;title=Modes of contact and risk of transmission in COVID-19: a prospective cohort study 4950 close contact persons in Guangzhou of China&amp;author=L Luo&amp;author=D Liu&amp;author=Xl Liao&amp;doi=10.2139/ssrn.3566149&amp;"/></mixed-citation></ref><ref id="bibr29-00333549221110300"><label>29.</label><mixed-citation><named-content content-type="citation-string">
+Cheng HY, Jian SW, Liu DP, et al. Contact tracing assessment
+of COVID-19 transmission dynamics in Taiwan and risk at different exposure
+periods before and after symptom onset. JAMA Intern
+Med.
+2020;180(9):1156-1163.
+doi: 10.1001/jamainternmed.2020.2020</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1001/jamainternmed.2020.2020"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7195694"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32356867"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=JAMA Intern Med&amp;title=Contact tracing assessment of COVID-19 transmission dynamics in Taiwan and risk at different exposure periods before and after symptom onset&amp;author=HY Cheng&amp;author=SW Jian&amp;author=DP Liu&amp;volume=180&amp;issue=9&amp;publication_year=2020&amp;pages=1156-1163&amp;pmid=32356867&amp;doi=10.1001/jamainternmed.2020.2020&amp;"/></mixed-citation></ref><ref id="bibr30-00333549221110300"><label>30.</label><mixed-citation><named-content content-type="citation-string">
+Chaw L, Koh WC, Jamaludin SA, Naing L, Alikhan MF, Wong J.
+SARS-CoV-2 transmission in different settings: analysis of cases
+and close contacts from the Tablighi cluster in Brunei
+Darussalam. medRxiv. Preprint posted May 8,
+2020. doi: 10.1001/2020.05.04.20090043</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1001/2020.05.04.20090043"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=medRxiv&amp;title=SARS-CoV-2 transmission in different settings: analysis of cases and close contacts from the Tablighi cluster in Brunei Darussalam&amp;author=L Chaw&amp;author=WC Koh&amp;author=SA Jamaludin&amp;author=L Naing&amp;author=MF Alikhan&amp;doi=10.1001/2020.05.04.20090043&amp;"/></mixed-citation></ref><ref id="bibr31-00333549221110300"><label>31.</label><mixed-citation><named-content content-type="citation-string">
+Park SY, Kim YM, Yi S, et al. Coronavirus disease outbreak
+in call center, South Korea. Emerg Infect
+Dis.
+2020;26(8):1666-1670.
+doi: 10.3201/eid2608.201274</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.3201/eid2608.201274"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC7392450"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="32324530"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Emerg Infect Dis&amp;title=Coronavirus disease outbreak in call center, South Korea&amp;author=SY Park&amp;author=YM Kim&amp;author=S Yi&amp;volume=26&amp;issue=8&amp;publication_year=2020&amp;pages=1666-1670&amp;pmid=32324530&amp;doi=10.3201/eid2608.201274&amp;"/></mixed-citation></ref><ref id="bibr32-00333549221110300"><label>32.</label><mixed-citation><named-content content-type="citation-string">
+Shelton JF, Shastri AJ, Fletez-Brant K, 23andMe COVID-19 Team; Aslibekyan S, Auton A.
+The UGT2A1/UGT2A2 locus is associated with COVID-19–related loss
+of smell or taste. Nat Genet.
+2022;54(2):121-124.
+doi: 10.1038/s41588-021-00986-w</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1038/s41588-021-00986-w"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="35039640"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Nat Genet&amp;title=The UGT2A1/UGT2A2 locus is associated with COVID-19–related loss of smell or taste&amp;author=JF Shelton&amp;author=AJ Shastri&amp;author=K Fletez-Brant&amp;author=S Aslibekyan&amp;author=A. Auton&amp;volume=54&amp;issue=2&amp;publication_year=2022&amp;pages=121-124&amp;pmid=35039640&amp;doi=10.1038/s41588-021-00986-w&amp;"/></mixed-citation></ref><ref id="bibr33-00333549221110300"><label>33.</label><mixed-citation><named-content content-type="citation-string">
+Holder S.
+Contact tracing is having a trust crisis.
+Bloomberg. August
+12, 2020. Accessed January 21, 2022.
+<ext-link xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://www.bloomberg.com/news/articles/2020-08-12/why-are-americans-so-uneasy-about-contact-tracing" ext-link-type="uri">https://www.bloomberg.com/news/articles/2020-08-12/why-are-americans-so-uneasy-about-contact-tracing</ext-link></named-content></mixed-citation></ref><ref id="bibr34-00333549221110300"><label>34.</label><mixed-citation><named-content content-type="citation-string">
+Hay J, Kissler S, Fauver JR, et al. Viral dynamics and duration
+of PCR positivity of the SARS-CoV-2 Omicron variant.
+Preprint posted January 14, 2022. Accessed February 1, 2022.
+<ext-link xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://nrs.harvard.edu/URN-3:HUL.INSTREPOS:37370587" ext-link-type="uri">https://nrs.harvard.edu/URN-3:HUL.INSTREPOS:37370587</ext-link></named-content></mixed-citation></ref><ref id="bibr35-00333549221110300"><label>35.</label><mixed-citation><named-content content-type="citation-string">
+Liu J, Liu Y, Xia H, et al. BNT162b2-elicited
+neutralization of B.1.617 and other SARS-CoV-2 variants.
+Nature.
+2021;596(7871):1-5.
+doi: 10.1038/s41586-021-03693-y</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1038/s41586-021-03693-y"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="34111888"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Nature&amp;title=BNT162b2-elicited neutralization of B.1.617 and other SARS-CoV-2 variants&amp;author=J Liu&amp;author=Y Liu&amp;author=H Xia&amp;volume=596&amp;issue=7871&amp;publication_year=2021&amp;pages=1-5&amp;pmid=34111888&amp;doi=10.1038/s41586-021-03693-y&amp;"/></mixed-citation></ref><ref id="bibr36-00333549221110300"><label>36.</label><mixed-citation><named-content content-type="citation-string">
+Sheikh A, McMenamin J, Taylor B, Robertson C, Public Health Scotland and the EAVE II
+Collaborators. SARS-CoV-2 Delta VOC in Scotland:
+demographics, risk of hospital admission, and vaccine
+effectiveness. Lancet.
+2021;397(10293):2461-2462.
+doi: 10.1016/S0140-6736(21)01358-1</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1016/S0140-6736(21)01358-1"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC8201647"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="34139198"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=Lancet&amp;title=SARS-CoV-2 Delta VOC in Scotland: demographics, risk of hospital admission, and vaccine effectiveness&amp;author=A Sheikh&amp;author=J McMenamin&amp;author=B Taylor&amp;author=C Robertson&amp;volume=397&amp;issue=10293&amp;publication_year=2021&amp;pages=2461-2462&amp;pmid=34139198&amp;doi=10.1016/S0140-6736(21)01358-1&amp;"/></mixed-citation></ref><ref id="bibr37-00333549221110300"><label>37.</label><mixed-citation><named-content content-type="citation-string">
+Gomes MGM, Ferreira MU, Corder RM, et al. Individual variation in
+susceptibility or exposure to SARS-CoV-2 lowers the herd immunity
+threshold. medRxiv. Preprint posted
+February 14, 2022. doi: 10.1101/2020.04.27.20081893</named-content><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="doi" xlink:href="10.1101/2020.04.27.20081893"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmcid" xlink:href="PMC8855661"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="pmid" xlink:href="35189135"/><ext-link xmlns:xlink="http://www.w3.org/1999/xlink" ext-link-type="google-scholar" xlink:href="journal=medRxiv&amp;title=Individual variation in susceptibility or exposure to SARS-CoV-2 lowers the herd immunity threshold&amp;author=MGM Gomes&amp;author=MU Ferreira&amp;author=RM Corder&amp;pmid=35189135&amp;doi=10.1101/2020.04.27.20081893&amp;"/></mixed-citation></ref><ref id="bibr38-00333549221110300"><label>38.</label><mixed-citation><named-content content-type="citation-string">
+Centers for Disease Control and Prevention. How
+to protect yourself and others. 2021.
+Accessed November 1, 2021. <ext-link xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://www.cdc.gov/coronavirus/2019-ncov/prevent-getting-sick/prevention.html" ext-link-type="uri">https://www.cdc.gov/coronavirus/2019-ncov/prevent-getting-sick/prevention.html</ext-link></named-content></mixed-citation></ref></ref-list></sec></sec><sec id="_ad93_" xml:lang="en" sec-type="associated-data" disp-level="1"><title>Associated Data</title><sec id="_adsm93_" xml:lang="en" sec-type="supplementary-materials" disp-level="2"><title>Supplementary Materials</title><supplementary-material id="db_ds_supplementary-material1_reqid_" position="float"><?disp-level 2?><caption><title>sj-docx-1-phr-10.1177_00333549221110300 – Supplemental material for
+Symptomatic, Presymptomatic, and Asymptomatic Transmission of SARS-CoV-2 in
+a University Student Population, August–November 2020</title></caption><media xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="sj-docx-1-phr-10.1177_00333549221110300.docx" mimetype="application" mime-subtype="vnd.openxmlformats-officedocument.wordprocessingml.document"><?cloudpmc-path b21a/9379828/7c8b06ee5d55/sj-docx-1-phr-10.1177_00333549221110300.docx?><?cloudpmc-bucket app?><?size 185882?><caption><p>Click here for additional data file.</p></caption></media><p>Supplemental material, sj-docx-1-phr-10.1177_00333549221110300 for Symptomatic,
+Presymptomatic, and Asymptomatic Transmission of SARS-CoV-2 in a University
+Student Population, August–November 2020 by Steven J. Krieg, Jennifer J. Schnur,
+Marie Lynn Miranda, Michael E. Pfrender and Nitesh V. Chawla in Public Health
+Reports</p></supplementary-material></sec></sec></body></article>

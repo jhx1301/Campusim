@@ -3,6 +3,7 @@ from copy import deepcopy
 from dataclasses import replace
 import csv
 import json
+from math import ceil
 from pathlib import Path
 
 import pytest
@@ -102,7 +103,7 @@ def synthetic_evaluation(tmp_path, protocol):
         with (directory / "public_daily.csv").open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(("day", "screening_daily_capacity"))
-            writer.writerow((0, int(protocol.population * condition["screening_capacity_ratio"])))
+            writer.writerow((0, ceil(protocol.population * condition["screening_capacity_ratio"])))
         records.append({"world_seed": seed, "summary": summary, "output_dir": str(directory), "last_window_infections": 0})
     return {"purpose": "source_development", "pool": "validation_A", "records": records,
             "mean_positive_cost": 1., "mean_normalized_activity": .25}

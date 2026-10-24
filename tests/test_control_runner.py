@@ -143,7 +143,7 @@ def test_cli_modules_are_inert_on_import_and_help_needs_no_simulation(monkeypatc
         raise AssertionError("import unexpectedly started a run")
 
     monkeypatch.setattr(runner, "run_episode", forbidden)
-    for name in ("smoke", "calibrate", "evaluate_calibration", "run_references", "run_llm", "smoke_llm"):
+    for name in ("smoke", "e0_study", "run_references", "run_llm", "smoke_llm"):
         module = importlib.import_module(f"examples.control_v1.{name}")
         with pytest.raises(SystemExit) as exit_info:
             module.main(["--help"])
@@ -156,7 +156,7 @@ def test_cli_modules_are_inert_on_import_and_help_needs_no_simulation(monkeypatc
 @pytest.mark.parametrize("data_path", [None, "data/relocated.csv"])
 def test_reference_cli_verifies_e0_and_maps_source_worlds(tmp_path, monkeypatch, split, seed, scale, capacity, data_path):
     from examples.control_v1 import run_references
-    import cemas.control.calibration as calibration
+    import cemas.e0.artifacts as calibration
     import cemas.control.runner as runner
 
     verified = []
@@ -165,8 +165,7 @@ def test_reference_cli_verifies_e0_and_maps_source_worlds(tmp_path, monkeypatch,
 
     expected_data = None if data_path is None else Path(data_path)
 
-    def load(path, protocol, *, require_evaluation, data_path):
-        assert require_evaluation is True
+    def load(path, protocol, *, data_path):
         assert data_path == expected_data
         verified.append(path)
 
@@ -192,7 +191,7 @@ def test_reference_cli_verifies_e0_and_maps_source_worlds(tmp_path, monkeypatch,
 
 def test_reference_cli_rejects_final_seed_before_loading_evidence(tmp_path, monkeypatch):
     from examples.control_v1 import run_references
-    import cemas.control.calibration as calibration
+    import cemas.e0.artifacts as calibration
 
     def forbidden(*args, **kwargs):
         raise AssertionError("invalid seed must fail before artifact loading")
@@ -202,27 +201,3 @@ def test_reference_cli_rejects_final_seed_before_loading_evidence(tmp_path, monk
         run_references.main(["--artifact", str(tmp_path / "artifact.json"), "--output",
                              str(tmp_path / "runs"), "--seed", "50001"])
     assert error.value.code == 2 and not (tmp_path / "runs").exists()
-
-
-def test_calibrate_cli_preserves_incomplete_trial_evidence(tmp_path, monkeypatch):
-    from examples.control_v1 import calibrate
-    import cemas.control.calibration as calibration
-
-    calls = []
-
-    def fail(*args, **kwargs):
-        calls.append(1)
-        error = RuntimeError("fit stopped")
-        error.trial_records = ({"number": 0, "state": "FAIL"},)
-        raise error
-
-    monkeypatch.setattr(calibration, "fit_beta", fail)
-    output = tmp_path / "failed-fit"
-    with pytest.raises(RuntimeError, match="fit stopped"):
-        calibrate.main(["--output", str(output)])
-    failure = json.loads((output / "failure.json").read_text())
-    assert failure["status"] == "failed" and failure["trial_records"][0]["state"] == "FAIL"
-    assert not (output / "artifact.json").exists()
-    with pytest.raises(FileExistsError):
-        calibrate.main(["--output", str(output)])
-    assert len(calls) == 1

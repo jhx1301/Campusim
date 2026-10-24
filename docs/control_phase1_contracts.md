@@ -1,5 +1,7 @@
 # CEMAS control v1：Phase 1 统一动作空间契约
 
+> 2026-10-23：本文的旧校准、人口及验收数字为历史记录。当前唯一标准和运行入口以 [UW 控制接入](uw_control_integration.md) 为准；旧结果不作为 UW 验收。
+
 本文件补记 2026-10-13 完成的 Phase 1 工程契约，原实现提交为 `0360a2f`（`Phase 1: implement action space encoding and resolution`）。动作语义版本为 `cemas-action-semantics-v1`，数据 schema 版本沿用 `cemas-control-schema-v1`。依据为[机器配置](control_protocol_v1.json)、[推荐协议 v1](llm_recommended_protocol_v1.md)及[Phase 0 契约](control_phase0_contracts.md)。本文件于 2026-10-14 补充，描述 Phase 1 交付边界；后续执行行为见[Phase 2 契约](control_phase2_contracts.md)。
 
 ## 动作表示与固定基线

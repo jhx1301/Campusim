@@ -1,5 +1,7 @@
 # CEMAS: Campus Epidemic Multi-Agent Simulation
 
+> Current control pipeline (2026-10-23): UW-Madison W1 is the sole calibration standard, with 69,457 campus agents. See [UW control integration](docs/uw_control_integration.md) for the current commands and evidence contract. Older paper result mappings below are historical, not UW validation.
+
 CEMAS is a research framework for simulating epidemic transmission on a
 university campus and evaluating adaptive intervention policies. It combines a
 campus-specific agent-based epidemic model, a structured policy catalogue, an

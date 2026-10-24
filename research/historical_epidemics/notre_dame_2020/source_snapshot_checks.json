@@ -1,0 +1,27 @@
+{
+  "checked_at_utc": "2026-10-24T02:14:24.107185+00:00",
+  "repository_commit": "7ee3a5a1afb1ee5a1dd01ada37bf94ae41aa8b7b",
+  "files": [
+    {
+      "file": "COVID_Surveillance_Impact_20200810-20201204.csv",
+      "url": "https://raw.githubusercontent.com/scavany/wastewater_shedding_period/7ee3a5a1afb1ee5a1dd01ada37bf94ae41aa8b7b/COVID_Surveillance_Impact_20200810-20201204.csv",
+      "sha256": "29f9c98eb7d2127b8c7ecb33e638e3ccb9077513fc1c1e6234ff9bcd540001ab",
+      "remote_sha256": "29f9c98eb7d2127b8c7ecb33e638e3ccb9077513fc1c1e6234ff9bcd540001ab",
+      "matches": true
+    },
+    {
+      "file": "NDCampus_ddPCRdata_cleanedrawdata_0s.csv",
+      "url": "https://raw.githubusercontent.com/scavany/wastewater_shedding_period/7ee3a5a1afb1ee5a1dd01ada37bf94ae41aa8b7b/NDCampus_ddPCRdata_cleanedrawdata_0s.csv",
+      "sha256": "fec7ee901f0a9db184369d8b4bebb9a63433f2ec52a1f4c1bd09ee53b183d4a6",
+      "remote_sha256": "fec7ee901f0a9db184369d8b4bebb9a63433f2ec52a1f4c1bd09ee53b183d4a6",
+      "matches": true
+    },
+    {
+      "file": "Sewage_Sampling_Fall_Data_20210507.csv",
+      "url": "https://raw.githubusercontent.com/scavany/wastewater_shedding_period/7ee3a5a1afb1ee5a1dd01ada37bf94ae41aa8b7b/Sewage_Sampling_Fall_Data_20210507.csv",
+      "sha256": "6853f0663f628d14beff71ce358e4ab8afc686b2aebc04ac6c22f376b12d8e66",
+      "remote_sha256": "6853f0663f628d14beff71ce358e4ab8afc686b2aebc04ac6c22f376b12d8e66",
+      "matches": true
+    }
+  ]
+}
