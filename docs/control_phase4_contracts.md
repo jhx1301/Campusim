@@ -59,9 +59,9 @@ runner 在 decide 成功或异常后都先交付/落盘已产生的调用审计�
 
 私有 `llm_calls.jsonl` 逐次保存日/序号/UTC时间、供应商及endpoint、请求和返回模型、响应id/指纹、完整消息及三种hash、计数器身份和输入量/预算、usage、最终原文、finish reason、耗时、稳定错误及可重试性。不得保存认证头、密钥或原始供应商异常文本。DecisionRecord 新增默认值 `llm_attempt_count=0`、`llm_succeeded=None`。
 
-离线 smoke 使用既有 smoke 世界；真实 prompt 开发使用40001–40009，仅 runner 管理 seed，内部仍走 scientific 环境和真实 E0 门禁。最终测试池保持关闭。P6 才实现全方法源域开发、权重/H冻结和训练。
+离线 smoke 使用既有 smoke 世界；真实 prompt 开发使用40001–40009，仅 runner 管理 seed，内部仍走 scientific 环境和真实 E0 门禁。后续P6工程已接入源域A/B、pilot及训练/冻结工具，正式开发批次与共同冻结尚未完成；最终测试池保持关闭。
 
-manifest的 `run_purpose` 保存runner用途；环境内部purpose为scientific。LLM元数据额外记录 `live_provider`、transport类型、模板/公共快照hash、settings和计数器身份。生产transport只能用于prompt_development，离线替身只能用于smoke；固定参照继续使用既有用途。不可重试失败不制造回退；调用前失败保留可用的三类hash、输入计数与预算。
+manifest的 `run_purpose` 保存runner用途；环境内部purpose为scientific。LLM元数据额外记录 `live_provider`、transport类型、模板/公共快照hash、settings和计数器身份。P4初始接入将生产transport限于prompt_development；后续P6允许其用于保留源域A/B的scientific用途和pilot源池，仍校验实际用途与seed，不能据此使用最终测试池。离线替身只能用于smoke；固定参照继续使用既有用途。不可重试失败不制造回退；调用前失败保留可用的三类hash、输入计数与预算。
 
 薄入口为 `examples/control_v1/run_llm.py` 与 `smoke_llm.py`。真实入口显式要求endpoint、凭据变量名、资源manifest和真实E0产物；不要求或读取计数验收报告，旧报告参数仅兼容接受。模型名仍由协议提供。`--help`不会启动模拟或加载SDK/tokenizer。P3既有入口和历史产物保留。
 

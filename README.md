@@ -1,248 +1,111 @@
 # CEMAS: Campus Epidemic Multi-Agent Simulation
 
-> Current control pipeline (2026-10-23): UW-Madison W1 is the sole calibration standard, with 69,457 campus agents. See [UW control integration](docs/uw_control_integration.md) for the current commands and evidence contract. Older paper result mappings below are historical, not UW validation.
+CEMAS studies adaptive epidemic control in a shared, partially observable
+simulation task. The current V1 implementation combines a Covasim-derived
+campus engine with weekly control, public observations, LLM controllers,
+deterministic public memory, tuned thresholds, MaskablePPO, and Double DQN.
 
-CEMAS is a research framework for simulating epidemic transmission on a
-university campus and evaluating adaptive intervention policies. It combines a
-campus-specific agent-based epidemic model, a structured policy catalogue, an
-LLM policy agent, and short- and long-term decision memory.
+**Current status (2026-10-23):** the UW configuration uses 69,457 agents,
+2,321 teachers, 21,596 other staff, and `campus_k_ts=3`. These recent model
+changes require a new E0 calibration. The existing `results/e0_v2/full/`
+anchor belongs to the previous model and is retained as historical evidence.
+Formal source development, release freeze, and E1–E4 evaluation are not
+complete. See [UW control integration](docs/uw_control_integration.md) for the
+current configuration, commands, and evidence limits.
 
-This anonymous code-and-data supplement contains the implementation, processed
-input data, per-seed outputs, decision audit records, and scripts needed to
-verify and reconstruct the numerical results reported in the paper.
+## V1 control task
 
-## Main capabilities
+- All methods use the same `[T,S,C,E,A]` action vector: clinical testing,
+  screening, tracing, school restrictions, and work/community restrictions.
+  The joint action space has 324 combinations.
+- Controllers receive public observations and closed public execution
+  feedback. Hidden infections, private reward, beta, seeds, future events,
+  and simulator objects do not enter LLM prompts or memory.
+- Days 0–6 use the shared minimum action. The first autonomous decision is
+  on day 7; the initial 112-day horizon includes that fixed first week.
+- The campus engine uses six contact layers: `d`, `clu`, `clg`, `of`, `ta`,
+  and `cm`. All controllers share the weekly environment and executor.
+- P5 memory uses deterministic recent summaries, frozen public source cases,
+  knowledge cards, and numeric state/trend retrieval with `.75/.25` weights.
+  Modes are `none`, `short`, `global`, and `both`; V1 does not use embeddings
+  or an LLM reflection writer.
 
-- A six-layer campus contact network covering dormitories, undergraduate and
-  graduate classrooms, offices and laboratories, teaching and administrative
-  staff, and campus common spaces.
-- Individual-level infection progression, transmission, testing, diagnosis,
-  quarantine, isolation, immunity, and intervention tracking.
-- Five ordered campus policy levels, from normal operation to emergency
-  restrictions.
-- A provider-neutral LLM policy client compatible with OpenAI-style endpoints.
-- Structured parsing and format validation for LLM policy responses.
-- Recent-policy memory plus a dual-branch memory design combining short-term
-  trajectory summaries with long-term similar-scenario retrieval.
-- Multi-seed policy evaluation, calibration, sensitivity analysis, audit logs,
-  table reconstruction, and integrity verification.
+## Repository and documentation
 
-## System architecture
-
-```text
-Campus data and scenario configuration
-                 |
-                 v
-      Campus population and six-layer network
-                 |
-                 v
-       Agent-based epidemic simulation
-                 |
-                 v
-     Epidemiological state summarization
-                 |
-        +--------+---------+
-        |                  |
-        v                  v
- Recent trajectory     Similar historical
-     memory             scenario retrieval
-        |                  |
-        +--------+---------+
-                 |
-                 v
-             LLM policy agent
-                 |
-                 v
-       Response parsing and policy execution
-                 |
-                 v
- Metrics, policy traces, decision logs, and tables
-```
-
-## Core modules
-
-### Public CEMAS API
-
-The `cemas` package is the public entry point. It exposes the simulator,
-interventions, `PolicyClient`, and memory components through one import:
-
-```python
-import cemas as ce
-
-sim = ce.Sim(pop_type="campus", pop_size=4000, n_days=56)
-sim.run()
-```
-
-### Campus population and contact network
-
-The campus population module assigns agents to campus roles and constructs six
-epidemiologically distinct contact layers:
-
-| Layer | Meaning |
+| Location | Purpose |
 |---|---|
-| `d` | Dormitory contacts |
-| `clu` | Undergraduate classroom contacts |
-| `clg` | Graduate classroom contacts |
-| `of` | Office and laboratory contacts |
-| `ta` | Teaching and administrative staff contacts |
-| `cm` | Campus common-space contacts |
+| [Current reading index](docs/CEMAS_READING_INDEX.md) | Current status, reading order, and implementation boundaries |
+| [Documentation index](docs/README.md) | Protocols, phase contracts, and environment notes |
+| [Control protocol](docs/control_protocol_v1.json) | Shared task, actions, resources, objective, seeds, and experiment settings |
+| [Memory profile](docs/control_memory_v1.json) | Active P5 numeric retrieval and memory configuration |
+| [E0 protocol](docs/e0_protocol_v2.json) | UW W1 calibration configuration |
+| [cemas/control/](cemas/control/) | Weekly control, LLM/memory controllers, baselines, training, and audit |
+| [cemas/e0/](cemas/e0/) | UW observation loading, simulation study, and control-anchor verification |
+| [examples/control_v1/](examples/control_v1/) | Current command-line entry points |
+| [covasim/](covasim/) | Population, contact networks, epidemic engine, and interventions |
+| [Historical data research](research/historical_epidemics/README.md) | Sources, normalized observations, context, and provenance |
 
-Each layer can use different contact patterns and transmission weights, making
-it possible to represent targeted teaching, residence, workplace, and
-common-space interventions.
+## Environment and local checks
 
-### Epidemic simulation engine
+Use the source checkout and the existing simulation environment. Run commands
+from the repository root:
 
-The simulation engine maintains individual infection states and advances the
-campus epidemic day by day. It records infections, diagnoses, testing,
-quarantine, intervention burden, effective reproduction estimates, and
-layer-specific transmission contributions.
-
-### Campus policy agent
-
-The policy module converts recent simulation observations into a structured
-decision state. A policy decision contains a policy identifier, risk level, and
-reason. The agent validates the response against the policy catalogue before
-applying testing, quarantine, contact reduction, and teaching-mode changes.
-
-`PolicyClient` accepts any configured OpenAI-compatible endpoint. LLM
-experiments always use the configured API.
-
-### Policy catalogue
-
-CEMAS defines five ordered policies:
-
-| Policy | Interpretation |
-|---|---|
-| `P0_normal` | Normal campus operation |
-| `P1_guarded` | Enhanced monitoring and testing |
-| `P2_moderate` | Moderate transmission controls |
-| `P3_strong` | Strong contact and teaching restrictions |
-| `P4_emergency` | Emergency campus controls |
-
-LLM responses are parsed into the required fields and checked against this
-catalogue before execution.
-
-### Memory subsystem
-
-CEMAS supports two related memory mechanisms:
-
-- Recent-policy memory supplies the agent with the latest policy decisions and
-  observed outcomes.
-- Dual-branch memory combines a compressed within-run trajectory with retrieval
-  of similar completed situations from a frozen cross-run memory store.
-
-The two mechanisms are evaluated separately. `RESULT_MAPPING.md` explains which
-one supports each paper table.
-
-### Experiment and validation pipeline
-
-`experiments/run_cemas_experiments.py` runs formal policy comparisons, memory
-ablations, and robustness analyses. Strategies that use an LLM require the
-configured API.
-
-`experiments/run_cemas_validation.py` performs campus-model calibration and
-one-at-a-time parameter sensitivity analysis.
-
-`experiments/reproduce_tables.py` reconstructs Tables 1--4 from the supplied
-results without rerunning simulations or calling an external API.
-
-`experiments/verify_results.py` checks result structure, audit logs, the
-read-only memory audit index, file hashes, and anonymous-release constraints.
-
-## Repository layout
-
-```text
-CEMAS_Code_and_Data_Supplement/
-├── cemas/                 Public CEMAS Python API
-├── experiments/           Experiment, validation, and reproduction scripts
-├── data/                  Reconstructed campus outbreak time series
-├── results/
-│   ├── calibration/       Calibration and sensitivity outputs
-│   ├── policy_comparison/ Table 3 multi-seed policy results
-│   ├── recent_memory_ablation/
-│   ├── dual_memory_ablation/
-│   ├── figures/           Selected paper-facing figures
-│   └── llm_audit_logs.zip
-├── RESULT_MAPPING.md      Paper-to-artifact mapping
-├── SHA256SUMS.txt         File-integrity hashes
-└── requirements.txt       Reproducible Python environment
+```powershell
+$python = 'E:\pytroch\anaconda3\envs\simulation\python.exe'
+& $python -B -X utf8 tools/check_control_environment.py
+& $python -m examples.control_v1.smoke --output results/v1_smoke_next --seed 90001 --population 100 --days 14 --initial-infections 3
 ```
 
-## Installation
+The smoke command uses an uncalibrated, reduced population to check the control
+loop. It does not establish scientific validity. Output directories must be new.
+Dependency declarations and historical environment snapshots have different
+purposes; see [environment notes](docs/README.md#环境与依赖) before installing.
+Standalone package installation and CI do not yet establish complete V1 runtime
+acceptance.
 
-The reference environment uses Python 3.10:
+## Calibration and subsequent runs
 
-```bash
-python -m pip install -r requirements.txt
-python -m pip install -e .
+The current E0 uses the UW–Madison on-campus student/employee testing series
+for 2020-08-17 through 2020-09-06. Positive-test counts are observations of
+tested samples, not hidden infection counts. See the [data description](data/README.md).
+
+Run a complete study for the current model in a new directory:
+
+```powershell
+& $python -m examples.control_v1.e0_study --output results/uw_e0_roles_20261023 --workers 4
 ```
 
-## Paper result map
+After this study completes and exports a compatible `control_anchor.json`,
+the fixed references can use it:
 
-| Paper item | Included artifacts | Experiment |
-|---|---|---|
-| Table 1 | `results/calibration/calibration_results.json` | Campus-model calibration |
-| Table 2 | `results/calibration/sensitivity_*.csv` | Parameter sensitivity, 20 seeds per variant |
-| Table 3 | `results/policy_comparison/policy_*` | No intervention, threshold policy, and CEMAS LLM policy |
-| Table 4 | `results/recent_memory_ablation/memory_*` | Recent-policy-memory ablation |
-| Additional study | `results/dual_memory_ablation/` | Short-term and long-term memory branches |
-
-See `RESULT_MAPPING.md` for the exact strategy definitions and the distinction
-between recent-policy memory and dual-branch memory.
-
-## Verify and reconstruct the supplied results
-
-The included numerical results can be checked without network access, an API
-key, or rerunning the simulations:
-
-```bash
-python experiments/verify_results.py
-python experiments/reproduce_tables.py
+```powershell
+& $python -m examples.control_v1.run_references --artifact results/uw_e0_roles_20261023/control_anchor.json --seed 20005 --output results/uw_references
 ```
 
-The reconstructed CSV tables are written to `reproduced_tables/`.
+These are execution examples, not records of completed calibration or formal
+evaluation. The anchor must remain with its original study files. It provides
+a W1 in-sample parameter anchor and consistency check, not predictive or
+real-world intervention validation. Baseline and training commands are in the
+[Phase 6 contract](docs/control_phase6_contracts.md).
 
-## Run experiments
+LLM runs use [run_llm.py](examples/control_v1/run_llm.py) or
+[run_memory_llm.py](examples/control_v1/run_memory_llm.py), with an endpoint,
+the name of a credential environment variable, official tokenizer resources,
+and a compatible E0 anchor. `global`/`both` memory additionally needs a verified
+frozen source store. Development acceptance reports are retained separately;
+normal runs do not require them as startup credentials.
 
-LLM experiments require an OpenAI-compatible endpoint:
+## Historical implementation and results
 
-```bash
-export LLM_API_KEY="..."
-export LLM_BASE_URL="https://your-provider.example/v1"
-export LLM_MODEL="your-model"
-
-python experiments/run_cemas_experiments.py \
-  --experiment policy
-```
-
-The generic `LLM_API_KEY`, `LLM_BASE_URL`, and `LLM_MODEL` settings take
-precedence over legacy compatibility variables. API credentials are never
-written to manifests or decision logs.
-
-Calibration and non-LLM baselines do not call the endpoint. Any selected
-strategy that uses an LLM requires `LLM_API_KEY`.
-
-## Data and outputs
-
-The files under `data/` contain reconstructed daily campus outbreak series
-derived from a public epidemiological report. They are aggregate time series,
-not individual-level records. See `data/README.md` for provenance, variables,
-and calibration windows.
-
-The result directories include:
-
-- per-seed run metrics;
-- aggregated summary metrics;
-- daily epidemic trajectories;
-- policy trajectories and decision summaries;
-- layer-specific transmission contributions;
-- memory-retrieval audit records;
-- compressed JSONL LLM decision logs;
-- selected figures used to inspect the reported results.
+The old `covasim/llm_policy.py`, `covasim/llm_memory.py`,
+`campus_policy_agent`, P0–P4 policy catalogue, old experiments, and
+[paper result mapping](RESULT_MAPPING.md) belong to the previous implementation.
+V1 uses the separate control modules described above. The old modules remain
+for API/history dependencies and recorded source identities; their results do
+not establish current UW acceptance. Historical reproduction tools are under
+`tools/supplement/` and `tools/build_cemas_supplement.py`.
 
 ## License and upstream attribution
 
 CEMAS includes substantial portions of Covasim v3.1.7 and preserves its MIT
-License and original copyright notice. The full license is provided in
-`LICENSE`.
+License and original copyright notice. See [LICENSE](LICENSE).

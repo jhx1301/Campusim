@@ -1,6 +1,8 @@
 # CEMAS v1 Phase 5 实施计划：公共记忆、案例检索与决策依据
 
-日期：2026-10-17。状态：**已按本计划实现；离线工程验收完成，真实 provider/tokenizer 验收待执行**。实现与证据见 [Phase 5 契约](control_phase5_contracts.md)。
+编制：2026-10-17；状态更新：2026-10-23。状态：**主要离线链和采集/冻结工具已实现；从已有 source 审计导出重建 development 库仍缺入口，不能宣布本计划全部完成。真实 provider/tokenizer 验收及正式源库待执行。** 实现与证据见 [Phase 5 契约](control_phase5_contracts.md)。
+
+当前模型和运行前提以 [UW 控制接入](uw_control_integration.md) 为准：69,457 人、教师 2,321 / 其他职员 21,596、`campus_k_ts=3`，尚无此配置的 E0 校准结果。旧角色锚点和案例库是历史证据，不能作为当前科学运行的输入。
 
 2026-10-17用户修订：P4/P5验收报告只用于开发验证和留档，不作为使用程序的启动凭证。正常运行直接检查当前资源、请求和实际返回；本次修订优先于研究快照中的报告门禁要求。
 
@@ -14,15 +16,15 @@ Phase 5 的目标是：在已有公共观察—LLM提案—共同执行—公共
 
 本计划落实研究路线中的R1–R3及建库工具；R4只准备可独立执行的真实验收入口。R5以后的正式源域开发、方法比较和目标实验分别交给Phase 6/7。
 
-### 1.1 当前实现基线
+### 1.1 Phase 5 实施基线与当前接续
 
-本轮静态核对：`feature/control-protocol-v1@2950e7f72355f03fda2bb69559378a06a9ca5eba`。开始时已有未跟踪的`docs/llm_architecture_research/`，是上一轮交付，应完整保留。
+Phase 5 实施前静态基线：`feature/control-protocol-v1@2950e7f72355f03fda2bb69559378a06a9ca5eba`。当时已有未跟踪的`docs/llm_architecture_research/`，是前一轮交付，应完整保留。以下阶段记录不替代当前 checkout、依赖及产物核查；后续 Phase 6 已接入第四种采集策略和发布工程。
 
 - P4已有`LLMController`、两消息prompt、两字段parser、tokenizer/provider门禁、唯一重试循环、共享回退及私有调用审计。
 - P4的`build_public_messages()`仍拒绝非空memory；P5通过独立`MemoryLLMController`、公共记忆/检索/只读案例库和五字段wire接入，旧P4入口保持兼容；正式27×4案例库仍未生产。
 - runner已在终止判断前交付公共反馈，包含最后不足7日的窗口；无需修改执行器或增加`on_resolution()`。
-- runner现支持独立RNG的合法随机采集策略、typed公共transition sink和窄用途`memory_collection`；最终策略与正式源库仍受Phase 6门禁。
-- 最新P4契约记载572 passed/1 failed为历史结果，后期原始验收目录当前不可得；真实provider/tokenizer未验收，旧E0产物需要按当前源码重新生成并验收。本轮没有重跑这些测试。
+- runner支持独立RNG的合法随机采集策略、typed公共transition sink和窄用途`memory_collection`；当前工具还支持加载已选定 Threshold 产物的第四策略。正式源库仍受 Phase 6 门禁。
+- P4契约中的572 passed/1 failed等数字为历史结果，后期原始验收目录在当时不可得；真实provider/tokenizer未验收。当前角色与接触参数修订后须重做 E0，并重新开发兼容的阈值和源库，不能沿用阶段旧结果。
 
 实现必须使用`E:/pytroch/anaconda3/envs/simulation/python.exe`。具体已安装依赖、官方资源和产物身份在实现开始时重新检查，不沿用历史环境路径或测试数字。
 
@@ -101,7 +103,7 @@ flowchart LR
 | `cemas/control/runner.py`、`logging.py`（改） | 新工厂、P5依据落盘、公共采集sink、窄用途与seed检查、来源私有登记 |
 | `cemas/control/prompts/public_memory_v1.json`、`cemas/control/knowledge/public_knowledge_v1.json`（新） | 研究模板与九条知识卡的正式资源，独立版本/hash |
 | `docs/control_memory_v1.json`（新） | P5算法配置，显式取代原memory候选配置，不改共同任务参数 |
-| `tools/collect_observable_memory.py`（新） | 采集/构建/覆盖/冻结薄入口，可重放已导出的公共输入，不包含第二套模拟循环 |
+| `tools/collect_observable_memory.py`（新） | 采集/构建/覆盖/冻结薄入口；支持公共 fixture 导入，真实 source 审计导出重建仍待实现；不包含第二套模拟循环 |
 | `tools/memory_acceptance.py` | 独立服务探针与报告验证；开发工具不由正常控制包加载或公开导出 |
 | `examples/control_v1/smoke_memory.py`、`run_memory_llm.py`、`accept_memory_llm.py`（新） | 离线工程演示、真实prompt开发、独立P5服务验收；运行入口不要求报告 |
 | `tests/test_control_memory*.py`、`test_control_retrieval.py`、`test_control_knowledge.py`、`test_control_llm_memory.py`（新） | 按边界分组测试；必要用例扩展现有runner/logging/LLM测试 |
@@ -236,18 +238,18 @@ Controller新增默认空`drain_decision_evidence()`；P5成功/耗尽都导出�
 
 ### 6.1 P5工具能力
 
-新增`memory_collection` runner用途，只允许协议30001–30027源池；最终测试及A/B、prompt开发池拒绝写入正式source。该用途映射到环境scientific，保留校准产物和人口兼容检查，拒绝裸beta。真实LLM仍只允许prompt_development，不顺手开放LLM scientific或最终测试。
+`memory_collection` runner用途只允许协议30001–30027源池；最终测试及A/B、prompt开发池拒绝写入正式source。该用途映射到环境scientific，保留校准产物和人口兼容检查，拒绝裸beta。P5原始接入只开放真实LLM的prompt_development；后续P6已允许其在保留的A/B源域世界以scientific用途运行，并支持pilot源池，最终测试仍未开放。LLM不用于memory_collection。
 
-工具支持两条入口：
+计划要求两条构建路径，当前实现状态分别为：
 
-1. 从已审核公共观察/反馈导出构建staging。导出要有私有manifest证明用途、完整run和来源hash，公共数组本身不能自证来源；人工输入只产生fixture。
-2. 调现有runner采集minimum、maximum_feasible、uniform_legal_independent_rng。随机策略对当前mask合法ID均匀采样，使用自身Generator，reset可重复；不读/重置世界随机流。种子由采集编排层私有记录，控制器只持有策略本地RNG，不接收世界seed。
+1. **真实 source 导出重建待实现。** 从已审核公共观察/反馈导出构建staging时，必须有私有manifest证明用途、完整run和来源hash，公共数组本身不能自证来源。当前 `import-fixture` 仅导入明确标记的人工 fixture，不具备这条真实 source 路径。
+2. **重新采集已实现。** 调现有runner采集minimum、maximum_feasible、uniform_legal_independent_rng；Phase 6 已加入加载选定产物的 tuned_threshold。随机策略对当前mask合法ID均匀采样，使用自身Generator，reset可重复；不读/重置世界随机流。种子由采集编排层私有记录，控制器只持有策略本地RNG，不接收世界seed。
 
 runner仅新增typed公共transition sink：参数为当前PublicObservation和PublicWeekFeedback，不含奖励/resolution/完整snapshot；每窗调用且包含terminal。sink内部复用同一个PublicEpisodeMemory/CaseBuilder算法。controller正常observe仍保持原职责，禁止复制一套案例构造逻辑。该sink可空，旧P4与参照入口行为不变。
 
 源世界映射按协议九组合×三重复，beta尺度外层、容量中层、重复内层：`i=seed-30001; beta_index=i//9; capacity_index=(i//3)%3; replicate=i%3`；尺度/容量数组来自协议。beta及映射标签只归runner私有配置，不能进入case/query。
 
-采集工具不实现tuned_threshold；P6实现并选定阈值后，将第四策略通过相同runner公共导出构建器接入。P5测试缺第四策略时evaluation_ready冻结必须拒绝，不能以最低策略替补。
+Threshold 的实现与调优属于 Phase 6，当前采集工具已通过同一 runner 和公共构建器接入第四策略，要求提供 `--threshold-artifact`。P5 的三策略 smoke 仍只构造 fixture；缺第四策略时 evaluation_ready 冻结必须拒绝，不能以最低策略替补。
 
 ### 6.2 P5实际验收与P6实际生产
 
@@ -309,6 +311,6 @@ Phase 5工程完成必须同时满足：四模式离线完整闭环；公共边�
 
 ## 10. 本轮计划交付与后续接口
 
-本轮已完成本计划划定的 Phase 5 离线实现、入口和工程验收；保留研究文档、现有协议和 P4 兼容入口。没有安装依赖、调用付费 API、运行正式科学仿真、提交或推送。真实 provider/tokenizer 验收、正式 27×4 源库和控制效果仍由后续门禁管理。
+Phase 5 的公共记忆、检索、知识、四模式控制器、依据日志及主要离线工具已交付；已记录的测试证明这些已实现范围，不证明整个计划完成。从已有真实 source 审计导出重建 development 库仍缺入口。后续 Phase 6 已补四策略重新采集和发布工程，正式 27×4 源库、真实 provider/tokenizer 验收及控制效果仍由对应门禁管理。
 
-后续实施者可直接按P5.1–P5.8推进。若缺真实E0或provider资源，继续完成不依赖它们的工程和离线验收；正常运行只检查实际所需资源与当前请求，不依赖验收报告。若缺Phase6阈值，交付可用建库工具和缺策略拒绝证据。不能因这些依赖尚未完成而提前扩展Phase6/7，也不能把研究目录中的人工数据当作阶段实现完成。
+后续接续先核对契约中的实际缺口及当前产物，再按对应步骤补齐。当前须先完成新角色与接触参数配置的 E0 校准，再开发兼容 Threshold 和源库；缺 provider 资源时可继续独立工程验收。正常运行只检查实际所需资源与当前请求，不依赖验收报告；研究目录中的人工数据和 smoke 库不能作为正式源库或科学完成证明。

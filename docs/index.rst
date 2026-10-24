@@ -2,6 +2,12 @@
 Welcome to Covasim
 ==================
 
+This Sphinx site documents the inherited Covasim engine. Current CEMAS V1
+development, UW calibration prerequisites and control commands are described in
+``docs/README.md`` and ``docs/uw_control_integration.md`` in the source checkout.
+The engine tutorials
+do not establish V1 calibration, controller or experiment acceptance.
+
 Covasim is a stochastic agent-based simulator, written in Python, for exploring and analyzing the COVID-19 epidemic. 
 
 **There's a lot here, where should I start?** 
@@ -29,4 +35,4 @@ Full contents
    conduct
    contributing
    style
-   
+

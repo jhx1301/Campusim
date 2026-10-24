@@ -1,5 +1,11 @@
 # Paper-to-artifact mapping
 
+> Historical paper supplement: this mapping describes the previous P0–P4
+> implementation and its packaged output layout. It does not describe the
+> current V1 checkout or establish UW validation; the listed result families
+> are not all present here. Use the [V1 entry point](README.md) and
+> [UW integration contract](docs/uw_control_integration.md) for current work.
+
 This file identifies the exact artifact family supporting each paper table.
 The distinction is important because the repository contains both a recent
 policy-history mechanism and a newer dual-branch memory mechanism.

@@ -1,5 +1,11 @@
 # CEMAS supplementary-video demo
 
+> Historical demo for the previous P0–P4 policy and embedding memory stack.
+> Its population, observation and policy format are separate from current V1;
+> it also requires the external local database and model cache described below.
+> Current V1 commands and calibration prerequisites are in the
+> [project README](../README.md) and [UW integration contract](../docs/uw_control_integration.md).
+
 `t22_supplement_system_demo.py` is a short, deterministic demonstration of the
 complete CEMAS decision loop. It is designed for recording a paper supplement
 and does not require an API key or network access.

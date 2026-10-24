@@ -1,6 +1,8 @@
 ﻿# CEMAS 推荐协议 v1 软件工程实现 Plan
 
-> 2026-10-23：校准与后续控制现统一使用 UW 人口和主结果，当前入口及证据契约见 [UW 控制接入](uw_control_integration.md)。下文旧 E0、旧人口和阶段任务清单保留为实施历史，不构成第二套运行标准。
+> 2026-10-23：校准与后续控制统一采用 UW 基础配置，当前入口及证据契约见 [UW 控制接入](uw_control_integration.md)。当前教师2,321、其他职员21,596、`campus_k_ts=3`，尚无该配置的完整E0校准结果；旧角色配置的研究及锚点仅供历史追溯。下文旧E0、旧人口和阶段任务清单保留为实施历史，不构成第二套运行标准。
+
+当前工程已包含P0–P5主要链及P6 Threshold、PPO/DDQN、训练和案例发布工具；已有source公共导出重建development库的工具入口仍未实现。正式源域批次、共同冻结和Phase 7未完成，接续顺序是当前模型E0校准→pilot/源域开发→正式案例库与共同冻结。各阶段历史测试数不代表当前模型的科学结果，最新入口见[阅读索引](CEMAS_READING_INDEX.md)。
 
 本计划将[推荐实施协议](llm_recommended_protocol_v1.md)及配套[机器可读配置](control_protocol_v1.json)落实到工程接口；研究问题与设计理由保存在[归档研究方案](archive/llm_baseline_generalization_plan.md)。采用增量迁移：复用传播模拟核心，新增统一控制层，再迁移控制器、记忆和实验入口。
 
@@ -20,24 +22,26 @@
 - 运行时可以解析为绝对路径；可复用产物应记录相对路径或资源标识，不能将生成机器上的绝对路径作为后续加载的必需条件。历史绝对路径仅用于溯源，加载使用当前默认或显式配置的位置。
 - 对具有数据内容/hash校验的产物，路径不参与数据身份判断；文件移动且内容/hash不变时，在其余兼容条件满足的前提下应能继续使用，同时保留内容、模型及版本校验。相关修改按需验证启动目录变化、文件迁移及内容不一致的拒绝行为。
 
-## A. 当前代码架构理解
+## A. 迁移前代码架构与历史基线
 
 ### 1. 现有模块及迁移判断
 
-| 模块 | 当前职责与问题 | 实施处理 |
+| 模块 | 原职责与问题 | 实施处理 |
 |---|---|---|
-| [cemas/__init__.py](D:/项目/毕业设计/code/Campusim/cemas/__init__.py) | CEMAS 门面，主要重导出 Covasim 与旧 LLM/记忆类 | 增量公开新控制接口；避免导入基础包时强制加载 Gym、torch |
-| [covasim/sim.py](D:/项目/毕业设计/code/Campusim/covasim/sim.py:558) | 初始化、每日推进、传播与终点计算 | 复用 `initialize/step/finalize`；不重写日步和传播算法 |
-| [covasim/people.py](D:/项目/毕业设计/code/Campusim/covasim/people.py:319) | 疾病状态、检测、诊断、隔离和检疫 | 复用检测及排程能力；由 v1 执行适配层处理交付记录和处置边界 |
-| [covasim/population.py](D:/项目/毕业设计/code/Campusim/covasim/population.py:112) | 校园组织、动态层、hybrid 网络生成 | 复用网络生成；小范围增加人口登记元数据，保证实际人数可导出 |
-| [covasim/interventions.py](D:/项目/毕业设计/code/Campusim/covasim/interventions.py:1604) | 旧 `campus_policy_agent` 同时负责观察、LLM、记忆、护栏、执行和日志 | 不作为新控制环境底座；新执行器复用其底层工具与参数更新方式 |
-| [covasim/llm_policy.py](D:/项目/毕业设计/code/Campusim/covasim/llm_policy.py:379) | P0–P4、真值状态提取、prompt、API、旧评价 | 将新协议对应职责迁入独立模块；复用必要的传输、JSONL、hash 工具 |
-| [covasim/llm_memory.py](D:/项目/毕业设计/code/Campusim/covasim/llm_memory.py:129) | SQLite 双阶段写入、短期压缩、全局检索 | 复用持久化与相似度计算方式；公共 schema、特征和反馈重新实现 |
+| [cemas/__init__.py](../cemas/__init__.py) | CEMAS 门面，主要重导出 Covasim 与旧 LLM/记忆类 | 增量公开新控制接口；避免导入基础包时强制加载 Gym、torch |
+| [covasim/sim.py](../covasim/sim.py) | 初始化、每日推进、传播与终点计算 | 复用 `initialize/step/finalize`；不重写日步和传播算法 |
+| [covasim/people.py](../covasim/people.py) | 疾病状态、检测、诊断、隔离和检疫 | 复用检测及排程能力；由 v1 执行适配层处理交付记录和处置边界 |
+| [covasim/population.py](../covasim/population.py) | 校园组织、动态层、hybrid 网络生成 | 复用网络生成；小范围增加人口登记元数据，保证实际人数可导出 |
+| [covasim/interventions.py](../covasim/interventions.py) | 旧 `campus_policy_agent` 同时负责观察、LLM、记忆、护栏、执行和日志 | 不作为新控制环境底座；新执行器复用其底层工具与参数更新方式 |
+| [covasim/llm_policy.py](../covasim/llm_policy.py) | P0–P4、真值状态提取、prompt、API、旧评价 | V1改用独立公共控制器；旧模块仅为兼容与历史入口保留 |
+| [covasim/llm_memory.py](../covasim/llm_memory.py) | SQLite 双阶段写入、短期压缩、全局检索 | V1公共schema、数值特征和反馈已在独立模块实现；不迁入旧数据 |
 | `examples/t15_*`、`t17_*`、`t20_*`、`t21_*` | 旧实验参数、种子、套餐、CPBU 汇总 | 保留历史入口，新增 v1 主入口；不直接扩写旧实验大脚本 |
 | `examples/t18_campus_calibration.py`、`t18_campus_validation.py` | 旧校准与展示 | 保留历史脚本及绘图；v1在独立目录调用统一校准模块，不复用旧多参数产物 |
 | `tests/` | 引擎、校园、策略和记忆测试 | 保留适用的引擎测试；迁移控制用例，新增 v1 契约和隔离测试 |
 
 新实现统一放在 **`cemas/control/`**。这样可以明确区分控制任务与传播引擎，避免继续增加 `campus_policy_agent` 的职责。
+
+UW校准唯一实现位于 `cemas/e0/`。V1运行逻辑不调用旧LLM/记忆栈，但 `cemas/__init__.py` 和 `covasim/interventions.py` 仍保留其导入/导出；研究manifest与锚点还记录全部 `covasim/*.py` 的哈希。旧模块、旧API测试和论文复现链需作为独立退役任务处理，不能单删文件或改写原始证据哈希来绕过兼容性检查。
 
 ### 2. 必须解决的架构冲突
 
@@ -67,7 +71,9 @@
 
 旧 E0 同时拟合多个层系数、使用 `R_e` 惩罚，并存在实际日数不一致；旧实验硬编码 beta、采用不同人口和初始感染、种子重叠、使用 CPBU 排名。均不能直接作为 v1 正式结果入口。
 
-### 3. 实测工程基线
+### 3. 原始实施前实测工程基线（历史）
+
+以下为最初制定计划时的记录，不是当前分支、环境或产物状态。当前解释器及依赖差异见[环境与依赖](README.md#环境与依赖)。
 
 - Git 当前为 `master@b8da645`，已追踪文件无改动；四份设计文档及协议 JSON 尚未纳入 Git。
 - 指定环境为 Python 3.11.14；Optuna、torch、Gymnasium、SB3、sb3_contrib、sentence_transformers 当前缺失。
@@ -295,7 +301,7 @@ encode_observation(PublicObservation) -> fixed_order_float32_features
 - 已有 `rewards.py`、`controllers.py`、`logging.py`：扩充具体奖励、两个固定参照和日志，不覆盖原有接口。
 - 协议JSON、推荐协议、P0奖励说明、工程计划及阅读索引；新增P3契约。
 
-**新增文件**
+**新增文件（P3原始实施记录）**
 
 - `cemas/control/environment.py`、`runner.py`、`calibration.py`。
 - `examples/control_v1/smoke.py`、`calibrate.py`、`evaluate_calibration.py`、`run_references.py`。
@@ -335,6 +341,8 @@ close()
 
 **E0 校准接口**
 
+以下接口及12,000人/Notre Dame方案是P3历史设计，相关 `calibration.py`、`calibrate.py`、`evaluate_calibration.py` 已删除。当前入口为 `examples/control_v1/e0_study.py` 与 `cemas/e0/`，由完整UW研究导出并校验 `control_anchor.json`；当前人口、角色、接触参数和待重校准状态以[UW控制接入](uw_control_integration.md)为准。
+
 ```text
 resolve_campus_parameters(protocol, world_seed, beta=..., ...) -> 独立参数容器
 make_calibration_sim(protocol, beta, world_seed, window='primary', data=...) -> 已初始化Sim
@@ -357,7 +365,7 @@ E0与后续校园控制共用协议engine的完整v1人口生成配置，包括N
 
 已有每日模拟调用继续使用；新入口不调用旧campus_policy_agent，不重构传播核心。日志从首个闭环启用，保存公共日/周、DecisionRecord、私有日/周奖励、summary/manifest和失败；只有finalize、对账和落盘成功才登记completed。
 
-实施顺序：契约/静态验证→奖励/共享参数→周环境→参照/日志/runner→小人口验收和完整smoke→E0/独立评价→加载E0的参照运行。使用指定simulation Python，先通过相关离线测试，再以N12000/H112、smoke世界、beta.016运行两个参照，明确标记smoke且calibration_verified=false，核对：
+P3历史实施顺序：契约/静态验证→奖励/共享参数→周环境→参照/日志/runner→小人口验收和完整smoke→E0/独立评价→加载E0的参照运行。当时计划以N12000/H112、smoke世界、beta.016运行两个参照，明确标记smoke且calibration_verified=false。现行smoke命令及UW校准接入见[阅读索引](CEMAS_READING_INDEX.md)，计数核对规则仍为：
 
 ```text
 cum_infections = initial_infections + sum(daily_new_infections) <= N
@@ -402,7 +410,7 @@ Controller.observe(PublicWeekFeedback)
 - 最多三次总尝试、固定 2/4 秒间隔、SDK 内部重试关闭、timeout120秒；仅临时服务及解析失败复用原 prompt 重试。配置/鉴权/余额/硬配额/未知异常立即终止。
 - 输入保护上限131072 token，完整消息使用对应模型的官方本地 tokenizer/消息模板；固定文件hash、库版本、请求模式及模型对应关系。正常运行检查当前资源、输入计数和实际usage，不以供应商验收报告作为启动凭证。输出总量保护上限65536，包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens，不单设thinking_budget。上限用于阻止异常膨胀，结构体积依据及尚待实测的部分见P4契约第7节；P4 不裁剪、不压缩。
 - runner-owned `llm_calls.jsonl` 保存各次请求/返回型号、完整消息、三类hash、计数器身份、输入计数、usage、响应、耗时和脱敏错误。fatal 也先落盘，不推进当前周；超限零调用，实际 usage 不符终止。
-- 耗尽返回 `None + llm_retry_exhausted`，runner 交共同 resolver；DecisionRecord 记录调用次数及是否成功。离线只用smoke池，真实开发只用prompt_development池并保留真实E0门禁。
+- 耗尽返回 `None + llm_retry_exhausted`，runner 交共同 resolver；DecisionRecord 记录调用次数及是否成功。离线只用smoke池；P4原始真实开发范围为prompt_development池，后续P6已接入保留源域A/B及pilot，始终保留真实E0门禁，最终测试池仍未开放。
 
 模型参数沿用 v1。真实服务是否接受请求、实际返回版本和 token 计数方式通过源域 API 验收取得，不能提前宣称成功。
 
@@ -418,7 +426,7 @@ Controller.observe(PublicWeekFeedback)
 
 ### Phase 5：公共记忆、案例检索与决策依据
 
-**2026-10-17计划修订：** 按本轮用户要求，Phase 5优先采用[本次研究架构](llm_architecture_research/02_recommended_architecture.md)。具体实施范围、接口、文件、分步退出条件和验收见[Phase 5实施计划](control_phase5_implementation_plan.md)。本节已按独立 [Phase 5 契约](control_phase5_contracts.md) 完成离线实现和工程验收；真实 provider/tokenizer、正式案例库和控制效果仍不在本阶段完成标准内。
+**2026-10-23状态核对：** Phase 5采用[研究架构](llm_architecture_research/02_recommended_architecture.md)，主要公共记忆、检索、LLM及重新采集/冻结链已有离线工程记录；从已有真实source公共导出和私有审计manifest重建development库的入口仍未实现，不能笼统宣布计划全部完成。具体接口、证据和缺口见[Phase 5实施计划](control_phase5_implementation_plan.md)及[契约](control_phase5_contracts.md)。真实provider/tokenizer、正式案例库和控制效果另行登记。
 
 **依赖：** Phase 4公共LLM基础链；离线工程可先完成。真实LLM运行需要官方tokenizer资源、可用provider及兼容E0产物；P4/P5验收报告仅作开发验证和留档，不作为启动条件。最终27世界×4策略源库另依赖Phase 6的阈值调优和统一H/目标确认。
 
@@ -451,6 +459,8 @@ Phase 6实现/调优阈值后，使用同一工具采集27世界×4策略=108轨
 ---
 
 ### Phase 6：PPO、DDQN、阈值及源域开发
+
+当前Threshold、RL、训练/选模和发布工具已接入，正式源域批次与共同冻结尚未完成；以下保留实施范围与顺序，实际接口及历史运行证据见[Phase 6契约](control_phase6_contracts.md)。当前UW角色及接触配置尚需先完成E0校准，不能继续加载旧角色锚点。
 
 **依赖：** Phase 3 的环境和真实校准产物；LLM/记忆模块按 Phase 4–5 接入源域验证。
 
