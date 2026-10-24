@@ -16,8 +16,8 @@
   "target_roles": {
     "undergraduate_students": 31650,
     "non_undergraduate_students": 13890,
-    "teachers": 1150,
-    "staff": 22767
+    "teachers": 2321,
+    "staff": 21596
   },
   "initial_infections": 30,
   "engine_overrides": {
@@ -27,8 +27,9 @@
       [31, 65, 0.344]
     ],
     "campus_age_counts": [31650, 13890, 23917],
-    "campus_teacher_ratio": 0.016557006493226025,
-    "campus_staff_ratio": 0.3277855363750234
+    "campus_teacher_ratio": 0.03341635832241531,
+    "campus_staff_ratio": 0.3109261845458341,
+    "campus_k_ts": 3
   },
   "testing": {
     "symp_test": 80,

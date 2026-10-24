@@ -59,7 +59,7 @@ def test_modified_evidence_is_rejected(completed, tmp_path, name):
         artifacts.load_calibration_artifact(moved / artifacts.ARTIFACT_FILENAME, protocol)
 
 
-@pytest.mark.parametrize("change", ["schema", "sensitivity", "beta", "beta_in_range", "missing_evidence", "model"])
+@pytest.mark.parametrize("change", ["schema", "sensitivity", "beta", "beta_in_range", "missing_evidence", "model", "roles"])
 def test_old_or_incompatible_anchor_is_rejected(completed, tmp_path, change):
     protocol, root, anchor = completed
     moved = tmp_path / "study"
@@ -76,6 +76,9 @@ def test_old_or_incompatible_anchor_is_rejected(completed, tmp_path, change):
         p["beta"] = .041
     elif change == "missing_evidence":
         p["study_sha256"].pop("worlds_evaluation.jsonl")
+    elif change == "roles":
+        p["compatibility"]["base_model"]["campus_teacher_ratio"] = 1150 / 69457
+        p["compatibility"]["base_model"]["campus_staff_ratio"] = 22767 / 69457
     else:
         p["compatibility"]["base_model"]["pop_size"] = 12000
     envelope["sha256"] = artifacts._digest(p)
@@ -126,12 +129,13 @@ def test_uw_anchor_runs_real_scientific_control_and_training_plan(completed, tmp
     manifest = json.loads((tmp_path / "control/manifest.json").read_text(encoding="utf-8"))
     assert manifest["resolved_config"]["engine"]["pop_size"] == 69457
     assert manifest["resolved_config"]["engine"]["campus_age_counts"] == [31650, 13890, 23917]
+    assert manifest["resolved_config"]["engine"]["campus_k_ts"] == 3
     assert manifest["calibration_verified"] is True
     assert manifest["calibration"]["artifact_sha256"] == verified.sha256
     assert manifest["calibration"]["beta"] == pytest.approx(verified.beta * 1.12)
     assert len(manifest["registration"]["student_indices"]) == 45540
-    assert len(manifest["registration"]["teacher_indices"]) == 1150
-    assert len(manifest["registration"]["staff_indices"]) == 22767
+    assert len(manifest["registration"]["teacher_indices"]) == 2321
+    assert len(manifest["registration"]["staff_indices"]) == 21596
 
 
 def test_e0_cli_preserves_stage_failure_and_refuses_existing_output(tmp_path, monkeypatch):

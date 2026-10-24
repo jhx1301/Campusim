@@ -175,6 +175,9 @@ def test_scene_defaults_are_explicit_smoke_and_adapters_are_mounted(protocol):
                             initial_infections=6)
     assert bundle.sim.initialized and bundle.sim.t == 0
     assert bundle.sim["pop_type"] == "campus"
+    assert bundle.sim["campus_k_ts"] == 3
+    for layer in ("clu", "clg", "of"):
+        assert bundle.sim.people.contacts[layer].k_ts == 3
     assert bundle.sim.npts == 7
     assert bundle.sim["pop_scale"] == 1 and bundle.sim["rescale"] is False
     assert bundle.sim["use_waning"] is False
