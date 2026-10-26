@@ -14,6 +14,7 @@ import numpy as np
 
 from ..control.protocol import load_protocol
 from ..control.scenarios import resolve_campus_parameters
+from ..control.background import background_multipliers, employee_community
 
 ROOT = Path(__file__).resolve().parents[2]
 GROUPS = ("students", "employees")
@@ -116,12 +117,13 @@ def run_e0_world(config, data, beta, seed, *, initial_infections=None, symp_test
     testing["symp_test"] = symp
     if testing["test_delay"] != 0:
         raise ValueError("E0 group diagnoses require test_delay=0")
+    background = background_multipliers(config)
 
     days = len(data["dates"])
     pars = resolve_campus_parameters(protocol, seed, beta=float(beta),
                                      population=config["population"],
                                      initial_infections=initial,
-                                     execution_days=days)
+                                     execution_days=days, background=background)
     pars.update(config["engine_overrides"])
     pars["start_day"] = data["dates"][0]
 
@@ -132,7 +134,19 @@ def run_e0_world(config, data, beta, seed, *, initial_infections=None, symp_test
     weights = _group_weights(config, data)
     analyzer = _role_test_analyzer(cv)
     intervention = cv.test_num(daily_tests=tests, subtarget=_subtarget_factory(weights), **testing)
-    sim = cv.Sim(pars=pars, interventions=[intervention], analyzers=[analyzer])
+    interventions = [intervention]
+    trace_setting = config.get("replay_contact_tracing", {})
+    if trace_setting.get("enabled"):
+        interventions.append(cv.contact_tracing(
+            trace_probs=dict(trace_setting["trace_probs"]),
+            trace_time=int(trace_setting["trace_time"]),
+            start_day=trace_setting["start_day"],
+            end_day=trace_setting.get("end_day"),
+            quar_period=int(trace_setting["quar_period"]),
+            presumptive=False, do_plot=False, label="uw2020-contact-tracing"))
+    if background["employee_cm"] != 1.0:
+        interventions.append(employee_community(cv, background["employee_cm"]))
+    sim = cv.Sim(pars=pars, interventions=interventions, analyzers=[analyzer])
     sim.initialize()
     if sim.npts != days:
         raise RuntimeError("E0 world did not initialize the requested number of days")
@@ -213,9 +227,11 @@ def run_e0_world(config, data, beta, seed, *, initial_infections=None, symp_test
         "resolved_parameters": _jsonable({
             key: pars[key] for key in
             ("pop_type", "pop_size", "pop_infected", "beta", "start_day", "n_days",
-             "campus_age_data", "campus_teacher_ratio", "campus_staff_ratio")
+             "campus_age_data", "campus_teacher_ratio", "campus_staff_ratio",
+             "beta_layer", "iso_factor", "quar_factor")
             if key in pars
         }),
         "config_sha256": config["config_sha256"],
+        "campus_background": background,
     }
     return world

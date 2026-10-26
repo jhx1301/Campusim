@@ -9,11 +9,13 @@ from .types import PrivateDailyMetrics, PrivateMetrics
 class PrivateMetricsAnalyzer(Analyzer):
     """Collect model-day flows without reading unfinalized cumulative results."""
 
-    def __init__(self, initial_infections: int):
+    def __init__(self, initial_infections: int, *, start_day=0):
         super().__init__(label="control_v1_private_metrics")
         if type(initial_infections) is not int or initial_infections < 0:
             raise ValueError("initial_infections must be a nonnegative ordinary integer")
         self.initial_infections = initial_infections
+        self.start_day = start_day
+        self.episode_initial = 0 if start_day else initial_infections
         self._records: list[PrivateDailyMetrics] = []
 
     def initialize(self, sim):
@@ -29,16 +31,16 @@ class PrivateMetricsAnalyzer(Analyzer):
         return tuple(self._records)
 
     def apply(self, sim):
-        day = int(sim.t)
+        day = int(sim.t) - self.start_day
         if day != len(self._records):
             raise ValueError("private metrics must record each model day exactly once")
         new = int(sim.people.flows["new_infections"])
         cumulative = (self._records[-1].cumulative_infections if self._records
-                      else self.initial_infections) + new
+                      else self.episode_initial) + new
         active = int(np.count_nonzero((sim.people.exposed | sim.people.infectious)
                                      & ~sim.people.dead))
         self._records.append(PrivateDailyMetrics(
-            day, new, self.initial_infections, cumulative, active,
+            day, new, self.episode_initial, cumulative, active,
         ))
 
     def aggregate(self, start_day: int, end_day: int) -> PrivateMetrics:
@@ -49,6 +51,6 @@ class PrivateMetricsAnalyzer(Analyzer):
         records = self._records[start_day:end_day + 1]
         return PrivateMetrics(
             start_day, end_day, sum(record.new_infections for record in records),
-            self.initial_infections, records[-1].cumulative_infections,
+            self.episode_initial, records[-1].cumulative_infections,
             max(record.new_infections for record in records), records[-1].active_infections,
         )

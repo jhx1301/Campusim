@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 
 from .protocol import ControlProtocol, validate_activity_config
+from .background import background_multipliers, employee_community
 from .types import AGE_BANDS, PublicPopulation, PublicResources
 
 
@@ -118,7 +119,8 @@ def _positive_int(value, name: str, *, minimum: int = 1) -> int:
 
 
 def resolve_campus_parameters(protocol: ControlProtocol, world_seed: int, *, beta: float,
-                              population=None, execution_days=None, initial_infections=None) -> dict:
+                              population=None, execution_days=None, initial_infections=None,
+                              background=None) -> dict:
     """Resolve an independent v1 parameter container without initializing a world."""
     if type(protocol) is not ControlProtocol:
         raise TypeError("protocol must be ControlProtocol")
@@ -148,6 +150,9 @@ def resolve_campus_parameters(protocol: ControlProtocol, world_seed: int, *, bet
                 n_days=execution_days - 1, end_day=None, beta=beta, rand_seed=world_seed, verbose=0,
                 iso_factor=dict(d=.3, clu=.1, clg=.1, of=.1, ta=.2, cm=.1),
                 quar_factor=dict(d=.6, clu=.2, clg=.2, of=.2, ta=.4, cm=.2))
+    multipliers = background_multipliers(protocol.definition["engine"] if background is None else background)
+    pars["beta_layer"] = dict(pars["beta_layer"])
+    pars["beta_layer"]["ta"] *= multipliers["employee_ta"]
     return pars
 
 
@@ -181,7 +186,8 @@ def base_model_configuration(protocol: ControlProtocol) -> dict:
     pars = resolve_campus_parameters(protocol, 0, beta=0)
     excluded = {"start_day", "end_day", "n_days", "rand_seed", "verbose", "beta",
                 "interventions", "analyzers", "timelimit", "stopping_func", "scaled_pop"}
-    return _json_parameters({key: value for key, value in pars.items() if key not in excluded})
+    return _json_parameters({**{key: value for key, value in pars.items() if key not in excluded},
+                             "campus_background": background_multipliers(protocol.definition["engine"])})
 
 
 def build_scenario(protocol: ControlProtocol, world_seed: int, *, population=None,
@@ -242,7 +248,11 @@ def build_scenario(protocol: ControlProtocol, world_seed: int, *, population=Non
     executor = JointActionExecutor(protocol, resources)
     public_analyzer = PublicLedgerAnalyzer(executor)
     private_analyzer = PrivateMetricsAnalyzer(initial_infections)
-    sim = cv.Sim(pars=pars, interventions=[executor],
+    background = background_multipliers(engine)
+    interventions = [executor]
+    if background["employee_cm"] != 1.0:
+        interventions.append(employee_community(cv, background["employee_cm"]))
+    sim = cv.Sim(pars=pars, interventions=interventions,
                  analyzers=[public_analyzer, private_analyzer])
     sim.initialize()
     # Use mounted adapters so their state is the state advanced by sim.step().
@@ -253,6 +263,7 @@ def build_scenario(protocol: ControlProtocol, world_seed: int, *, population=Non
         "beta_provenance": beta_source, "calibration_verified": False,
         "protocol_sha256": protocol.source_sha256, "execution_days": execution_days,
         "initial_infections": initial_infections,
+        "campus_background": MappingProxyType(background),
         "registration": MappingProxyType({
             key: tuple(int(index) for index in indices)
             for key, indices in sim.people.campus_registry_metadata.items()

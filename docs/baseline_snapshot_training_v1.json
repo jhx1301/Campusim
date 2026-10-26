@@ -1,0 +1,17 @@
+{
+  "schema_version": "uw-snapshot-training-v2",
+  "base_protocol": "docs/control_protocol_v1.json",
+  "library": "results/snapshot_baseline_v1/library",
+  "execution_days": 112,
+  "snapshot_days": [21, 35, 49, 63],
+  "training_worlds": 128,
+  "validation_worlds": 9,
+  "schedule_seed": 84001,
+  "future_seed_root": 85001,
+  "test_branches": 2,
+  "replay_parameters": {
+    "c": 0.5, "h": 0.1, "recovery": 0.28,
+    "c_emp_policy": 0.0, "ta_policy": 0.0, "of_policy": 0.0,
+    "c_nonug_policy": 0.0, "d_nonug_policy": 0.0
+  }
+}

@@ -20,6 +20,8 @@ from .data import ROOT, load_e0_config, load_e0_data
 
 ARTIFACT_SCHEMA = "cemas-uw-control-anchor-v1"
 ARTIFACT_FILENAME = "control_anchor.json"
+STUDY_FILES = frozenset({"manifest.json", "summary.json", "config.json",
+                         "worlds_scan.jsonl", "worlds_fit.jsonl", "worlds_evaluation.jsonl"})
 
 
 def _read(path):
@@ -58,7 +60,8 @@ def _compatibility(protocol):
 
     files = [*sorted((ROOT / "covasim").glob("*.py")),
              *sorted((ROOT / "cemas/e0").glob("*.py")),
-             ROOT / "cemas/control/scenarios.py", ROOT / "cemas/control/protocol.py"]
+             ROOT / "cemas/control/scenarios.py", ROOT / "cemas/control/protocol.py",
+             ROOT / "cemas/control/background.py"]
     return {"base_model": json.loads(json.dumps(base_model_configuration(protocol))),
             "start_day": protocol.definition["engine"]["start_day"],
             "runtime": {"python": sys.version, "packages": {
@@ -77,14 +80,18 @@ def _config_spec(config):
     return {k: v for k, v in config.items() if k not in excluded}
 
 
-def export_control_anchor(study_dir, protocol):
-    """Reconstruct selection/evaluation evidence, then write an immutable anchor."""
+def _verify_study_sources(manifest, compatibility):
+    for name, digest in manifest["source_sha256"].items():
+        recorded = compatibility["source_sha256"].get(name)
+        if (recorded if recorded is not None else _file_hash(ROOT / name)) != digest:
+            raise ValueError(f"Study source changed since calibration: {name}")
+
+
+def _study_payload(study_dir, protocol, *, compatibility=None):
+    """Reconstruct evidence against current or explicitly supplied source identity."""
     from .study import _profiles, _evaluation, _world_losses, _total
 
     root = Path(study_dir).resolve()
-    target = root / ARTIFACT_FILENAME
-    if target.exists():
-        raise FileExistsError(target)
     manifest, summary = _read(root / "manifest.json"), _read(root / "summary.json")
     config = _config(protocol)
     frozen = manifest["config"]
@@ -95,14 +102,12 @@ def export_control_anchor(study_dir, protocol):
     data = load_e0_data(config)
     if manifest["data_sha256"] != data["sha256"] or manifest["config_sha256"] != config["config_sha256"]:
         raise ValueError("UW calibration data/config hash mismatch")
-    compatibility = _compatibility(protocol)
+    compatibility = _compatibility(protocol) if compatibility is None else compatibility
     if compatibility["runtime"] != {k: manifest["environment"][k] for k in ("python", "packages")}:
         raise ValueError("Runtime differs from the recorded UW study")
     # Existing E0 runs record these engine and study sources. Keep their evidence
     # unchanged; the exported anchor additionally fingerprints shared control code.
-    for name, digest in manifest["source_sha256"].items():
-        if _file_hash(ROOT / name) != digest:
-            raise ValueError(f"Study source changed since calibration: {name}")
+    _verify_study_sources(manifest, compatibility)
     hashes = {}
     streams = {}
     for stage in ("scan", "fit", "evaluation"):
@@ -149,12 +154,20 @@ def export_control_anchor(study_dir, protocol):
             raise ValueError("Evaluation world population differs from control")
     for name in ("manifest.json", "summary.json", "config.json"):
         hashes[name] = _file_hash(root / name)
-    payload = {"schema_version": ARTIFACT_SCHEMA, "method_version": config["method_version"],
+    return {"schema_version": ARTIFACT_SCHEMA, "method_version": config["method_version"],
                "beta": evaluation["beta"], "selection": {"case": "main", **primary},
                "evidence_scope": config["evidence_scope"], "evaluation_worlds": evaluation["worlds"],
                "evaluation_loss": evaluation["evaluation_loss"],
                "config_sha256": config["config_sha256"], "data_sha256": data["sha256"],
                "compatibility": compatibility, "study_sha256": hashes}
+
+
+def export_control_anchor(study_dir, protocol):
+    """Reconstruct selection/evaluation evidence, then write an immutable anchor."""
+    target = Path(study_dir).resolve() / ARTIFACT_FILENAME
+    if target.exists():
+        raise FileExistsError(target)
+    payload = _study_payload(study_dir, protocol)
     envelope = {"payload": payload, "sha256": _digest(payload)}
     with target.open("x", encoding="utf-8", newline="\n") as f:
         json.dump(envelope, f, ensure_ascii=False, allow_nan=False, indent=2)
@@ -184,9 +197,7 @@ def load_calibration_artifact(path, protocol, *, data_path=None):
                 or type(beta) not in (int, float) or not isfinite(beta)
                 or not config["beta_range"][0] <= beta <= config["beta_range"][1]):
             raise ValueError("UW anchor is incompatible with the current model, data or selection")
-        required = {"manifest.json", "summary.json", "config.json",
-                    "worlds_scan.jsonl", "worlds_fit.jsonl", "worlds_evaluation.jsonl"}
-        if set(payload["study_sha256"]) != required:
+        if set(payload["study_sha256"]) != STUDY_FILES:
             raise ValueError("UW anchor has incomplete study evidence")
         for name, digest in payload["study_sha256"].items():
             if _file_hash(path.parent / name) != digest:
@@ -197,6 +208,11 @@ def load_calibration_artifact(path, protocol, *, data_path=None):
         if (beta != selected["beta"] or payload["evaluation_loss"] != selected["evaluation_loss"]
                 or not selected["fit_identifiable"]):
             raise ValueError("UW anchor does not match the selected main study result")
+        if "migration" in payload:
+            from .migration import verify_background_migration
+            verify_background_migration(path.parent, payload, protocol)
+        else:
+            _verify_study_sources(_read(path.parent / "manifest.json"), payload["compatibility"])
         return CalibrationArtifact(_freeze(payload), envelope["sha256"])
     except (KeyError, TypeError, ValueError, OSError, StopIteration) as exc:
         raise ValueError(f"UW calibration evidence is incompatible or incomplete: {exc}") from exc

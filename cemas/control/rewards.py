@@ -52,7 +52,9 @@ class V1RewardCalculator(RewardCalculator):
         weights = self._objective["burden_weights"]
         self._weights = (1.0, *(self._objective["lambda"] * weights[name]
                                 for name in REWARD_COMPONENTS[1:]))
-        nh = population * execution_days
+        normalization_days = 112 if "snapshot_training" in protocol.definition else execution_days
+        nh = population * normalization_days
+        self.normalization_days = normalization_days
         self._denominators = (population,
                               self._objective["test_reference_daily_ratio"] * nh,
                               self._objective["notification_reference_daily_ratio"] * nh,
@@ -67,6 +69,7 @@ class V1RewardCalculator(RewardCalculator):
             "lambda": self._objective["lambda"],
             "burden_weights": dict(self._objective["burden_weights"]),
             "population": self.population, "execution_days": self.execution_days,
+            **({"normalization_days": self.normalization_days} if self.normalization_days != self.execution_days else {}),
             "test_reference_daily_ratio": self._objective["test_reference_daily_ratio"],
             "notification_reference_daily_ratio": self._objective["notification_reference_daily_ratio"],
             "components": REWARD_COMPONENTS, "denominators": self._denominators,

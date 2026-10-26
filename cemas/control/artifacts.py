@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .actions import ACTION_ENCODING
 from .logging import resolved_snapshot, snapshot_sha256
-from .observation import RL_OBSERVATION_ENCODING_VERSION
+from .observation import rl_encoding_version
 from .scenarios import base_model_configuration, population_configuration
 
 
@@ -24,7 +24,7 @@ def file_sha256(path):
 def baseline_task_configuration(protocol):
     objective = resolved_snapshot(protocol.definition["objective"])
     objective.pop("status", None)
-    return resolved_snapshot({
+    task = resolved_snapshot({
         "population": protocol.population, "execution_days": protocol.execution_days,
         "initial_infections": protocol.initial_infections, "objective": objective,
         "initial_baseline_days": protocol.definition["engine"]["initial_baseline_days"],
@@ -32,6 +32,13 @@ def baseline_task_configuration(protocol):
         "base_model_configuration": base_model_configuration(protocol),
         "actions": protocol.definition["actions"], "activity": protocol.definition["activity"],
     })
+    if "snapshot_training" in protocol.definition:
+        settings = resolved_snapshot(protocol.definition["snapshot_training"])
+        settings.pop("library")
+        task["snapshot_training"] = settings
+        task["time_limit_bootstrap"] = True
+        task["normalization_days"] = 112
+    return task
 
 
 def save_baseline_artifact(output_dir, protocol, method, *, parameters=None,
@@ -69,7 +76,7 @@ def save_baseline_artifact(output_dir, protocol, method, *, parameters=None,
         "schema_version": BASELINE_SCHEMA, "method": method,
         "algorithm_semantics": {"threshold": THRESHOLD_ALGORITHM_SEMANTICS,
                                 "ppo": "sb3-maskable-ppo-v1", "ddqn": "masked-double-dqn-v1"}[method],
-        "action_encoding": ACTION_ENCODING, "rl_encoding": RL_OBSERVATION_ENCODING_VERSION,
+        "action_encoding": ACTION_ENCODING, "rl_encoding": rl_encoding_version(protocol),
         "reference_population": protocol.population, "reference_horizon": protocol.execution_days,
         "task": task, "task_sha256": snapshot_sha256(task),
         "protocol_sha256": protocol.source_sha256,
@@ -94,7 +101,7 @@ def get_baseline_artifact(path, protocol):
             or payload.get("task_sha256") != snapshot_sha256(payload["task"])):
         raise ValueError("baseline task is incompatible with current protocol")
     if (payload.get("action_encoding") != ACTION_ENCODING
-            or payload.get("rl_encoding") != RL_OBSERVATION_ENCODING_VERSION
+            or payload.get("rl_encoding") != rl_encoding_version(protocol)
             or payload.get("reference_population") != protocol.population
             or payload.get("reference_horizon") != protocol.execution_days):
         raise ValueError("baseline action or observation encoding is incompatible")
@@ -152,9 +159,16 @@ def training_budget(record_path):
     with Path(record_path).open(encoding="utf-8") as handle:
         for line in handle:
             event = json.loads(line)
-            world = event["world_seed"]
+            if "episode_completed" in event:
+                transitions += 1
+                current = worlds.setdefault(event["episode_id"], {"elapsed_days": 0, "completed": False})
+                days += event["elapsed_days"] - current["elapsed_days"]
+                current.update(elapsed_days=event["elapsed_days"], completed=event["episode_completed"])
+                autonomous_cost += event["positive_cost"]
+                continue
+            world = event.get("episode_id", event["world_seed"])
             if event["event"] == "initializing":
-                worlds[world] = {"world_seed": world, "scenario_options": event["scenario_options"],
+                worlds[world] = {"world_seed": event["world_seed"], "scenario_options": event["scenario_options"],
                                  "elapsed_days": 0, "transitions": 0, "fixed_windows": 0,
                                  "completed": False, "initialized": False, "failed": False}
             elif event["event"] == "initialized":
@@ -175,6 +189,9 @@ def training_budget(record_path):
                     current["failed"] = True
             elif event["event"] == "completed":
                 worlds[world]["completed"] = True
+    if worlds and "world_seed" not in next(iter(worlds.values())):
+        return {"step_count": transitions, "episode_count": sum(r["completed"] for r in worlds.values()),
+                "simulated_days": days, "positive_cost": autonomous_cost}
     return {"transitions": transitions, "autonomous_decisions": transitions,
             "fixed_windows": fixed_windows, "simulated_days": days,
             "fixed_window_positive_cost": fixed_cost, "autonomous_positive_cost": autonomous_cost,
@@ -202,9 +219,11 @@ def budget_extension(protocol, checkpoint_means, current_budget):
 
 def horizon_report(protocol, selected_records):
     """Final selected B trajectories only; private infections never control a run."""
+    if "snapshot_training" in protocol.definition:
+        raise ValueError("snapshot H is fixed at 112; use frozen test extensions without retraining")
     gate = protocol.definition["horizon_gate"]
     if set(selected_records) != set(protocol.definition["controllers"]["methods"]):
-        raise ValueError("horizon confirmation requires all seven main methods")
+        raise ValueError("horizon confirmation requires all declared main methods")
     pool = protocol.definition["seeds"]["validation_B"]
     required_worlds = set(range(pool["start_inclusive"], pool["end_inclusive"] + 1))
     reports = {}

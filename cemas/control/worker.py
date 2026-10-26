@@ -17,7 +17,7 @@ class TrainingEnvFactory:
 
     def __call__(self):
         from .environment import WeeklyControlEnvironment
-        from .protocol import load_protocol
+        from .snapshot_protocol import load_training_protocol as load_protocol
         from .rl.env import GymControlEnv
         from .training import TrainingEpisodePlan
 
@@ -41,7 +41,7 @@ def evaluate_job(job):
     from .controllers import (MinimumController, MaximumFeasibleController,
                               ThresholdController, load_baseline_controller)
     from .logging import resolved_snapshot
-    from .protocol import load_protocol
+    from .snapshot_protocol import load_training_protocol as load_protocol
     from .runner import make_memory_llm_controller, run_episode
 
     protocol = load_protocol(job["protocol_path"])
@@ -100,7 +100,18 @@ def evaluate_job(job):
                      (result.output_dir / "decisions.jsonl").read_text(encoding="utf-8").splitlines()]
         timing["decision_elapsed_ms"] = [row["elapsed_ms"] for row in decisions
                                          if row["decision_source"] == "controller"]
+    from .controllers import _BASELINE_METADATA
+    baseline = _BASELINE_METADATA.get(controller, {})
     return {"world_seed": job["world_seed"], "summary": summary, **timing,
+            **({"method": controller.controller_type,
+                "train_seed": (baseline.get("training") or {}).get("train_seed"),
+                "snapshot_active_infections": json.loads((result.output_dir / "manifest.json").read_text(
+                    encoding="utf-8"))["snapshot_active_infections"]}
+               if "snapshot_training" in protocol.definition else {}),
+            **({"scenario_id": job["scenario_id"], "snapshot_day": job["snapshot_day"]}
+               if "scenario_id" in job else {}),
+            **({"day112_active_infections": int(days[111]["active_infections"])}
+               if "snapshot_training" in protocol.definition and len(days) >= 112 else {}),
             "last_window_infections": sum(int(row["new_infections"]) for row in days[-width:]),
             "elapsed_seconds": perf_counter() - started, "llm_usage": usage,
             "output_dir": str(result.output_dir)}

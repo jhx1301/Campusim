@@ -6,7 +6,7 @@ import gymnasium as gym
 import numpy as np
 
 from ..logging import resolved_snapshot
-from ..observation import OBSERVATION_FEATURE_NAMES, encode_rl_observation
+from ..observation import rl_feature_names, encode_rl_observation
 from ..types import JOINT_ACTION_COUNT
 
 
@@ -28,13 +28,14 @@ class GymControlEnv(gym.Env):
         self.reference_horizon = reference_horizon
         self.private_record_sink = private_record_sink
         self.observation_space = gym.spaces.Box(
-            -np.inf, np.inf, shape=(len(OBSERVATION_FEATURE_NAMES),), dtype=np.float32)
+            -np.inf, np.inf, shape=(len(rl_feature_names(environment.protocol)),), dtype=np.float32)
         self.action_space = gym.spaces.Discrete(JOINT_ACTION_COUNT)
         self._observation = None
         self._world_seed = None
         self._episode_transitions = 0
         self._terminated = False
         self._failed = False
+        self._episode_index = -1
 
     def _encode(self):
         return encode_rl_observation(
@@ -47,8 +48,13 @@ class GymControlEnv(gym.Env):
 
     def _record(self, event, **details):
         if self.private_record_sink is not None:
+            snapshot_task = "snapshot_training" in self.environment.protocol.definition
+            if snapshot_task and event != "transition":
+                return
             self.private_record_sink({
                 "event": event, "world_seed": self._world_seed,
+                **({"episode_id": self._episode_index, "episode_completed": self._terminated}
+                   if snapshot_task else {}),
                 "elapsed_days": (self._observation.decision_day
                                  if self._observation is not None else 0),
                 "episode_transitions": self._episode_transitions, **details,
@@ -73,6 +79,7 @@ class GymControlEnv(gym.Env):
         if self._observation is not None and not self._terminated and not self._failed:
             self._record("closed")
         episode = self.episode_plan(seed=seed)
+        self._episode_index += 1
         self._world_seed = episode["world_seed"]
         self._observation = None
         self._episode_transitions = 0
@@ -87,15 +94,16 @@ class GymControlEnv(gym.Env):
             self._observation, info = self.environment.reset(
                 self._world_seed, options=episode["scenario_options"])
             self._record("initialized", scenario_options=resolved_snapshot(episode["scenario_options"]))
-            self._observation, reward, self._terminated, truncated, info = self.environment.advance_initial_week()
-            if truncated:
-                raise RuntimeError("the fixed initial window cannot be truncated")
-            if self.private_record_sink is not None:
-                positive_cost = (-reward if self.environment.mode == "training"
-                                 else -self.environment.audit_snapshot().windows[-1].reward)
-                self._record("fixed_window", terminated=self._terminated,
-                             positive_cost=positive_cost,
-                             public_cost=resolved_snapshot(info.feedback.week.cost))
+            if self.environment.protocol.definition["engine"]["initial_baseline_days"]:
+                self._observation, reward, self._terminated, truncated, info = self.environment.advance_initial_week()
+                if truncated:
+                    raise RuntimeError("the fixed initial window cannot be truncated")
+                if self.private_record_sink is not None:
+                    positive_cost = (-reward if self.environment.mode == "training"
+                                     else -self.environment.audit_snapshot().windows[-1].reward)
+                    self._record("fixed_window", terminated=self._terminated,
+                                 positive_cost=positive_cost,
+                                 public_cost=resolved_snapshot(info.feedback.week.cost))
             self._record_completed()
         except Exception as error:
             self._record_failure(error)
@@ -114,7 +122,7 @@ class GymControlEnv(gym.Env):
             raise
         self._observation = observation
         self._episode_transitions += 1
-        self._terminated = terminated
+        self._terminated = terminated or truncated
         if self.private_record_sink is not None:
             positive_cost = (-reward if self.environment.mode == "training"
                              else -self.environment.audit_snapshot().windows[-1].reward)
@@ -123,7 +131,8 @@ class GymControlEnv(gym.Env):
         return self._encode(), reward, terminated, truncated, self._public_info(info)
 
     def _record_completed(self):
-        if self._terminated and self.private_record_sink is not None:
+        if (self._terminated and self.private_record_sink is not None
+                and "snapshot_training" not in self.environment.protocol.definition):
             from ..runner import episode_summary
 
             summary = episode_summary(

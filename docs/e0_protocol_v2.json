@@ -19,7 +19,9 @@
     "teachers": 2321,
     "staff": 21596
   },
-  "initial_infections": 30,
+  "initial_infections": 100,
+  "employee_cm": 0.1,
+  "employee_ta": 0.5,
   "engine_overrides": {
     "campus_age_data": [
       [17, 23, 0.456],
@@ -32,11 +34,27 @@
     "campus_k_ts": 3
   },
   "testing": {
-    "symp_test": 80,
+    "symp_test": 100,
     "quar_test": 30,
+    "quar_policy": "start",
     "sensitivity": 0.95,
     "loss_prob": 0,
     "test_delay": 0
+  },
+  "replay_contact_tracing": {
+    "enabled": true,
+    "start_day": "2020-08-17",
+    "trace_probs": {
+      "d": 1.0,
+      "clu": 0.0,
+      "clg": 0.0,
+      "of": 1.0,
+      "ta": 1.0,
+      "cm": 1.0
+    },
+    "trace_time": 0,
+    "end_day": "2020-09-25",
+    "quar_period": 10
   },
   "beta_range": [0.005, 0.16],
   "coarse_points": 16,
@@ -46,7 +64,7 @@
   "evaluation_seeds": [12201, 12202, 12203, 12204, 12205, 12206, 12207, 12208, 12209, 12210, 12211, 12212, 12213, 12214, 12215, 12216, 12217, 12218, 12219, 12220, 12221, 12222, 12223, 12224, 12225, 12226, 12227, 12228, 12229, 12230, 12231, 12232, 12233, 12234, 12235, 12236, 12237, 12238, 12239, 12240],
   "alignments": [0, 1, 2],
   "primary_alignment": 1,
-  "primary_metric": "cumulative",
+  "primary_metric": "weekly",
   "baseline_days": 7,
   "sensitivities": [
     {"name": "i0_10", "initial_infections": 10},
@@ -56,3 +74,4 @@
   ],
   "evidence_scope": "W1_in_sample_parameter_anchor_and_consistency_check_not_predictive_or_external_validation"
 }
+

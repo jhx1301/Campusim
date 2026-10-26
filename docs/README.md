@@ -1,12 +1,13 @@
 # CEMAS v1 开发文档
 
-更新：2026-10-23。接续开发先读 [UW 控制接入](uw_control_integration.md)和[当前工作阅读索引](CEMAS_READING_INDEX.md)，再查看对应阶段契约。
+更新：2026-10-25。接续开发先读 [UW 控制接入](uw_control_integration.md)和[当前工作阅读索引](CEMAS_READING_INDEX.md)，再查看对应阶段契约。
 
-当前 UW 配置为 69,457 人、教师 2,321 / 其他职员 21,596、`campus_k_ts=3`；这些模型修订尚未完成新 E0 校准。P6 工程入口已经实现，正式源域开发、共同冻结和最终实验尚未完成。旧阶段验收数字和旧模型产物保留为历史证据。
+当前 UW 配置为 69,457 人、初始感染 100、教师 2,321 / 其他职员 21,596、`campus_k_ts=3`；weekly E0 与员工接触背景迁移已完成，40 个评估世界重放一致。当前锚点为 `results/e0_v5_iso0_w1trace/weekly_background_v1_local/control_anchor.json`。P6 工程入口已经实现，正式源域开发、共同冻结和最终实验尚未完成。旧阶段验收数字和旧模型产物保留为历史证据。
 
 | 文档 | 用途 |
 |---|---|
 | [UW 控制接入](uw_control_integration.md) | 当前人口/模型、E0 入口、锚点兼容性及证据边界 |
+| [快照 baseline 训练计划](baseline_snapshot_training_plan_v1.md)、[代码使用说明](baseline_snapshot_training.md) | 精简共享快照池、单验证集、固定112天训练及独立baseline测试／报告入口 |
 | [E0 配置](e0_protocol_v2.json)、[研究计划](../research/historical_epidemics/e0_calibration_research_plan.md) | UW W1 校准参数与原始方法记录 |
 | [软件工程实现计划](cemas_v1_implementation_plan.md) | Phase 0–7 的范围、接口、产物和验收顺序 |
 | [推荐实施协议](llm_recommended_protocol_v1.md)、[控制配置](control_protocol_v1.json) | 共同任务、动作、观察、资源、实验与统计规则 |

@@ -157,7 +157,7 @@ def test_study_writes_summary_and_primary(loaded, tmp_path, monkeypatch):
     monkeypatch.setattr(cal, "run_e0_world", _fake_world)
     summary = cal.run_e0_study(config, data, tmp_path / "study", workers=1)
     assert summary["status"] == "complete"
-    assert summary["primary"] == {"alignment": 0, "metric": "cumulative"}
+    assert summary["primary"] == {"alignment": 0, "metric": config["primary_metric"]}
     assert (tmp_path / "study" / "summary.json").exists()
     assert (tmp_path / "study" / "profiles.json").exists()
     assert (tmp_path / "study" / "report.md").exists()

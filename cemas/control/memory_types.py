@@ -425,8 +425,15 @@ _PUBLIC_TYPES = (ActionVector, PublicCost, PublicPopulation, PublicResources,
 
 def public_to_dict(value):
     """Serialize allow-listed public records without accepting private dataclasses."""
+    if type(value) is PublicObservation:
+        from .logging import public_observation_to_dict
+        return public_observation_to_dict(value)
     if type(value) in _PUBLIC_TYPES:
-        return {item.name: public_to_dict(getattr(value, item.name)) for item in fields(value)}
+        result = {item.name: public_to_dict(getattr(value, item.name)) for item in fields(value)}
+        if type(value) is PublicWeeklyRecord and not value.historical:
+            for name in ("historical", "total_tests"):
+                result.pop(name)
+        return result
     if isinstance(value, Mapping):
         if any(type(key) is not str for key in value):
             raise TypeError("public JSON keys must be strings")
@@ -450,6 +457,10 @@ def public_hash(value):
 
 
 def _record_dict(value, record_type):
+    defaults = ({"snapshot_day": 0} if record_type is PublicObservation else
+        {"historical": False, "total_tests": None} if record_type is PublicWeeklyRecord else {})
+    if defaults and not (set(defaults) & set(value)):
+        value = {**value, **defaults}
     _exact(value, (item.name for item in fields(record_type)), record_type.__name__)
     return dict(value)
 

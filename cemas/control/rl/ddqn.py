@@ -19,10 +19,11 @@ OBSERVATION_SIZE = len(OBSERVATION_FEATURE_NAMES)
 
 
 class QNetwork(nn.Module):
-    def __init__(self, hidden=(128, 128)):
+    def __init__(self, hidden=(128, 128), observation_size=OBSERVATION_SIZE):
         super().__init__()
         self.hidden = tuple(hidden)
-        widths = (OBSERVATION_SIZE, *self.hidden, JOINT_ACTION_COUNT)
+        self.observation_size = observation_size
+        widths = (observation_size, *self.hidden, JOINT_ACTION_COUNT)
         layers = []
         for index, (inputs, outputs) in enumerate(zip(widths, widths[1:])):
             layers.append(nn.Linear(inputs, outputs))
@@ -47,12 +48,12 @@ class ReplayBatch:
 class ReplayBuffer:
     """Fixed v1 transition layout, with uniform sampling without replacement."""
 
-    def __init__(self, capacity):
+    def __init__(self, capacity, observation_size=OBSERVATION_SIZE):
         self.capacity = capacity
-        self.observations = np.empty((capacity, OBSERVATION_SIZE), dtype=np.float32)
+        self.observations = np.empty((capacity, observation_size), dtype=np.float32)
         self.actions = np.empty(capacity, dtype=np.int64)
         self.rewards = np.empty(capacity, dtype=np.float32)
-        self.next_observations = np.empty((capacity, OBSERVATION_SIZE), dtype=np.float32)
+        self.next_observations = np.empty((capacity, observation_size), dtype=np.float32)
         self.terminated = np.empty(capacity, dtype=np.bool_)
         self.next_masks = np.empty((capacity, JOINT_ACTION_COUNT), dtype=np.bool_)
         self.position = 0
@@ -110,11 +111,11 @@ class DDQNTrainer:
         self.config = dict(config)
         self.rng = np.random.default_rng(seed)
         torch.manual_seed(seed)
-        self.online = QNetwork(config["hidden"])
+        self.online = QNetwork(config["hidden"], vec_env.observation_space.shape[0])
         self.target = deepcopy(self.online).requires_grad_(False)
         self.target.eval()
         self.optimizer = torch.optim.Adam(self.online.parameters(), lr=config["learning_rate"])
-        self.replay = ReplayBuffer(config["replay_capacity"])
+        self.replay = ReplayBuffer(config["replay_capacity"], self.online.observation_size)
         self.num_timesteps = 0
         self.gradient_updates = 0
         self.target_updates = 0
@@ -175,7 +176,7 @@ class DDQNTrainer:
             info = infos[0]
             replay_next = info["terminal_observation"] if terminated else next_observation[0]
             self.replay.add(self._observation[0], action, float(rewards[0]), replay_next,
-                            terminated, info["next_mask"])
+                            terminated and not info.get("TimeLimit.truncated", False), info["next_mask"])
             self.num_timesteps += 1
             if self.num_timesteps >= self.config["warmup_steps"]:
                 self._update()
@@ -189,7 +190,8 @@ class DDQNTrainer:
 
     def save(self, path):
         """Inference checkpoint, deliberately not a crash-resume snapshot."""
-        torch.save({"hidden": list(self.online.hidden), "state_dict": self.online.state_dict()}, path)
+        torch.save({"hidden": list(self.online.hidden), "observation_size": self.online.observation_size,
+                    "state_dict": self.online.state_dict()}, path)
 
 
 class DDQNController(Controller):
@@ -203,7 +205,7 @@ class DDQNController(Controller):
     @classmethod
     def load(cls, path, *, reference_population, reference_horizon):
         checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-        network = QNetwork(checkpoint["hidden"])
+        network = QNetwork(checkpoint["hidden"], checkpoint.get("observation_size", OBSERVATION_SIZE))
         network.load_state_dict(checkpoint["state_dict"])
         return cls(network, reference_population=reference_population,
                    reference_horizon=reference_horizon)

@@ -1,0 +1,39 @@
+{
+  "schema_version": "cemas-uw-replay-sources-v1",
+  "verified_on": "2026-10-24",
+  "verification_method": "Official pages read using the web browser tool; the September 18 notice is archived here as a source excerpt and verified event summary, not a full HTML snapshot.",
+  "sources": [
+    {
+      "id": "uw_dashboard_2020",
+      "title": "Dashboard 2020",
+      "url": "https://covidresponse.wisc.edu/dashboard-2020/",
+      "archive_file": "research/historical_epidemics/data/raw/uw_madison_2020.html",
+      "archive_sha256": "d1181161526d3690a5eb4eb9bd0f436f26b340192977b55086c5147aa18aff84",
+      "locator": "Data Notes / Notable events",
+      "verified_events": [
+        {"date": "2020-09-07", "event": "Undergraduate movement restrictions announced, initially through September 21."},
+        {"date": "2020-09-10", "end_date": "2020-09-25", "event": "In-person group instruction paused."},
+        {"date": "2020-09-26", "event": "Some in-person activity resumed."}
+      ]
+    },
+    {
+      "id": "uw_students_2020_09_18",
+      "title": "Message to students: COVID-19 clarifications and reminders",
+      "published_on": "2020-09-18",
+      "url": "https://news.wisc.edu/message-to-students-covid-19-clarifications-and-reminders/",
+      "archive_kind": "verified_excerpt_and_summary",
+      "locator": "Main article, undergraduate essential-activity restriction bullet",
+      "excerpt": "Undergraduate students are directed to limit their in-person interactions to only essential activities at least through Sept. 25.",
+      "verified_events": [
+        {"end_date": "2020-09-25", "event": "Undergraduate restrictions extended from September 21 to align with the instruction pause; the notice says at least through September 25."},
+        {"end_date": "2020-09-25T17:00:00", "event": "The pause in in-person undergraduate, graduate and professional group instruction remains in place at least until this time."}
+      ]
+    }
+  ],
+  "model_assumptions": [
+    "Community retention c and residence multipliers 1.0, 1.15, 1.25 are preset experimental assumptions, not measured historical effects.",
+    "Instruction and undergraduate community recovery multipliers 0.25, 0.50, 0.75 are sensitivity assumptions, not measured historical effects.",
+    "The October 30 simulation endpoint covers the rise, restrictions, decline and partial recovery; later dashboard data exist.",
+    "The one-day reporting alignment follows E0 and is not a verified historical specimen-to-report delay."
+  ]
+}

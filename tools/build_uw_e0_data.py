@@ -26,12 +26,18 @@ GROUPS = ("students", "employees")
 WINDOWS = {
     "w1": ("2020-08-17", "2020-09-06"),
     "w2w3": ("2020-09-26", "2020-10-30"),
+    "replay": ("2020-08-17", "2020-10-30"),
 }
 EXPECTED_W1 = {
     "rows": 21,
     "groups": {"students": {"positive": 584, "tests": 16677},
                "employees": {"positive": 5, "tests": 1637}},
     "totals": {"positive": 589, "tests": 18314},
+}
+REPLAY_WINDOWS = {
+    "w1": ("2020-08-17", "2020-09-06", 21, 584, 16677, 5, 1637),
+    "w2": ("2020-09-07", "2020-09-25", 19, 1393, 20457, 11, 1706),
+    "w3": ("2020-09-26", "2020-10-30", 35, 463, 39110, 76, 4661),
 }
 
 
@@ -62,6 +68,8 @@ def _window_frame(frame, start, end):
         raise ValueError("E0 calibration data must not contain missing values")
     selected = selected.assign(date=pd.to_datetime(selected["date_start"]).dt.strftime("%Y-%m-%d"),
                                number=selected["value"])
+    if selected.duplicated(["date", "population_group", "metric"]).any():
+        raise ValueError("Duplicate daily observations in the selected E0 series")
     if (selected["number"] < 0).any():
         raise ValueError("E0 calibration data must be nonnegative")
     wide = selected.pivot_table(index="date", columns=["population_group", "metric"],
@@ -74,9 +82,9 @@ def _window_frame(frame, start, end):
     if wide[expected_columns].isna().any().any():
         raise ValueError("E0 series contain missing days")
     wide = wide[expected_columns].sort_index()
-    index = [pd.Timestamp(day) for day in wide.index]
-    if any((right - left).days != 1 for left, right in zip(index, index[1:])):
-        raise ValueError("E0 series dates must be contiguous")
+    expected_dates = pd.date_range(start, end).strftime("%Y-%m-%d").tolist()
+    if wide.index.tolist() != expected_dates:
+        raise ValueError("E0 series must cover every date in the requested window")
     rows = []
     for day, values in wide.iterrows():
         student_positive = values[("students", "new_positive_tests")]
@@ -136,6 +144,16 @@ def build(name, frame, output, provenance, force):
                     raise ValueError(f"W1 {group}.{field} does not match the frozen total")
         if totals["totals"] != EXPECTED_W1["totals"]:
             raise ValueError("W1 totals do not match the frozen totals")
+    window_totals = {}
+    if name == "replay":
+        for window, (first, last, days, sp, st, ep, et) in REPLAY_WINDOWS.items():
+            window_rows = [row for row in rows if first <= row["date"] <= last]
+            summary = _totals(window_rows)
+            if len(window_rows) != days or summary["groups"] != {
+                    "students": {"positive": sp, "tests": st},
+                    "employees": {"positive": ep, "tests": et}}:
+                raise ValueError(f"Replay {window} does not match the published window totals")
+            window_totals[window] = {"window": [first, last], "rows": days, **summary}
 
     lines = [",".join(COLUMNS)]
     for row in rows:
@@ -171,6 +189,13 @@ def build(name, frame, output, provenance, force):
         "builder": "tools/build_uw_e0_data.py",
         "builder_version": "cemas-uw-e0-data-v1",
     }
+    if name == "replay":
+        sources = ROOT / "data" / "uw_madison_2020_replay.sources.json"
+        provenance_payload.update({
+            "windows": window_totals,
+            "intervention_sources_file": str(sources.relative_to(ROOT)).replace("\\", "/"),
+            "intervention_sources_sha256": _sha256(sources),
+        })
     _write(provenance, json.dumps(provenance_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", force)
     return {"name": name, "rows": len(rows), **totals, "output": str(output)}
 
@@ -184,12 +209,21 @@ def main(argv=None):
     parser.add_argument("--w2w3-output", type=Path, default=root / "data" / "uw_madison_2020_w2w3.csv")
     parser.add_argument("--w2w3-provenance", type=Path,
                         default=root / "data" / "uw_madison_2020_w2w3.provenance.json")
+    parser.add_argument("--replay-only", action="store_true",
+                        help="Build the 75-day replay table without rewriting the existing E0 tables")
+    parser.add_argument("--replay-output", type=Path,
+                        default=root / "data" / "uw_madison_2020_replay.csv")
+    parser.add_argument("--replay-provenance", type=Path,
+                        default=root / "data" / "uw_madison_2020_replay.provenance.json")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
 
     frame = load_observations(DATASET_ID, entity_id=ENTITY_ID, observation_scope=SCOPE)
-    results = [build("w1", frame, args.output, args.provenance, args.force),
-               build("w2w3", frame, args.w2w3_output, args.w2w3_provenance, args.force)]
+    if args.replay_only:
+        results = [build("replay", frame, args.replay_output, args.replay_provenance, args.force)]
+    else:
+        results = [build("w1", frame, args.output, args.provenance, args.force),
+                   build("w2w3", frame, args.w2w3_output, args.w2w3_provenance, args.force)]
     for result in results:
         print(f"{result['name']}: {result['rows']} rows, "
               f"{result['totals']['positive']} positives / {result['totals']['tests']} tests -> {result['output']}")

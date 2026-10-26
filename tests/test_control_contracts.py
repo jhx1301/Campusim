@@ -77,7 +77,7 @@ def test_public_schema_is_an_explicit_allow_list_and_rejects_private_payloads():
         "decision_day", "execution_days", "initial_infections", "population",
         "resources", "current_action", "action_duration_days", "legal_action_mask",
         "history", "week_valid", "previous_day_known_isolated",
-        "previous_day_known_quarantined", "previous_day_known_union",
+        "previous_day_known_quarantined", "previous_day_known_union", "snapshot_day",
     }
     assert {field.name for field in fields(PublicObservation)} == expected_fields
     private = PrivateMetrics(0, 6, 100, 30, 130, 25, 80)
@@ -104,7 +104,8 @@ def test_public_hash_is_stable_and_independent_of_private_analysis():
     assert hash_observation(replace(observation)) == before
     assert hash_observation(replace(observation, resources=PublicResources(240, 1200, 120))) != before
     payload = public_observation_to_dict(observation)
-    assert set(payload) == {field.name for field in fields(PublicObservation)}
+    # The optional takeover date is omitted from the legacy day0 wire format.
+    assert set(payload) == {field.name for field in fields(PublicObservation)} - {"snapshot_day"}
     assert json.loads(json.dumps(payload))["current_action"]["values"] == [0, 0, 0, 0, 0]
     assert observation.week_valid == (False,) * 4
     with pytest.raises(FrozenInstanceError):

@@ -6,7 +6,7 @@
 
 当前已接入 Threshold、MaskablePPO、DDQN、源域训练/选择与案例库发布工程。工程验证、短训练、正式源域实验和共同冻结分别登记；工程通过不表示控制收益或 Phase 7 已就绪。
 
-当前 UW 基础模型为 69,457 人、教师 2,321 / 其他职员 21,596、`campus_k_ts=3`，尚未完成该配置的完整 E0 校准。`results/e0_v2/full/` 是旧角色模型的历史研究，不能作为当前科学运行的锚点；正式 pilot、Threshold 调参、RL 训练和建库均须等待新的兼容锚点。完整前提见 [UW 控制接入](uw_control_integration.md)。
+2026-10-25 更新：当前 UW 基础模型为 69,457 人、初始感染 100、教师 2,321 / 其他职员 21,596、`campus_k_ts=3`，员工社区背景乘数 0.1、ta 背景乘数 0.5。weekly E0 已完成，背景接入迁移已逐一核验 40 个评估世界，当前使用 `results/e0_v5_iso0_w1trace/weekly_background_v1_local/control_anchor.json`。β 保持 0.038583333332。旧角色及迁移前锚点不能直接使用。接入证据见 [UW 控制接入](uw_control_integration.md)。
 
 2026-10-23 指定解释器元数据核查为 Python 3.10.20、Optuna 4.8.0、Torch 2.13.0、Gymnasium 1.4.0、SB3/contrib 2.9.0；这与旧依赖快照中的 Optuna 4.9.0 / Torch 2.14.1 不同。版本清单仅说明当前安装状态，不代表已经在该组合下重新完成 RL 运行验收；本次文档同步不安装或升级依赖。
 
@@ -37,12 +37,12 @@ $env:OMP_NUM_THREADS = '1'
 $env:MKL_NUM_THREADS = '1'
 $env:MKL_THREADING_LAYER = 'SEQUENTIAL'
 & $python -m examples.control_v1.baselines --help
-& $python -m examples.control_v1.baselines pilot --artifact results/uw_e0_roles_20261023/control_anchor.json --reference maximum_feasible --output results/uw_phase6_pilot
-& $python -m examples.control_v1.baselines tune --artifact results/uw_e0_roles_20261023/control_anchor.json --output results/uw_phase6_threshold
-& $python -m examples.control_v1.baselines train --artifact results/uw_e0_roles_20261023/control_anchor.json --method ppo --maximum-budget 8192 --output results/uw_phase6_ppo
+& $python -m examples.control_v1.baselines pilot --artifact results/e0_v5_iso0_w1trace/weekly_background_v1_local/control_anchor.json --reference maximum_feasible --output results/uw_phase6_pilot
+& $python -m examples.control_v1.baselines tune --artifact results/e0_v5_iso0_w1trace/weekly_background_v1_local/control_anchor.json --output results/uw_phase6_threshold
+& $python -m examples.control_v1.baselines train --artifact results/e0_v5_iso0_w1trace/weekly_background_v1_local/control_anchor.json --method ppo --maximum-budget 8192 --output results/uw_phase6_ppo
 ```
 
-这些是新配置 E0 完成后的入口示例，示例锚点当前尚未生成，不表示已完成校准、正式调参或训练。输出使用新目录，错误保留原运行证据；推理 checkpoint 不提供 replay/活动世界的精确崩溃恢复。
+这些命令使用已生成的迁移锚点；正式 pilot、调参和训练仍须实际执行，不能由锚点可加载推断完成。输出使用新目录，错误保留原运行证据；推理 checkpoint 不提供 replay/活动世界的精确崩溃恢复。
 
 历史 Windows Conda 验收中，MKL 与 Torch 各有 OpenMP runtime，spawn 曾在 Torch 先导入时退出。上述显式 `MKL_THREADING_LAYER=SEQUENTIAL` 启动方式通过了当时的真实子进程验收；当前命令沿用该设置，不使用 `KMP_DUPLICATE_LIB_OK`，算法代码不吞掉该故障。依赖变更后仍须实际核对运行状态。
 
@@ -75,11 +75,11 @@ release 必须关联当前任务/H/目标/E0/代码身份、108来源、实际�
 
 独立review已修复：重复训练seed导致字典覆盖模型；极小epsilon比例经整数化后除零；holdout命令清单文件名错误；Threshold候选参数元数据被误当成完整模型产物。另增加已加载产物的共同H/E0核对，并移除重复decoder、Gym范围检查与Threshold重复构造验证。未新增算法注册器、manager、重试器或仿真分支。
 
-尚未完成：当前角色与接触参数配置的完整 UW E0 校准、正式Threshold360验证回合、108源轨迹、RL三seed完整预算、真实LLM四模式A/B、共同H/目标/敏感性冻结、evaluation_ready发布与Phase7就绪。付费模型调用仍须单独授权；当前配置的正式批次成本应先通过新的真实 pilot 测量。
+尚未完成：当前背景下的正式 pilot、Threshold360验证回合、108源轨迹、RL三seed完整预算、真实LLM四模式A/B、共同H/目标/敏感性冻结、evaluation_ready发布与Phase7就绪。付费模型调用仍须单独授权；当前配置的正式批次成本应先通过新的真实 pilot 测量。
 
 ## 5. 正式批次预算与当前交付边界
 
-工程接入及旧模型上的 E0、pilot、短训练已有历史记录；当前模型修订后须先重做 E0，再重新计时与开发。原阶段按用户选择只交付工程与预算、未启动正式源域批次；本文不据历史授权启动当前校准、训练、采集或 API。后续运行按构建计划 P6.5 固定实际资源上限。
+工程接入及旧模型上的 pilot、短训练已有历史记录；当前 weekly E0 与背景迁移已完成，下一步是当前模型的计时与源域开发。原阶段按用户选择只交付工程与预算、未启动正式源域批次；本文不据历史授权启动当前校准、训练、采集或 API。后续运行按构建计划 P6.5 固定实际资源上限。
 
 以下是旧模型、旧首周计数口径下的线性估算，仅保留作历史成本证据，不能用作当前 69,457 人 UW 模型的时长估计。当前H不延长：Threshold360回合、建库108回合、所有A/B及固定参考策略B的完整回合仍各为H日，不能再额外加7日。两算法各3seed的训练预算按自主决策步数计，须在这些样本的实际执行日之外，计入每个已启动世界的固定首周，包括自动reset后尚无自主决策的世界。正式训练预算以`training_budget`的`simulated_days`、`fixed_windows`和`autonomous_decisions`核算：
 

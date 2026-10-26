@@ -71,7 +71,21 @@ def public_observation_to_dict(observation: PublicObservation) -> dict:
     """Serialize the exact public type; private/general dictionaries are rejected."""
     if type(observation) is not PublicObservation:
         raise TypeError("only PublicObservation can be serialized as a public observation")
-    return json.loads(json.dumps(asdict(observation), ensure_ascii=False, allow_nan=False))
+    data = asdict(observation)
+    if not observation.snapshot_day:
+        data.pop("snapshot_day")
+        for week in data["history"]:
+            for name in ("historical", "total_tests"):
+                week.pop(name)
+    else:
+        for week in data["history"]:
+            if week["historical"]:
+                week["executed_action"] = week["resources"] = None
+                for name in ("clinical_tests", "screening_tests", "delivered_notifications",
+                             "school_restriction_person_days", "work_restriction_person_days",
+                             "community_restriction_person_days"):
+                    week["cost"][name] = None
+    return json.loads(json.dumps(data, ensure_ascii=False, allow_nan=False))
 
 
 def hash_observation(observation: PublicObservation) -> str:
@@ -156,7 +170,7 @@ _REWARD_FIELDS = ("infections", "tests", "notifications", "union", "activity")
 
 def _public_row(record) -> dict:
     row = {field.name: getattr(record, field.name) for field in fields(record)
-           if field.name not in ("cost", "resources", "executed_action")}
+           if field.name not in ("cost", "resources", "executed_action", "historical", "total_tests")}
     row.update(resolved_snapshot(record.cost))
     row.update(resolved_snapshot(record.resources))
     row.update(zip(_ACTION_FIELDS, record.executed_action.values))

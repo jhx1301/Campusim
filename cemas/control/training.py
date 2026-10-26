@@ -28,6 +28,11 @@ class TrainingEpisodePlan:
     """Independent, without-replacement source worlds shared by both algorithms."""
 
     def __init__(self, protocol, train_seed, calibration_artifact, *, calibration_data_path=None):
+        self._snapshot_plan = None
+        if "snapshot_training" in protocol.definition:
+            from .snapshot_protocol import SnapshotEpisodePlan
+            self._snapshot_plan = SnapshotEpisodePlan(protocol, train_seed, calibration_artifact, calibration_data_path)
+            return
         source = protocol.definition["source"]
         seeds = source["train_seed_values"]
         if train_seed not in seeds:
@@ -43,6 +48,8 @@ class TrainingEpisodePlan:
         self.train_seed, self._index = train_seed, 0
 
     def __call__(self, seed=None):
+        if self._snapshot_plan is not None:
+            return self._snapshot_plan(seed=seed)
         if seed is not None and (seed != self.train_seed or self._index):
             raise ValueError("episode scheduling can only be seeded with its declared training seed before use")
         if self._index == len(self._worlds):
@@ -71,12 +78,15 @@ def threshold_candidates(protocol):
 
 
 def _pool_seeds(protocol, pool):
+    if "snapshot_training" in protocol.definition:
+        from .snapshot_protocol import snapshot_scenarios
+        return tuple(row["scenario_id"] for row in snapshot_scenarios(protocol, pool))
     bounds = protocol.definition["seeds"][pool]
     return tuple(range(bounds["start_inclusive"], bounds["end_inclusive"] + 1))
 
 
 def _scores(records, expected_seeds):
-    worlds = [row["world_seed"] for row in records]
+    worlds = [row.get("scenario_id", row["world_seed"]) for row in records]
     if len(worlds) != len(expected_seeds) or set(worlds) != set(expected_seeds):
         raise ValueError("evaluation must contain every declared world exactly once")
     if any(row["summary"]["status"] != "completed" for row in records):
@@ -90,16 +100,20 @@ def _scores(records, expected_seeds):
 
 
 def evaluate_source(protocol, controller_spec, output_dir, calibration_artifact, *,
-                    pool="validation_A", calibration_data_path=None, evaluator=None):
+                    pool=None, calibration_data_path=None, evaluator=None, execution_days=None):
     """A single spawned evaluator preserves the learner's process RNG state."""
     from .worker import evaluate_job
 
-    if pool not in ("validation_A", "validation_B"):
-        raise ValueError("source model evaluation is restricted to validation A or B")
+    snapshot_task = "snapshot_training" in protocol.definition
+    pool = pool or ("val" if snapshot_task else "validation_A")
+    if pool not in (("val", "test") if snapshot_task else ("validation_A", "validation_B")):
+        raise ValueError("snapshot evaluation requires val/test; day0 evaluation requires validation A or B")
+    if execution_days is not None and (not snapshot_task or pool != "test" or execution_days not in (112,140,168)):
+        raise ValueError("horizon extensions are only available for frozen snapshot test evaluation")
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=False)
     jobs = []
-    for seed in _pool_seeds(protocol, pool):
+    for seed in (() if snapshot_task else _pool_seeds(protocol, pool)):
         condition = source_grid(protocol, pool, seed)
         jobs.append({"protocol_path": str(protocol.source_path), "controller": controller_spec,
                      "world_seed": seed, "output_dir": str(output / str(seed)),
@@ -107,13 +121,25 @@ def evaluate_source(protocol, controller_spec, output_dir, calibration_artifact,
                          "calibration_data_path": str(calibration_data_path) if calibration_data_path else None,
                          "beta_scale": condition["beta_scale"],
                          "screening_capacity_ratio": condition["screening_capacity_ratio"]}})
+    if snapshot_task:
+        from .snapshot_protocol import snapshot_scenarios
+        for row in snapshot_scenarios(protocol, pool):
+            jobs.append({"protocol_path": str(protocol.source_path), "controller": controller_spec,
+                "purpose": "snapshot_test" if pool == "test" else "scientific",
+                "world_seed": row["world_seed"], "scenario_id": row["scenario_id"],
+                "snapshot_day": row["snapshot_day"],
+                "output_dir": str(output / row["scenario_id"]), "scenario_options": {
+                    **row["scenario_options"], "calibration_artifact": str(calibration_artifact),
+                    **({"execution_days": execution_days} if execution_days is not None else {}),
+                    "calibration_data_path": str(calibration_data_path) if calibration_data_path else None}})
     if evaluator is None:
         with ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn")) as executor:
             # Exceptions propagate; runner attempt directories retain failure evidence.
             records = list(executor.map(evaluate_job, jobs))
     else:
         records = [evaluator(job) for job in jobs]
-    report = {"purpose": "fixture" if evaluator else "source_development", "pool": pool,
+    report = {"purpose": "fixture" if evaluator else "snapshot_test" if pool == "test" else "source_development", "pool": pool,
+              "controller": controller_spec,
               "records": records, **_scores(records, _pool_seeds(protocol, pool))}
     _write(output / "evaluation.json", report)
     return report
@@ -125,6 +151,8 @@ def tune_threshold(protocol, output_dir, calibration_artifact, *, calibration_da
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=False)
     candidates = threshold_candidates(protocol)
+    single_validation = "snapshot_training" in protocol.definition
+    primary = "validation" if single_validation else "validation_A"
     _write(output / "candidates.json", {
         "algorithm_semantics": THRESHOLD_ALGORITHM_SEMANTICS,
         "task_sha256": snapshot_sha256(baseline_task_configuration(protocol)),
@@ -132,25 +160,28 @@ def tune_threshold(protocol, output_dir, calibration_artifact, *, calibration_da
         "candidates": candidates})
     for candidate in candidates:
         spec = {"method": "threshold", "parameters": candidate["parameters"]}
-        candidate["validation_A"] = evaluate_source(protocol, spec,
-            output / f"A-{candidate['candidate_id']:02d}", calibration_artifact,
+        candidate[primary] = evaluate_source(protocol, spec,
+            output / f"{primary}-{candidate['candidate_id']:02d}", calibration_artifact,
             calibration_data_path=calibration_data_path, evaluator=evaluator)
     def ranking(candidate, split):
         report = candidate[split]
         return report["mean_positive_cost"], report["mean_normalized_activity"], candidate["candidate_id"]
-    finalists = sorted(candidates, key=lambda row: ranking(row, "validation_A"))[
-        :protocol.definition["controllers"]["threshold"]["finalists"]]
-    for candidate in finalists:
-        candidate["validation_B"] = evaluate_source(protocol,
-            {"method": "threshold", "parameters": candidate["parameters"]},
-            output / f"B-{candidate['candidate_id']:02d}", calibration_artifact,
-            pool="validation_B", calibration_data_path=calibration_data_path, evaluator=evaluator)
-    selected = min(finalists, key=lambda row: ranking(row, "validation_B"))
+    if single_validation:
+        selected = min(candidates, key=lambda row: ranking(row, primary))
+    else:
+        finalists = sorted(candidates, key=lambda row: ranking(row, primary))[
+            :protocol.definition["controllers"]["threshold"]["finalists"]]
+        for candidate in finalists:
+            candidate["validation_B"] = evaluate_source(protocol,
+                {"method": "threshold", "parameters": candidate["parameters"]},
+                output / f"B-{candidate['candidate_id']:02d}", calibration_artifact,
+                pool="validation_B", calibration_data_path=calibration_data_path, evaluator=evaluator)
+        selected = min(finalists, key=lambda row: ranking(row, "validation_B"))
     report = {"purpose": "fixture" if evaluator else "source_development",
               "method": "threshold", "algorithm_semantics": THRESHOLD_ALGORITHM_SEMANTICS,
               "task_sha256": snapshot_sha256(baseline_task_configuration(protocol)), "candidates": candidates,
               "selected_candidate_id": selected["candidate_id"],
-              "validation_episode_count": sum(len(row["validation_A"]["records"]) +
+              "validation_episode_count": sum(len(row[primary]["records"]) +
                   len(row.get("validation_B", {}).get("records", ())) for row in candidates)}
     _write(output / "selection.json", report)
     artifact = save_baseline_artifact(output / "selected", protocol, "threshold",
@@ -180,6 +211,10 @@ def select_checkpoint(protocol, checkpoints, evaluate):
     """Select within one training seed, retaining all B candidate evidence."""
     if not checkpoints or len({row["train_seed"] for row in checkpoints}) != 1:
         raise ValueError("checkpoint selection requires exactly one training seed")
+    if "snapshot_training" in protocol.definition:
+        selected = min(checkpoints, key=lambda row: (
+            row["validation"]["mean_positive_cost"], row["step"], str(row["artifact"])))
+        return {"train_seed": selected["train_seed"], "selected": selected, "candidates": checkpoints}
     candidates = sorted(checkpoints, key=lambda row: (
         row["validation_A"]["mean_positive_cost"], row["step"], str(row["artifact"])))[
         :protocol.definition["source"]["final_checkpoint_candidates"]]
@@ -205,6 +240,7 @@ def train_controller(protocol, method, output_dir, calibration_artifact, *, cali
     from .worker import TrainingEnvFactory
 
     source = protocol.definition["source"]
+    primary = "validation" if "snapshot_training" in protocol.definition else "validation_A"
     ceiling = maximum_budget if maximum_budget is not None else source["budget_ladder"][-1]
     if ceiling not in source["budget_ladder"]:
         raise ValueError("maximum_budget must belong to the protocol budget ladder")
@@ -253,10 +289,10 @@ def train_controller(protocol, method, output_dir, calibration_artifact, *, cali
                         training={"train_seed": seed, "steps": step,
                                   "episode_plan": training_budget(output / f"worlds-{seed}.jsonl")})
                     validation = evaluate_source(protocol, {"method": method, "artifact": str(artifact)},
-                        checkpoint_dir / "A", calibration_artifact,
+                        checkpoint_dir / primary, calibration_artifact,
                         calibration_data_path=calibration_data_path, evaluator=evaluator)
                     checkpoints[seed].append({"train_seed": seed, "step": step,
-                                              "artifact": str(artifact), "validation_A": validation})
+                                              "artifact": str(artifact), primary: validation})
                     a_scores.append(validation["mean_positive_cost"])
                 means.append(fsum(a_scores) / len(a_scores))
             decision = budget_extension(protocol, means, current_budget)
@@ -389,6 +425,10 @@ def run_pilot(protocol, controller_spec, output_dir, calibration_artifact, *, ca
              "scenario_options": {"calibration_artifact": str(calibration_artifact),
                                   "calibration_data_path": str(calibration_data_path) if calibration_data_path else None}}
             for seed in protocol.definition["source"]["pilot_worlds"]]
+    if "snapshot_training" in protocol.definition:
+        from .snapshot_protocol import snapshot_scenarios
+        for job, row in zip(jobs, snapshot_scenarios(protocol, "pilot")):
+            job["scenario_options"].update(row["scenario_options"])
     if evaluator is None:
         with ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn")) as executor:
             records = list(executor.map(evaluate_job, jobs))
@@ -403,4 +443,86 @@ def run_pilot(protocol, controller_spec, output_dir, calibration_artifact, *, ca
               "gradient_timing": "separate_synthetic_report_required",
               "training_transitions": 0, "policy_validation": False}
     _write(output / "pilot.json", report)
+    return report
+
+
+def compare_snapshot_baselines(protocol, reports, output_dir):
+    """Report independent frozen baseline tests with paired history-world intervals."""
+    from .snapshot_protocol import snapshot_scenarios, history_seeds
+    if "snapshot_training" not in protocol.definition:
+        raise ValueError("comparison requires the snapshot baseline task")
+    expected_counts = {"ppo": 3, "ddqn": 3, "threshold": 1, "minimum": 1, "maximum_feasible": 1}
+    if set(reports) != set(expected_counts):
+        raise ValueError("comparison requires all five baseline methods")
+    scenarios = snapshot_scenarios(protocol, "test")
+    identities = [row["scenario_id"] for row in scenarios]
+    ordered = {}
+    for method, paths in reports.items():
+        if len(paths) != expected_counts[method] or len(set(paths)) != len(paths):
+            raise ValueError(f"comparison requires {expected_counts[method]} distinct {method} reports")
+        ordered[method] = []
+        learner_seeds = []
+        for path in paths:
+            report = json.loads(Path(path).read_text(encoding="utf-8"))
+            rows = report["records"]
+            if (report["purpose"] != "snapshot_test" or len(rows) != len(identities)
+                    or {r["scenario_id"] for r in rows} != set(identities)
+                    or any(r["summary"]["status"] != "completed" or
+                           r["summary"]["execution_days"] != 112 for r in rows)):
+                raise ValueError("main comparison requires complete H112 test reports")
+            mapping = {row["scenario_id"]: row for row in rows}
+            if any(mapping[row["scenario_id"]]["world_seed"] != row["world_seed"] or
+                   mapping[row["scenario_id"]]["snapshot_day"] != row["snapshot_day"] for row in scenarios):
+                raise ValueError("test record does not match its paired scenario")
+            seeds = {r.get("train_seed") for r in rows}
+            if (len(seeds) != 1 or any(r["method"] != method or not isfinite(r["summary"]["positive_cost"]) for r in rows)):
+                raise ValueError("test report method, learner or cost is inconsistent")
+            learner_seeds.extend(seeds)
+            ordered[method].append([mapping[key] for key in identities])
+        if method in ("ppo", "ddqn") and sorted(learner_seeds) != sorted(protocol.definition["source"]["train_seed_values"]):
+            raise ValueError("comparison requires each of the three learner seeds once")
+    worlds = history_seeds(protocol, "test")
+    rng = np.random.default_rng(protocol.definition["statistics"]["bootstrap_seed"])
+    draws = rng.integers(len(worlds), size=(protocol.definition["statistics"]["bootstrap_replicates"], len(worlds)))
+    strata = {"all": list(range(len(scenarios)))}
+    for day in protocol.definition["snapshot_training"]["snapshot_days"]:
+        for capacity in protocol.definition["resources"]["screening_static_capacity_ratios"]:
+            strata[f"day{day}-capacity{capacity}"] = [i for i,row in enumerate(scenarios)
+                if row["snapshot_day"] == day and row["scenario_options"]["screening_capacity_ratio"] == capacity]
+    summaries = {}
+    for label, indices in strata.items():
+        baseline = np.array([np.mean([ordered["minimum"][0][i]["summary"]["positive_cost"]
+            for i in indices if scenarios[i]["world_seed"] == world]) for world in worlds])
+        summaries[label] = {}
+        for method, models in ordered.items():
+            costs = np.array([[np.mean([model[i]["summary"]["positive_cost"] for i in indices
+                if scenarios[i]["world_seed"] == world]) for world in worlds] for model in models])
+            model_draws = rng.integers(len(models), size=(len(draws), len(models)))
+            differences = costs[model_draws[:, :, None], draws[:, None, :]].mean(axis=(1,2)) - baseline[draws].mean(axis=1)
+            rows = [model[i] for model in models for i in indices]
+            summaries[label][method] = {
+                "models": len(models), "scenarios_per_model": len(indices),
+                "mean_positive_cost": float(costs.mean()),
+                "per_model_cost": costs.mean(axis=1).tolist(),
+                "mean_normalized_components": np.mean([r["summary"]["reward_breakdown"]["normalized"] for r in rows],axis=0).tolist(),
+                "mean_day112_active_infections": float(np.mean([r["day112_active_infections"] for r in rows])),
+                "mean_group_new_infections": {group: float(np.mean([
+                    r["summary"]["group_new_infections"][group] for r in rows])) for group in ("students", "employees")},
+                "zero_active_snapshot_fraction": float(np.mean([r["snapshot_active_infections"] == 0 for r in rows])),
+                "cost_difference_vs_minimum": float(costs.mean()-baseline.mean()),
+                "paired_95pct_interval": np.quantile(differences,[.025,.975]).tolist()}
+    output = Path(output_dir)
+    output.mkdir(parents=True,exist_ok=False)
+    report = {"primary":"day21-capacity0.05", "history_worlds":len(worlds),
+        "bootstrap":"paired history blocks; independent learner resampling", "strata":summaries}
+    _write(output / "comparison.json",report)
+    lines = ["# Snapshot baseline comparison", "", "H=112; lower positive cost is better. Intervals resample history worlds and retained learners.", "",
+             "| Condition | Method | Mean cost | Difference vs minimum | 95% interval | Day112 active | Student infections | Employee infections |",
+             "|---|---|---:|---:|---|---:|---:|---:|"]
+    for label, methods in summaries.items():
+        for method,row in methods.items():
+            lo,hi=row["paired_95pct_interval"]
+            groups = row["mean_group_new_infections"]
+            lines.append(f"| {label} | {method} | {row['mean_positive_cost']:.6g} | {row['cost_difference_vs_minimum']:.6g} | [{lo:.6g}, {hi:.6g}] | {row['mean_day112_active_infections']:.3f} | {groups['students']:.3f} | {groups['employees']:.3f} |")
+    (output / "report.md").write_text("\n".join(lines)+"\n",encoding="utf-8")
     return report

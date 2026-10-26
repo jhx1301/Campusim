@@ -60,3 +60,34 @@ Rebuild both the W1 table and the 35-day W2/W3 table (2020-09-26 through
 
 The E0 study reads the W1 table only; the W2/W3 table is retained for the
 optional later holdout and is not part of the current fit.
+
+## UW–Madison continuous historical replay
+
+`uw_madison_2020_replay.csv` uses the same five columns and retains all 75
+published daily observations from 2020-08-17 through 2020-10-30. The replay
+windows are W1 (21 days), W2 (19 days, September 7–25), and W3 (35 days).
+The existing `w2w3` filename retains its original 35-day meaning.
+
+| Window | Student positives / tests | Employee positives / tests |
+|---|---:|---:|
+| W1 | 584 / 16,677 | 5 / 1,637 |
+| W2 | 1,393 / 20,457 | 11 / 1,706 |
+| W3 | 463 / 39,110 | 76 / 4,661 |
+| All | 2,440 / 76,244 | 92 / 8,004 |
+
+Build only the new continuous table and its provenance, preserving the existing
+E0 tables:
+
+```powershell
+& 'E:/pytroch/anaconda3/envs/simulation/python.exe' -m tools.build_uw_e0_data --replay-only
+```
+
+The builder rejects duplicate observations, missing series, missing dates and
+window totals that disagree with these published counts. It preserves zeros.
+The provenance records the original normalized observations, raw dashboard and
+derived-table hashes. `uw_madison_2020_replay.sources.json` archives the official
+historical timeline and a verified excerpt of the September 18 clarification
+that extended undergraduate restrictions through at least September 25.
+Contact multipliers and the one-day observation alignment remain declared
+model assumptions. October 30 is the selected replay endpoint; the dashboard
+also contains later dates.

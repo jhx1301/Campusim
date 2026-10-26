@@ -121,16 +121,16 @@ class JointActionExecutor(Intervention):
         self.day_audits = []
         self.investigations = []
         self._records: dict[int, PublicDailyRecord] = {}
-        self._applied_day = -1
-        self._completed_day = -1
         self._diagnoses = ()
+        self.start_day = int(sim.t)
+        self._applied_day = self._completed_day = self.start_day - 1
         self._ensure_screening_legal(self.current_action)
 
     def _decision_boundary(self):
         if not self.initialized:
             raise RuntimeError("initialize executor before selecting resources or actions")
         day = int(self._sim.t)
-        if day % self.protocol.decision_interval_days or self._applied_day == day:
+        if (day - self.start_day) % self.protocol.decision_interval_days or self._applied_day == day:
             raise ValueError("resources and actions can change only before a decision-day step")
 
     def _ensure_screening_legal(self, action):
@@ -359,7 +359,7 @@ class JointActionExecutor(Intervention):
             school_restriction_person_days=float(self.registry.school_weights.sum()) * school_fraction,
             work_restriction_person_days=float(self.registry.work_weights.sum()) * activity_fraction,
             community_restriction_person_days=float(self.registry.community_weights.sum()) * activity_fraction)
-        record = PublicDailyRecord(day, len(self._diagnoses), cost, self.current_action,
+        record = PublicDailyRecord(day - self.start_day, len(self._diagnoses), cost, self.current_action,
                                    self.resources, n_isolated, n_quarantined, n_union)
         self._records[day] = record
         self._completed_day = day

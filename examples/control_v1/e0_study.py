@@ -10,8 +10,11 @@ def main(argv=None):
     parser.add_argument("--config", type=Path, default=root / "docs/e0_protocol_v2.json")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=1)
-    parser.add_argument("--export-existing", action="store_true",
+    operation = parser.add_mutually_exclusive_group()
+    operation.add_argument("--export-existing", action="store_true",
                         help="Verify a completed study at --output and export its UW control anchor")
+    operation.add_argument("--migrate-background", type=Path, metavar="SOURCE_ANCHOR",
+                           help="Migrate an original anchor after verifying all selected evaluation worlds")
     parser.add_argument("--scenarios", type=str, default=None,
                         help="comma-separated case names; default is every configured case")
     args = parser.parse_args(argv)
@@ -26,6 +29,14 @@ def main(argv=None):
     scenarios = None
     if args.scenarios is not None:
         scenarios = [name.strip() for name in args.scenarios.split(",") if name.strip()]
+    if args.migrate_background is not None:
+        if scenarios is not None:
+            parser.error("--scenarios does not apply to --migrate-background")
+        from cemas.e0.migration import migrate_background_anchor
+        anchor = migrate_background_anchor(args.migrate_background, args.output,
+            load_protocol(config["base_protocol_path"]), workers=args.workers)
+        print(f"Verified migrated UW control anchor: {anchor}")
+        return 0
     if args.export_existing:
         if scenarios is not None:
             parser.error("--scenarios does not apply to --export-existing")

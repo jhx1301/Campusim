@@ -1,0 +1,6 @@
+# Calibration anchors hash the actual source/config/data bytes. Preserve their
+# existing line endings across checkouts, including Windows core.autocrlf=true.
+cemas/**/*.py -text
+covasim/**/*.py -text
+docs/*.json -text
+data/uw_madison_2020_* -text

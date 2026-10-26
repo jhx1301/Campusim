@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 import subprocess
 import sys
 
@@ -346,6 +347,7 @@ def test_replay_ring_has_only_required_transition_fields(ddqn):
 
 class AutoResetVec:
     num_envs = 1
+    observation_space = SimpleNamespace(shape=(198,))
 
     def __init__(self):
         self.steps = 0

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from datetime import date, datetime
 from math import isclose, isfinite
 import platform
@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from .actions import decode_action, legal_action_mask
+from .actions import decode_action, encode_action, legal_action_mask
 from .observation import build_observation
 from .protocol import ControlProtocol
 from .resolution import resolve_action
@@ -86,6 +86,7 @@ class WeeklyControlEnvironment:
         "population", "execution_days", "initial_infections", "beta",
         "screening_capacity_ratio", "calibration_artifact", "beta_scale",
         "calibration_data_path",
+        "snapshot_path", "future_seed",
     })
 
     def __init__(self, protocol: ControlProtocol, *, mode="evaluation", purpose="smoke",
@@ -143,7 +144,20 @@ class WeeklyControlEnvironment:
         self._error = None
         try:
             settings, calibration = self._resolve_calibration(settings)
-            self._bundle = build_scenario(self.protocol, seed, purpose=self.purpose, **settings)
+            if "snapshot_training" in self.protocol.definition:
+                if self.purpose != "scientific" or calibration is None:
+                    raise ValueError("snapshot task requires verified scientific calibration")
+                from .snapshots import restore_snapshot
+                path = settings.pop("snapshot_path", None)
+                future_seed = settings.pop("future_seed", None)
+                if path is None:
+                    raise ValueError("snapshot task requires snapshot_path")
+                self._bundle = restore_snapshot(self.protocol, path, seed, future_seed,
+                    settings.pop("beta"), **settings)
+            else:
+                if "snapshot_path" in settings or "future_seed" in settings:
+                    raise ValueError("snapshot options require the snapshot training protocol")
+                self._bundle = build_scenario(self.protocol, seed, purpose=self.purpose, **settings)
             bundle = self._bundle
             population = bundle.registry.public_population.population
             self._horizon = bundle.private_metadata["execution_days"]
@@ -218,7 +232,7 @@ class WeeklyControlEnvironment:
     def _observation(self):
         bundle = self._bundle
         ledger = bundle.public_analyzer.ledger
-        return build_observation(
+        observation = build_observation(
             ledger, bundle.registry.public_population, bundle.executor.current_action,
             bundle.executor.resources, self._elapsed_days, execution_days=self._horizon,
             initial_infections=bundle.private_metadata["initial_infections"],
@@ -226,10 +240,16 @@ class WeeklyControlEnvironment:
                 self._elapsed_days, bundle.executor.current_action),
             legal_action_mask=self.action_masks(),
         )
+        if "snapshot_training" in self.protocol.definition:
+            from .snapshots import snapshot_observation
+            return snapshot_observation(observation, bundle)
+        return observation
 
     def advance_initial_week(self):
         """Execute the common minimum through the existing weekly transition."""
         self._require_running()
+        if not self.protocol.definition["engine"]["initial_baseline_days"]:
+            raise RuntimeError("snapshot task has no fixed initial week")
         if self._elapsed_days != 0:
             raise RuntimeError("the initial baseline window has already been executed")
         return self.step_proposal(ActionProposal(ActionVector((0, 0, 0, 0, 0)),
@@ -237,6 +257,8 @@ class WeeklyControlEnvironment:
 
     def step(self, action_id):
         self._require_running()
+        if "snapshot_training" in self.protocol.definition:
+            return self.step_proposal(ActionProposal(decode_action(action_id)))
         try:
             proposal = ActionProposal(decode_action(action_id))
         except (TypeError, ValueError):
@@ -248,15 +270,24 @@ class WeeklyControlEnvironment:
         self._require_running()
         if proposal is not None and type(proposal) is not ActionProposal:
             raise TypeError("proposal must be ActionProposal or None")
-        if self._elapsed_days == 0 and (proposal is None
+        if self.protocol.definition["engine"]["initial_baseline_days"] and self._elapsed_days == 0 and (proposal is None
                 or proposal.action.values != (0, 0, 0, 0, 0) or fallback_reason is not None):
             raise ValueError("day0 requires the protocol-fixed minimum action")
         bundle = self._bundle
-        resolution = resolve_action(
-            proposal, bundle.executor.current_action, bundle.executor.resources,
-            bundle.registry.public_population.population, self.protocol.definition["actions"],
-            fallback_reason=fallback_reason,
-        )
+        snapshot_task = "snapshot_training" in self.protocol.definition
+        if snapshot_task:
+            if proposal is None or fallback_reason is not None:
+                raise ValueError("snapshot baselines must supply a legal action; no fallback")
+            action_id = encode_action(proposal.action)
+            if not self.action_masks()[action_id]:
+                raise ValueError("snapshot baseline selected an illegal action")
+            resolution = ActionResolution(proposal.action, proposal.action, action_id, action_id)
+        else:
+            resolution = resolve_action(
+                proposal, bundle.executor.current_action, bundle.executor.resources,
+                bundle.registry.public_population.population, self.protocol.definition["actions"],
+                fallback_reason=fallback_reason,
+            )
         start = self._elapsed_days
         end = min(start + 7, self._horizon) - 1
         try:
@@ -268,6 +299,13 @@ class WeeklyControlEnvironment:
                         or len(bundle.private_analyzer.records) != self._elapsed_days):
                     raise RuntimeError("public/private daily records disagree with completed days")
             feedback = bundle.public_analyzer.ledger.feedback(start, end)
+            if start == 0 and end == 6 and "snapshot_training" in self.protocol.definition:
+                from .snapshots import historical_weeks
+                from math import log2
+                previous = historical_weeks(bundle)[-1]
+                week = replace(feedback.week, growth=log2((feedback.week.delivered_diagnoses + 1)/
+                               (previous.delivered_diagnoses + 1)), growth_valid=True)
+                feedback = PublicWeekFeedback(week, previous)
             metrics = bundle.private_analyzer.aggregate(start, end)
             history = (ExecutedAction(start, end, resolution.executed_action),)
             breakdown = self._reward.breakdown(metrics, feedback.week.cost, history)
@@ -276,13 +314,20 @@ class WeeklyControlEnvironment:
             terminated = self._elapsed_days == self._horizon
             if terminated:
                 self._terminal_metrics = bundle.private_analyzer.aggregate(0, end)
+                if snapshot_task:
+                    origin = bundle.private_metadata["snapshot_day"]
+                    infected = (bundle.sim.people.date_exposed >= origin) & (bundle.sim.people.date_exposed < origin + self._horizon)
+                    students = bundle.sim.people.campus_registry_metadata["student_indices"]
+                    student_count = int(infected[students].sum())
+                    self._manifest = _freeze({**dict(self._manifest), "group_new_infections": {
+                        "students": student_count, "employees": int(infected.sum()) - student_count}})
                 self._finalize_attempted = True
                 bundle.sim.finalize(verbose=0)
                 self._reconcile()
                 self._status = "completed"
             observation = self._observation()
             reward = breakdown.reward if self.mode == "training" else 0.0
-            return observation, reward, terminated, False, PublicInfo(resolution, feedback)
+            return observation, reward, terminated and not snapshot_task, terminated and snapshot_task, PublicInfo(resolution, feedback)
         except Exception as error:
             self._fail(error)
             raise
@@ -293,9 +338,15 @@ class WeeklyControlEnvironment:
         public = bundle.public_analyzer.ledger.snapshot()
         private = bundle.private_analyzer.records
         metrics = self._terminal_metrics
+        if "snapshot_training" in self.protocol.definition:
+            after = int(bundle.sim.results["cum_infections"][-1]) - bundle.private_metadata["cum_infections_at_x"]
+            if after != metrics.new_infections:
+                raise RuntimeError("post-takeover infections differ from cumulative endpoint difference")
+            return
         if len(public) != self._horizon or len(private) != self._horizon:
             raise RuntimeError("terminal day count does not match horizon")
         initial = bundle.private_metadata["initial_infections"]
+        start_day = bundle.private_metadata.get("snapshot_day", 0)
         infections = sum(day.new_infections for day in private)
         if (sum(window.private_metrics.new_infections for window in self._windows) != infections
                 or metrics.new_infections != infections
@@ -304,7 +355,7 @@ class WeeklyControlEnvironment:
                 or initial + infections > bundle.registry.public_population.population):
             raise RuntimeError("daily, weekly and terminal infections do not reconcile")
         if not np.array_equal([day.new_infections for day in private],
-                              bundle.sim.results["new_infections"].values):
+                              bundle.sim.results["new_infections"].values[start_day:]):
             raise RuntimeError("private infection flow differs from engine daily flow")
         if (metrics.peak_daily_infections != max(day.new_infections for day in private)
                 or metrics.terminal_active_infections != private[-1].active_infections):
@@ -322,7 +373,7 @@ class WeeklyControlEnvironment:
                 window.feedback.week.delivered_diagnoses for window in self._windows):
             raise RuntimeError("delivered diagnoses do not reconcile")
         daily_tests = [day.cost.clinical_tests + day.cost.screening_tests for day in public]
-        if not np.array_equal(daily_tests, bundle.sim.results["new_tests"].values):
+        if not np.array_equal(daily_tests, bundle.sim.results["new_tests"].values[start_day:]):
             raise RuntimeError("public tests differ from engine executed tests")
         history = tuple(ExecutedAction(window.start_day, window.end_day,
                                        window.resolution.executed_action) for window in self._windows)
@@ -351,7 +402,8 @@ class WeeklyControlEnvironment:
         private = bundle.private_analyzer.records if bundle else ()
         pending_notifications = (sum(len(events) for events in bundle.executor._pending_notifications.values())
                                  if bundle else 0)
-        pending_diagnoses = (int(np.count_nonzero(bundle.sim.people.date_diagnosed >= self._elapsed_days))
+        pending_diagnoses = (int(np.count_nonzero(bundle.sim.people.date_diagnosed >=
+                             self._elapsed_days + bundle.private_metadata.get("snapshot_day", 0)))
                              if bundle else 0)
         return EpisodeAuditSnapshot(
             self._status, self._elapsed_days, self._horizon, self._finalize_attempted,

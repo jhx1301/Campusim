@@ -37,14 +37,177 @@ def completed(tmp_path_factory):
 def test_main_anchor_roundtrip_and_immutable_payload(completed):
     protocol, root, anchor = completed
     artifact = artifacts.load_calibration_artifact(anchor, protocol)
-    assert .04 < artifact.beta < .08
-    assert artifact.payload["selection"] == {"case": "main", "alignment": 1, "metric": "cumulative"}
+    assert .005 < artifact.beta < .16
+    assert artifact.payload["selection"] == {"case": "main", "alignment": 1,
+                                             "metric": "weekly"}
     assert artifact.payload["evaluation_worlds"] == 40
+    assert artifact.payload["compatibility"]["base_model"]["campus_background"] == {
+        "employee_cm": .1, "employee_ta": .5}
+    assert "cemas/control/background.py" in artifact.payload["compatibility"]["source_sha256"]
     assert artifacts.load_calibration_artifact(root / artifacts.ARTIFACT_FILENAME, protocol).sha256 == artifact.sha256
     with pytest.raises(TypeError):
         artifact.payload["beta"] = .01
     with pytest.raises(FileExistsError):
         artifacts.export_control_anchor(root, protocol)
+
+
+@pytest.fixture(scope="module")
+def legacy_background_anchor(completed, tmp_path_factory):
+    """Represent the former control identity while retaining frozen E0 evidence."""
+    from cemas.e0.migration import ADDED_SOURCES
+
+    protocol, source, anchor = completed
+    root = tmp_path_factory.mktemp("legacy_background") / "study"
+    shutil.copytree(source, root)
+    envelope = json.loads(anchor.read_text(encoding="utf-8"))
+    payload = envelope["payload"]
+    base = payload["compatibility"]["base_model"]
+    base["beta_layer"]["ta"] /= base.pop("campus_background")["employee_ta"]
+    for name in ADDED_SOURCES:
+        payload["compatibility"]["source_sha256"].pop(name)
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    for name in ADDED_SOURCES:
+        manifest["source_sha256"].pop(name, None)
+    # The legacy simulation implementation had a different recorded identity.
+    manifest["source_sha256"]["cemas/e0/simulation.py"] = "a" * 64
+    payload["compatibility"]["source_sha256"]["cemas/e0/simulation.py"] = "a" * 64
+    manifest["source_bundle_sha256"] = study._sha256(manifest["source_sha256"])
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    payload["study_sha256"]["manifest.json"] = artifacts._file_hash(root / "manifest.json")
+    envelope["sha256"] = artifacts._digest(payload)
+    path = root / artifacts.ARTIFACT_FILENAME
+    path.write_text(json.dumps(envelope), encoding="utf-8")
+    return protocol, path
+
+
+def _migration_world(config, data, beta, seed):
+    from cemas.control.scenarios import base_model_configuration
+
+    world = _world(config, data, beta, seed)
+    base = base_model_configuration(load_protocol(config["base_protocol_path"]))
+    world["campus_background"] = base["campus_background"]
+    world["resolved_parameters"].update({key: base[key] for key in
+                                         ("beta_layer", "iso_factor", "quar_factor")})
+    return world
+
+
+@pytest.fixture(scope="module")
+def migrated_background(legacy_background_anchor, tmp_path_factory):
+    from cemas.e0 import migration
+
+    protocol, source = legacy_background_anchor
+    before = {p.name: p.read_bytes() for p in source.parent.iterdir() if p.is_file()}
+    output = tmp_path_factory.mktemp("background_migration") / "result"
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(migration, "run_e0_world", _migration_world)
+        anchor = migration.migrate_background_anchor(source, output, protocol)
+    assert before == {p.name: p.read_bytes() for p in source.parent.iterdir() if p.is_file()}
+    return protocol, source, anchor
+
+
+def test_background_migration_roundtrip_relocation_and_original_rejection(migrated_background, tmp_path):
+    from cemas.e0 import migration
+
+    protocol, source, anchor = migrated_background
+    with pytest.raises(ValueError, match="incompatible"):
+        artifacts.load_calibration_artifact(source, protocol)
+    original = json.loads(source.read_text(encoding="utf-8"))["payload"]
+    verified = artifacts.load_calibration_artifact(anchor, protocol)
+    assert verified.beta == original["beta"]
+    assert dict(verified.payload["study_sha256"]) == original["study_sha256"]
+    moved = tmp_path / "relocated"
+    shutil.copytree(anchor.parent, moved)
+    assert artifacts.load_calibration_artifact(moved / anchor.name, protocol).sha256 == verified.sha256
+    with pytest.raises(FileExistsError):
+        migration.migrate_background_anchor(source, anchor.parent, protocol)
+
+
+@pytest.mark.parametrize("name", ["source_control_anchor.json", "migration.json", "worlds_migration.jsonl"])
+def test_background_migration_changed_evidence_rejected(migrated_background, tmp_path, name):
+    protocol, _, anchor = migrated_background
+    moved = tmp_path / "changed"
+    shutil.copytree(anchor.parent, moved)
+    with (moved / name).open("a", encoding="utf-8") as handle:
+        handle.write("\n")
+    with pytest.raises(ValueError, match="migration evidence changed"):
+        artifacts.load_calibration_artifact(moved / anchor.name, protocol)
+
+
+def test_background_migration_cannot_be_disguised_as_fresh_export(migrated_background, tmp_path):
+    protocol, _, anchor = migrated_background
+    moved = tmp_path / "stripped"
+    shutil.copytree(anchor.parent, moved)
+    envelope = json.loads(anchor.read_text(encoding="utf-8"))
+    envelope["payload"].pop("migration")
+    envelope["sha256"] = artifacts._digest(envelope["payload"])
+    (moved / anchor.name).write_text(json.dumps(envelope), encoding="utf-8")
+    with pytest.raises(ValueError, match="Study source changed"):
+        artifacts.load_calibration_artifact(moved / anchor.name, protocol)
+
+
+@pytest.mark.parametrize("change", ["duplicate_seed", "trajectory", "report_count"])
+def test_background_migration_verifies_content_beyond_hashes(migrated_background, tmp_path, change):
+    from cemas.e0 import migration
+
+    protocol, _, anchor = migrated_background
+    moved = tmp_path / "changed"
+    shutil.copytree(anchor.parent, moved)
+    name = migration.REPORT if change == "report_count" else migration.WORLDS
+    if change == "report_count":
+        report = json.loads((moved / name).read_text(encoding="utf-8"))
+        report["matched_worlds"] -= 1
+        (moved / name).write_text(json.dumps(report), encoding="utf-8")
+    else:
+        rows = [json.loads(line) for line in (moved / name).read_text(encoding="utf-8").splitlines()]
+        if change == "duplicate_seed":
+            rows[-1] = rows[0]
+        else:
+            rows[0]["groups"]["students"]["positive"][0] += 1
+        (moved / name).write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+    envelope = json.loads((moved / anchor.name).read_text(encoding="utf-8"))
+    envelope["payload"]["migration"]["files"][name] = artifacts._file_hash(moved / name)
+    envelope["sha256"] = artifacts._digest(envelope["payload"])
+    (moved / anchor.name).write_text(json.dumps(envelope), encoding="utf-8")
+    with pytest.raises(ValueError, match="report|coverage|differs from original"):
+        artifacts.load_calibration_artifact(moved / anchor.name, protocol)
+
+
+@pytest.mark.parametrize("change", ["model", "engine_source"])
+def test_background_migration_rejects_unrelated_changes(legacy_background_anchor, tmp_path, change):
+    from cemas.e0 import migration
+
+    protocol, source = legacy_background_anchor
+    root = tmp_path / "source"
+    shutil.copytree(source.parent, root)
+    envelope = json.loads(source.read_text(encoding="utf-8"))
+    compatibility = envelope["payload"]["compatibility"]
+    if change == "model":
+        compatibility["base_model"]["beta_layer"]["cm"] *= .5
+    else:
+        compatibility["source_sha256"]["covasim/sim.py"] = "0" * 64
+    envelope["sha256"] = artifacts._digest(envelope["payload"])
+    (root / source.name).write_text(json.dumps(envelope), encoding="utf-8")
+    with pytest.raises(ValueError, match="only permits|outside.*scope"):
+        migration.migrate_background_anchor(root / source.name, tmp_path / "output", protocol)
+    assert not (tmp_path / "output").exists()
+
+
+def test_background_migration_trajectory_failure_never_exports(legacy_background_anchor, tmp_path, monkeypatch):
+    from cemas.e0 import migration
+
+    protocol, source = legacy_background_anchor
+
+    def changed(*args):
+        world = _migration_world(*args)
+        world["groups"]["students"]["positive"][0] += 1
+        return world
+
+    monkeypatch.setattr(migration, "run_e0_world", changed)
+    output = tmp_path / "failed"
+    with pytest.raises(ValueError, match="differs from original"):
+        migration.migrate_background_anchor(source, output, protocol)
+    assert not (output / artifacts.ARTIFACT_FILENAME).exists()
+    assert json.loads((output / "migration_failure.json").read_text())["status"] == "failed"
 
 
 @pytest.mark.parametrize("name", ["manifest.json", "summary.json", "config.json",
@@ -131,6 +294,8 @@ def test_uw_anchor_runs_real_scientific_control_and_training_plan(completed, tmp
     assert manifest["resolved_config"]["engine"]["campus_age_counts"] == [31650, 13890, 23917]
     assert manifest["resolved_config"]["engine"]["campus_k_ts"] == 3
     assert manifest["calibration_verified"] is True
+    assert manifest["campus_background"] == {"employee_cm": .1, "employee_ta": .5}
+    assert manifest["resolved_config"]["engine"]["beta_layer"]["ta"] == pytest.approx(.6)
     assert manifest["calibration"]["artifact_sha256"] == verified.sha256
     assert manifest["calibration"]["beta"] == pytest.approx(verified.beta * 1.12)
     assert len(manifest["registration"]["student_indices"]) == 45540

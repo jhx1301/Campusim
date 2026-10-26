@@ -15,6 +15,7 @@ from .types import (
 
 OBSERVATION_ENCODING_VERSION = "cemas-public-observation-float32-v1"
 RL_OBSERVATION_ENCODING_VERSION = "cemas-rl-fixed-reference-float32-v1"
+SNAPSHOT_RL_ENCODING_VERSION = "cemas-snapshot-public-float32-v2"
 _ACTION_FEATURES = tuple(f"action.{name}.{level}"
                          for name, size in zip(ACTION_ORDER, ACTION_SIZES)
                          for level in range(size))
@@ -46,6 +47,20 @@ OBSERVATION_FEATURE_NAMES = (
     *(f"context.{name}" for name in _CONTEXT_FEATURES),
     *(f"history.{index}.{name}" for index in range(HISTORY_WEEKS) for name in _WEEK_FEATURES),
 )
+_SNAPSHOT_INDICES = tuple(i for i, name in enumerate(OBSERVATION_FEATURE_NAMES)
+    if name not in ("context.decision_day_over_horizon", "context.execution_days")
+    and not name.endswith((".start_day_over_horizon", ".end_day_over_horizon")))
+SNAPSHOT_FEATURE_NAMES = (*(OBSERVATION_FEATURE_NAMES[i] for i in _SNAPSHOT_INDICES),
+    "context.snapshot_day_over_75", *(f"history.{i}.{name}" for i in range(HISTORY_WEEKS)
+        for name in ("total_tests_over_7_population", "is_history_week")))
+
+
+def rl_encoding_version(protocol):
+    return SNAPSHOT_RL_ENCODING_VERSION if "snapshot_training" in protocol.definition else RL_OBSERVATION_ENCODING_VERSION
+
+
+def rl_feature_names(protocol):
+    return SNAPSHOT_FEATURE_NAMES if "snapshot_training" in protocol.definition else OBSERVATION_FEATURE_NAMES
 
 
 def build_observation(
@@ -118,7 +133,8 @@ def encode_observation(observation: PublicObservation) -> np.ndarray:
     if type(observation) is not PublicObservation:
         raise TypeError("observation must be PublicObservation")
     population = observation.population
-    n, horizon = population.population, observation.execution_days
+    n = population.population
+    horizon = 112 if observation.snapshot_day else observation.execution_days
     features = [
         observation.decision_day / horizon, horizon, observation.initial_infections / n, n,
         *(value / n for value in population.age_band_counts),
@@ -132,8 +148,20 @@ def encode_observation(observation: PublicObservation) -> np.ndarray:
         observation.previous_day_known_union / n,
     ]
     for week, valid in zip(observation.history, observation.week_valid):
-        features.extend(_week_features(week, population, horizon)
-                        if valid else (0.0,) * len(_WEEK_FEATURES))
+        values = list(_week_features(week, population, horizon)) if valid else [0.0] * len(_WEEK_FEATURES)
+        if valid and observation.snapshot_day and week.historical:
+            for i, name in enumerate(_WEEK_FEATURES):
+                if (name.startswith(("clinical_tests_", "screening_tests_", "delivered_notifications_", "action."))
+                        or "capacity_over_population" in name or "restriction_person_days" in name):
+                    values[i] = 0.0
+        features.extend(values)
+    if observation.snapshot_day:
+        features = [features[i] for i in _SNAPSHOT_INDICES]
+        features.append(observation.snapshot_day / 75)
+        for week, valid in zip(observation.history, observation.week_valid):
+            total = (week.total_tests if week.total_tests is not None else
+                     week.cost.clinical_tests + week.cost.screening_tests)
+            features.extend((total / (7 * n), float(week.historical)) if valid else (0.0, 0.0))
     result = np.asarray(features, dtype=np.float32)
     if not np.isfinite(result).all():
         raise ValueError("public measurements must fit finite float32 features")
@@ -146,6 +174,8 @@ def encode_rl_observation(observation, reference_population, reference_horizon):
             or type(reference_horizon) is not int or reference_horizon <= 0):
         raise ValueError("RL reference population and horizon must be positive integers")
     result = encode_observation(observation)
-    result[OBSERVATION_FEATURE_NAMES.index("context.population")] /= reference_population
-    result[OBSERVATION_FEATURE_NAMES.index("context.execution_days")] /= reference_horizon
+    names = SNAPSHOT_FEATURE_NAMES if observation.snapshot_day else OBSERVATION_FEATURE_NAMES
+    result[names.index("context.population")] /= reference_population
+    if not observation.snapshot_day:
+        result[names.index("context.execution_days")] /= reference_horizon
     return result

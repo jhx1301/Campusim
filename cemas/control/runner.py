@@ -39,6 +39,12 @@ def _add_error_note(error, message):
 
 def _validate_development_seed(protocol, seed, purpose):
     seeds = protocol.definition["seeds"]
+    if "snapshot_training" in protocol.definition:
+        from .snapshot_protocol import history_seeds
+        split = {"scientific": "val", "snapshot_test": "test", "pilot": "pilot"}.get(purpose)
+        if split is None or seed not in history_seeds(protocol, split):
+            raise ValueError("snapshot run requires a history seed from its declared split")
+        return
     if purpose == "smoke":
         if seed not in seeds["smoke"]:
             raise ValueError("smoke runs require protocol smoke seeds; final-test worlds are forbidden")
@@ -255,18 +261,22 @@ def episode_summary(protocol, snapshot, population):
     return {
         "status": "completed", "elapsed_days": snapshot.elapsed_days,
         "execution_days": snapshot.horizon,
-        "execution_window_count": len(snapshot.windows), "fixed_window_count": 1,
-        "decision_count": len(snapshot.windows) - 1,
-        "autonomous_decision_count": len(snapshot.windows) - 1,
+        "execution_window_count": len(snapshot.windows),
+        "fixed_window_count": int(bool(protocol.definition["engine"]["initial_baseline_days"])),
+        "decision_count": len(snapshot.windows) - int(bool(protocol.definition["engine"]["initial_baseline_days"])),
+        "autonomous_decision_count": len(snapshot.windows) - int(bool(protocol.definition["engine"]["initial_baseline_days"])),
         "population": population, "delivered_diagnoses": diagnoses,
         "private_metrics": resolved_snapshot(terminal), "public_cost": resolved_snapshot(cost),
+        **({"group_new_infections": resolved_snapshot(snapshot.manifest["group_new_infections"])}
+           if "snapshot_training" in protocol.definition else {}),
         "total_reward": reward, "positive_cost": -reward,
         "reward_breakdown": resolved_snapshot(breakdown),
         "reward_configuration": calculator.configuration,
         "objective_sha256": snapshot_sha256(calculator.configuration),
         "switches_by_dimension": switches, "level_changes_by_dimension": changes,
-        "fallback_count": sum(window.resolution.fallback_reason is not None for window in snapshot.windows),
-        "adjustment_count": sum(window.resolution.adjustment_reason is not None for window in snapshot.windows),
+        **({"fallback_count": sum(window.resolution.fallback_reason is not None for window in snapshot.windows),
+            "adjustment_count": sum(window.resolution.adjustment_reason is not None for window in snapshot.windows)}
+           if "snapshot_training" not in protocol.definition else {}),
         "pending_notifications": snapshot.pending_notifications,
         "pending_diagnoses": snapshot.pending_diagnoses,
         "daily_weekly_terminal_reconciled": True,
@@ -287,6 +297,9 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         raise TypeError("world_seed must be an ordinary integer")
     _validate_development_seed(protocol, world_seed, purpose)
     controller_type = getattr(controller, "controller_type", None)
+    if "snapshot_training" in protocol.definition and controller_type not in (
+            "minimum", "maximum_feasible", "threshold", "ppo", "ddqn"):
+        raise ValueError("snapshot task supports only the five baselines")
     if controller_type not in ("minimum", "maximum_feasible", "llm", "uniform_legal_independent_rng", "threshold", "ppo", "ddqn"):
         raise ValueError("runner requires an implemented v1 controller")
     if public_transition_sink is not None and not callable(public_transition_sink):
@@ -329,7 +342,7 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         from .environment import WeeklyControlEnvironment
 
         environment = WeeklyControlEnvironment(protocol, mode=mode,
-                                               purpose="scientific" if purpose in ("prompt_development", "memory_collection", "pilot") else purpose,
+                                               purpose="scientific" if purpose in ("prompt_development", "memory_collection", "pilot", "snapshot_test") else purpose,
                                                scenario_options=scenario_options)
         reset_started = perf_counter()
         observation, _ = environment.reset(world_seed)
@@ -337,7 +350,8 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         if "artifact_sha256" in manifest.get("baseline", {}) and purpose != "smoke":
             baseline = manifest["baseline"]
             actual_calibration = environment.audit_snapshot().manifest["calibration"]["artifact_sha256"]
-            if (observation.execution_days != baseline["reference_horizon"]
+            extension = "snapshot_training" in protocol.definition and purpose == "snapshot_test"
+            if ((observation.execution_days != baseline["reference_horizon"] and not extension)
                     or actual_calibration != baseline["calibration_artifact_sha256"]):
                 raise ValueError("loaded baseline and evaluation task use different H or E0 identities")
         population = observation.population.population
@@ -347,7 +361,8 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
             decision_time = datetime.now(timezone.utc)
             started = perf_counter()
             call_audits, decision_evidence = (), ()
-            fixed_initial = observation.decision_day == 0
+            fixed_initial = (observation.decision_day == 0
+                             and bool(protocol.definition["engine"]["initial_baseline_days"]))
             if fixed_initial:
                 proposal = ActionProposal(ActionVector((0, 0, 0, 0, 0)), "Protocol-fixed initial baseline")
                 elapsed_ms = 0.0
@@ -410,9 +425,9 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
             logger.write_memory_revisions(controller.drain_case_revisions())
             if public_transition_sink is not None:
                 public_transition_sink(observation, window.feedback)
-            if truncated:
+            if truncated and "snapshot_training" not in protocol.definition:
                 raise RuntimeError("an interrupted run cannot be reported as complete")
-            if terminated:
+            if terminated or truncated:
                 break
             observation = next_observation
         environment.close()

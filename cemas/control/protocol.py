@@ -356,6 +356,10 @@ def _validate_calibration(definition):
     for key, value in expected.items():
         if engine.get(key) != value:
             raise ProtocolValidationError(f"engine.{key} must match UW E0 calibration")
+    for key in ("employee_cm", "employee_ta"):
+        _probability(engine.get(key, 1.0), f"engine.{key}")
+        if engine.get(key, 1.0) != config.get(key, 1.0):
+            raise ProtocolValidationError(f"engine.{key} must match UW E0 calibration")
     if definition["calibration"]["evidence_scope"] != config["evidence_scope"]:
         raise ProtocolValidationError("calibration.evidence_scope must match UW E0")
 

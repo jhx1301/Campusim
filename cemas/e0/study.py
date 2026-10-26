@@ -399,7 +399,9 @@ def _baselines(data):
 def _source_manifest():
     files = [Path(__file__), ROOT / "cemas" / "e0" / "simulation.py",
              ROOT / "cemas" / "e0" / "data.py",
-             ROOT / "cemas" / "historical_data.py"]
+             ROOT / "cemas" / "historical_data.py",
+             ROOT / "cemas/control/scenarios.py", ROOT / "cemas/control/protocol.py",
+             ROOT / "cemas/control/background.py"]
     files.extend((ROOT / "covasim").glob("*.py"))
     hashes = {str(path.relative_to(ROOT)).replace("\\", "/"): hashlib.sha256(path.read_bytes()).hexdigest()
               for path in sorted(set(files)) if path.is_file()}

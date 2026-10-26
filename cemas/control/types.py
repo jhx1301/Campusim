@@ -270,9 +270,20 @@ class PublicWeeklyRecord:
     growth_valid: bool = False
     diagnosis_test_proxy: float = 0.0
     proxy_valid: bool = False
+    historical: bool = False
+    total_tests: int | None = None
 
     def __post_init__(self) -> None:
-        _window(self.start_day, self.end_day)
+        if self.historical:
+            if (type(self.start_day) is not int or type(self.end_day) is not int
+                    or self.start_day > self.end_day or self.end_day >= 0):
+                raise ValueError("historical week must precede takeover day zero")
+        else:
+            _window(self.start_day, self.end_day)
+        if type(self.historical) is not bool:
+            raise TypeError("historical must be boolean")
+        if self.total_tests is not None:
+            _counts(total_tests=self.total_tests)
         _counts(delivered_diagnoses=self.delivered_diagnoses)
         _instance(self.cost, PublicCost, "cost")
         _instance(self.executed_action, ActionVector, "executed_action")
@@ -314,9 +325,10 @@ class PublicObservation:
     previous_day_known_isolated: int = 0
     previous_day_known_quarantined: int = 0
     previous_day_known_union: int = 0
+    snapshot_day: int = 0
 
     def __post_init__(self) -> None:
-        _counts(decision_day=self.decision_day, execution_days=self.execution_days,
+        _counts(snapshot_day=self.snapshot_day, decision_day=self.decision_day, execution_days=self.execution_days,
                 initial_infections=self.initial_infections,
                 previous_day_known_isolated=self.previous_day_known_isolated,
                 previous_day_known_quarantined=self.previous_day_known_quarantined,
@@ -341,6 +353,8 @@ class PublicObservation:
         previous_end = None
         for record, valid in zip(self.history, self.week_valid):
             _instance(record, PublicWeeklyRecord, "history record")
+            if record.historical and not self.snapshot_day:
+                raise ValueError("historical weeks require a snapshot observation")
             if type(valid) is not bool:
                 raise TypeError("week_valid must contain booleans")
             if not valid:
