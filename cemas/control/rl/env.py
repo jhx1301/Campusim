@@ -51,6 +51,11 @@ class GymControlEnv(gym.Env):
             snapshot_task = "snapshot_training" in self.environment.protocol.definition
             if snapshot_task and event != "transition":
                 return
+            if snapshot_task and self._episode_transitions == 1:
+                initial_days = self.environment.protocol.definition["engine"]["initial_baseline_days"]
+                if initial_days:
+                    details.update(observation_days=initial_days,
+                        observation_positive_cost=-self.environment.audit_snapshot().windows[0].reward)
             self.private_record_sink({
                 "event": event, "world_seed": self._world_seed,
                 **({"episode_id": self._episode_index, "episode_completed": self._terminated}
@@ -126,7 +131,8 @@ class GymControlEnv(gym.Env):
         if self.private_record_sink is not None:
             positive_cost = (-reward if self.environment.mode == "training"
                              else -self.environment.audit_snapshot().windows[-1].reward)
-            self._record("transition", terminated=terminated, positive_cost=positive_cost)
+            self._record("transition", terminated=terminated, positive_cost=positive_cost,
+                         window_days=info.feedback.week.end_day - info.feedback.week.start_day + 1)
         self._record_completed()
         return self._encode(), reward, terminated, truncated, self._public_info(info)
 

@@ -88,7 +88,7 @@ def test_val36_sorted_capacity_groups(protocol):
 
 
 @pytest.mark.parametrize('index',[0,1,2,3])
-def test_snapshot_history_and_immediate_legal_action(small_world,index):
+def test_snapshot_history_and_common_observation_before_action(small_world,index):
     env,obs=make_env(small_world,index)
     assert env._bundle.sim.t==(21,35,49,63)[index] and obs.decision_day==0
     assert obs.initial_infections==2 and obs.history[-1].end_day==-1
@@ -97,8 +97,10 @@ def test_snapshot_history_and_immediate_legal_action(small_world,index):
     assert env._bundle.sim['beta_layer']['ta']==pytest.approx(.6)
     for action in (-1,324,True,323):
         with pytest.raises((ValueError,TypeError)): env.step(action)
-    with pytest.raises(ValueError,match='no fallback'): env.step_proposal(None)
+    with pytest.raises(ValueError,match='protocol-fixed'): env.step_proposal(None)
     assert env.audit_snapshot().elapsed_days==0
+    obs, _, _, _, _ = env.advance_initial_week()
+    assert obs.decision_day == 7 and sum(obs.week_valid) == 4
     env.step(242)
     assert env._bundle.executor.current_action.values==(2,0,2,2,2)
     env.close()
@@ -117,18 +119,19 @@ def test_features_hide_time_and_extension_horizon(small_world):
     env.close()
 
 
-def test_two_disk_loads_reproduce_112_days_and_count_after_takeover(small_world):
+def test_two_disk_loads_reproduce_119_days_and_count_control_period(small_world):
     traces=[]
     for mode in ('training','evaluation'):
-        env,_=make_env(small_world,index=1,horizon=112,mode=mode)
+        env,_=make_env(small_world,index=1,horizon=119,mode=mode)
+        env.advance_initial_week()
         for step in range(16):
             _,_,terminated,truncated,_=env.step(0)
             assert not terminated and truncated==(step==15)
         audit=env.audit_snapshot()
-        assert audit.status=='completed' and len(audit.windows)==16
+        assert audit.status=='completed' and len(audit.windows)==17
         after=int(env._bundle.sim.results['cum_infections'][-1])-audit.manifest['cum_infections_at_x']
         assert audit.terminal_metrics.new_infections==after and audit.terminal_metrics.initial_infections==0
-        assert sum(audit.manifest['group_new_infections'].values())==after
+        assert sum(audit.manifest['group_new_infections'].values())==sum(d.new_infections for d in audit.private_daily[7:])
         traces.append((audit.public_daily,audit.private_daily)); env.close()
     assert traces[0]==traces[1]
 
@@ -193,7 +196,7 @@ def gym_factory(small_world):
     protocol,paths=small_world
     def build():
         plan=lambda seed=None:{'world_seed':20101,'scenario_options':{
-            'snapshot_path':paths[1],'future_seed':321,'calibration_artifact':ANCHOR,'execution_days':14}}
+            'snapshot_path':paths[1],'future_seed':321,'calibration_artifact':ANCHOR,'execution_days':21}}
         return GymControlEnv(WeeklyControlEnvironment(protocol,purpose='scientific',mode='training'),plan,
                             reference_population=500,reference_horizon=112)
     return build
@@ -282,7 +285,7 @@ def test_fixed_horizon_and_independent_test_extension(protocol,tmp_path):
         return {'world_seed':job['world_seed'],'scenario_id':job['scenario_id'],'snapshot_day':job['snapshot_day'],
             'summary':{'status':'completed','positive_cost':1.,'reward_breakdown':{'normalized':[0.]*5}}}
     evaluate_source(protocol,{'method':'minimum'},tmp_path/'test',ANCHOR,pool='test',execution_days=168,evaluator=evaluate)
-    assert len(jobs)==480 and all(j['purpose']=='snapshot_test' and j['scenario_options']['execution_days']==168 for j in jobs)
+    assert len(jobs)==480 and all(j['purpose']=='snapshot_test' and j['scenario_options']['execution_days']==175 for j in jobs)
 
 
 def test_budget_counts_steps_and_completed_episodes_only(small_world,tmp_path):
@@ -293,7 +296,8 @@ def test_budget_counts_steps_and_completed_episodes_only(small_world,tmp_path):
     assert len(events)==2 and all(e['event']=='transition' for e in events)
     path=tmp_path/'events.jsonl'; path.write_text('\n'.join(json.dumps(e) for e in events),encoding='utf-8')
     budget=training_budget(path)
-    assert budget['step_count']==2 and budget['episode_count']==1 and budget['simulated_days']==14
+    assert budget['step_count']==2 and budget['episode_count']==1 and budget['simulated_days']==21
+    assert budget['control_simulated_days']==14 and budget['observation_positive_cost']>=0
     assert 'initialized_unstepped_worlds' not in budget
 
 
@@ -308,7 +312,7 @@ def test_independent_baseline_test_report_clustered_pairing(protocol,tmp_path):
             rows=[{'method':method,'train_seed':seed,'scenario_id':s['scenario_id'],
                 'world_seed':s['world_seed'],'snapshot_day':s['snapshot_day'],
                 'day112_active_infections':3,'snapshot_active_infections':0 if s['snapshot_day']==63 else 10,
-                'summary':{'status':'completed','execution_days':112,'positive_cost':cost,
+                'summary':{'status':'completed','execution_days':119,'control_period':{'execution_days':112},'positive_cost':cost,
                     'group_new_infections':{'students':8,'employees':2},
                     'reward_breakdown':{'normalized':[cost,0.,0.,0.,0.]}}} for s in scenarios]
             path=tmp_path/f'{method}-{seed}.json'
@@ -338,5 +342,5 @@ def test_frozen_extension_keeps_112_reward_scale_and_finishes(small_world,tmp_pa
     generate_history_snapshots(protocol,ANCHOR,library,50001,'test',days=[21])
     result=run_episode(protocol,MinimumController(),tmp_path/'extension',50001,purpose='snapshot_test',
         scenario_options={'snapshot_path':str(library/'50001-21.json'),'future_seed':99,
-            'calibration_artifact':ANCHOR,'execution_days':168})
-    assert result.summary['decision_count']==24 and result.summary['elapsed_days']==168
+            'calibration_artifact':ANCHOR,'execution_days':175})
+    assert result.summary['decision_count']==24 and result.summary['elapsed_days']==175

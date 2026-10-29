@@ -1,5 +1,7 @@
 # UW 快照 baseline 训练计划（精简版）
 
+2026-10-27修订：主路径升级为快照恢复后7天共同观察＋112天自主控制。配置v3显式observation_days/control_days，本文H112均指自主控制期。历史快照生成方案沿用；新任务身份及模型产物需区分原立即接管版本。全程总账119天，控制期主score112天；学生/员工感染同口径；冻结延展140/168控制天对应147/175物理天。新增LLM学习库与规则机制见[统一设计](llm_feedback_component_design.md)。
+
 更新：2026-10-25。依据本轮用户审查意见调整；实施入口见[使用说明](baseline_snapshot_training.md)，数值配置见[快照配置](baseline_snapshot_training_v1.json)。本任务只有 MaskablePPO、DDQN、Threshold、minimum、maximum_feasible，不包含 LLM、Prompt、案例库或与 LLM 联合冻结。
 
 ## 1. 核心设置
@@ -11,7 +13,7 @@
 | 设置 | 值 |
 |---|---|
 | 接手日期，day0=2020-08-17 | day21、35、49、63 |
-| 主训练／调参时域 | 固定H112、16次自主决策、无固定首周 |
+| 主训练／调参时域 | 共同观察7天＋自主控制H112，物理119天、16次自主决策 |
 | 主报告条件 | day21、筛查容量5% N/日 |
 | 容量 | 2%、5%、10% N/日，每回合固定 |
 | 传播强度 | 历史及控制阶段均使用拟合β |
@@ -56,7 +58,7 @@ H不再由最低干预或其他方法的持续传播比例触发升级。终点�
 
 移除decision_day/H、execution_days及历史周起止日/H这些显式时钟输入；保留公开接手日期。动作持续天数用固定112尺度，与实际延展时域无关。部分状态或动作持续信息仍可能间接透露时间，因此不声称彻底消除了时间推断。
 
-到112天时，快照Gym返回 `terminated=False, truncated=True`。MaskablePPO使用现成库的TimeLimit处理，给最后reward加γV(terminal_observation)；DDQN保存截断前terminal_observation和next_mask，replay的真正terminal标志为false，让Double target继续bootstrap。不能把自动reset后的新世界观察用于该target。旧day0任务仍保留真正终点、不bootstrap的语义。
+完成112个自主控制日（恢复后day119）时，快照Gym返回 `terminated=False, truncated=True`。MaskablePPO使用现成库的TimeLimit处理，给最后reward加γV(terminal_observation)；DDQN保存截断前terminal_observation和next_mask，replay的真正terminal标志为false，让Double target继续bootstrap。不能把自动reset后的新世界观察用于该target。旧day0任务仍保留真正终点、不bootstrap的语义。
 
 **这是训练目标变更，不是单纯删代码。** 正式评分是112天有限区间的实际J；训练target额外包含延续价值近似。γ=1加上持续干预成本，不能保证任意策略都有有限无限时域价值，也不能保证消除期末投机。记录训练曲线、value/Q稳定性和第112天活动感染，不能把bootstrap后的训练target当作正式评分。
 
@@ -110,10 +112,26 @@ Threshold32个候选全部在val36评估，选最低J，平局按活动负担再
 ## 8. 核心验收与范围
 
 1. 保存／加载静态人口、疾病日期、处置到期和接触边一致；边界不再次注入初始感染。
-2. 同磁盘快照、相同future_seed和动作序列，两次112天逐日结果相同；换seed保留初态但改变未来。
+2. 同磁盘快照、相同future_seed和动作序列，两次119天逐日结果相同；换seed保留初态但改变未来。
 3. 不同策略及reset互不污染原状态文件。
-4. 首观察仅截至x−1；缺失位置和历史标记正确；112天16动作，跨界事件和新增感染只按接手后计费。
+4. 恢复观察截至x−1，统一基线后首次自主观察截至x+6；历史缺失正确；总119天、112控制天、16动作，主评分仅含自主控制期。
 5. train／val／test历史世界互斥；val/test不筛零感染；三个学习器共享同一训练池。
 6. PPO/DDQN时间截断bootstrap、terminal_observation／mask、实际梯度更新及保存加载通过；val选模无第二轮；五方法测试和报告独立可用。
 
 代码及小规模验收不等于正式128世界建库、三seed完整训练或480场景比较已经完成。已存在的旧259维模型、旧快照包和A/B报告保留历史用途，新版本不自动复用。
+
+## 9. 分阶段执行与停止位置（2026-10-26）
+
+后续每次仅执行明确指定的阶段，完成后停止，不自动进入下一阶段。
+
+| 阶段 | 输入 | 输出及停止位置 |
+|---|---|---|
+| 1 迁移完整性核对 | 当前源码、data、迁移包及本机环境 | 10份证据校验、严格锚点加载、历史75天、128／9／20／4世界及val36；只加载不模拟，已完成 |
+| 2 工程改造 | 现有快照入口与协议 | 多worker调度、单seed入口、每2048步最大绝对V／Q诊断及针对性验证；已完成，不启动正式批次 |
+| 3 生成快照 | 已核对的锚点、数据与代码 | 644份快照和manifest（train512／val36／test80／pilot16）；汇报耗时、磁盘体积及train／val／test在day49／63的零活动感染数量、分母与比例后停止 |
+| 4 非RL基线 | 共享快照库、pilot与val清单 | pilot耗时、minimum／maximum_feasible的val36结果、Threshold32候选及已选产物；不运行test评估、不用test选模，完成后停止 |
+| 5 RL训练与验证 | 共享快照库与val36 | PPO／DDQN各seed11／22／33固定8192步、每2048步checkpoint及val选中模型；完成后停止，16384延长另行决定 |
+| 6 独立test与比较 | 9个已选策略产物：PPO三个、DDQN三个、Threshold一个、两个固定策略定义 | 每策略480场景，先生成9份H112报告，再生成comparison.json与report.md；完成后停止 |
+| 7 可选冻结延展 | 已选冻结策略 | 单独指定140／168天结果；不重训或回选模型 |
+
+“不使用test”仅指不运行test评估、不用test选模；阶段3仍必须生成test的80份快照。原三seed联合训练的预算升级逻辑保留，但本轮正式路线采用单seed固定8192步入口，不自动延长。

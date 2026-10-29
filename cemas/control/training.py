@@ -100,10 +100,13 @@ def _scores(records, expected_seeds):
 
 
 def evaluate_source(protocol, controller_spec, output_dir, calibration_artifact, *,
-                    pool=None, calibration_data_path=None, evaluator=None, execution_days=None):
-    """A single spawned evaluator preserves the learner's process RNG state."""
+                    pool=None, calibration_data_path=None, evaluator=None, execution_days=None,
+                    workers=1):
+    """Evaluate jobs with bounded independent workers and deterministic aggregation."""
     from .worker import evaluate_job
 
+    if type(workers) is not int or workers < 1:
+        raise ValueError("evaluation workers must be a positive integer")
     snapshot_task = "snapshot_training" in protocol.definition
     pool = pool or ("val" if snapshot_task else "validation_A")
     if pool not in (("val", "test") if snapshot_task else ("validation_A", "validation_B")):
@@ -130,10 +133,11 @@ def evaluate_source(protocol, controller_spec, output_dir, calibration_artifact,
                 "snapshot_day": row["snapshot_day"],
                 "output_dir": str(output / row["scenario_id"]), "scenario_options": {
                     **row["scenario_options"], "calibration_artifact": str(calibration_artifact),
-                    **({"execution_days": execution_days} if execution_days is not None else {}),
+                    **({"execution_days": execution_days + protocol.definition["engine"]["initial_baseline_days"]}
+                       if execution_days is not None else {}),
                     "calibration_data_path": str(calibration_data_path) if calibration_data_path else None}})
     if evaluator is None:
-        with ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn")) as executor:
+        with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn")) as executor:
             # Exceptions propagate; runner attempt directories retain failure evidence.
             records = list(executor.map(evaluate_job, jobs))
     else:
@@ -145,9 +149,12 @@ def evaluate_source(protocol, controller_spec, output_dir, calibration_artifact,
     return report
 
 
-def tune_threshold(protocol, output_dir, calibration_artifact, *, calibration_data_path=None, evaluator=None):
+def tune_threshold(protocol, output_dir, calibration_artifact, *, calibration_data_path=None,
+                   evaluator=None, workers=1):
     from .artifacts import baseline_task_configuration, save_baseline_artifact
 
+    if type(workers) is not int or workers < 1:
+        raise ValueError("threshold workers must be a positive integer")
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=False)
     candidates = threshold_candidates(protocol)
@@ -162,7 +169,7 @@ def tune_threshold(protocol, output_dir, calibration_artifact, *, calibration_da
         spec = {"method": "threshold", "parameters": candidate["parameters"]}
         candidate[primary] = evaluate_source(protocol, spec,
             output / f"{primary}-{candidate['candidate_id']:02d}", calibration_artifact,
-            calibration_data_path=calibration_data_path, evaluator=evaluator)
+            calibration_data_path=calibration_data_path, evaluator=evaluator, workers=workers)
     def ranking(candidate, split):
         report = candidate[split]
         return report["mean_positive_cost"], report["mean_normalized_activity"], candidate["candidate_id"]
@@ -175,7 +182,8 @@ def tune_threshold(protocol, output_dir, calibration_artifact, *, calibration_da
             candidate["validation_B"] = evaluate_source(protocol,
                 {"method": "threshold", "parameters": candidate["parameters"]},
                 output / f"B-{candidate['candidate_id']:02d}", calibration_artifact,
-                pool="validation_B", calibration_data_path=calibration_data_path, evaluator=evaluator)
+                pool="validation_B", calibration_data_path=calibration_data_path,
+                evaluator=evaluator, workers=workers)
         selected = min(finalists, key=lambda row: ranking(row, "validation_B"))
     report = {"purpose": "fixture" if evaluator else "source_development",
               "method": "threshold", "algorithm_semantics": THRESHOLD_ALGORITHM_SEMANTICS,
@@ -226,31 +234,74 @@ def select_checkpoint(protocol, checkpoints, evaluate):
     return {"train_seed": selected["train_seed"], "selected": selected, "candidates": evaluated}
 
 
+def _checkpoint_diagnostics(learner, method):
+    """Measure current networks on collected observations, without sampling or RNG changes."""
+    import torch
+
+    if method == "ppo":
+        observations = learner.rollout_buffer.observations
+        array = observations.reshape(-1, observations.shape[-1])
+        with torch.no_grad():
+            values = learner.policy.predict_values(torch.as_tensor(array, device=learner.device))
+        if not torch.isfinite(values).all():
+            raise FloatingPointError("checkpoint contains non-finite value estimates")
+        return {"sample_source": "latest_rollout", "sample_count": len(array),
+                "max_abs_value": float(values.abs().max().item())}
+    size = learner.replay.size
+    maximum = 0.
+    with torch.no_grad():
+        for start in range(0, size, 1024):
+            values = learner.online(torch.as_tensor(learner.replay.observations[start:min(start + 1024, size)]))
+            if not torch.isfinite(values).all():
+                raise FloatingPointError("checkpoint contains non-finite Q estimates")
+            maximum = max(maximum, float(values.abs().max().item()))
+    return {"sample_source": "replay_all_actions", "sample_count": size, "max_abs_q": maximum}
+
+
+def _append_jsonl(path, value):
+    with Path(path).open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(resolved_snapshot(value), ensure_ascii=False, allow_nan=False) + "\n")
+
+
 def train_controller(protocol, method, output_dir, calibration_artifact, *, calibration_data_path=None,
-                     maximum_budget=None, evaluator=None):
-    """Train three independent learners in 2048-step chunks, then select per seed."""
+                     maximum_budget=None, evaluator=None, train_seed=None, workers=1):
+    """Train one or all declared learners in 2048-step chunks, then select per seed."""
     if method not in ("ppo", "ddqn"):
         raise ValueError("training supports ppo and ddqn")
     if protocol.execution_days <= protocol.definition["engine"]["initial_baseline_days"]:
         raise ValueError("RL training requires at least one autonomous decision window")
+    source = protocol.definition["source"]
+    snapshot_task = "snapshot_training" in protocol.definition
+    primary = "validation" if snapshot_task else "validation_A"
+    ceiling = maximum_budget if maximum_budget is not None else (
+        source["initial_week_decisions_per_training_seed"] if train_seed is not None else source["budget_ladder"][-1])
+    if ceiling not in source["budget_ladder"]:
+        raise ValueError("maximum_budget must belong to the protocol budget ladder")
+    if type(workers) is not int or workers < 1:
+        raise ValueError("training validation workers must be a positive integer")
+    declared_seeds = tuple(source["train_seed_values"])
+    if train_seed is not None:
+        if type(train_seed) is not int or train_seed not in declared_seeds:
+            raise ValueError("train_seed must be one of the declared protocol training seeds")
+        if ceiling != source["initial_week_decisions_per_training_seed"]:
+            raise ValueError("independent seed training uses fixed 8192 steps; extension requires joint validation")
+        learner_seeds = (train_seed,)
+    else:
+        learner_seeds = declared_seeds
     # Optional dependencies are loaded only when actual training is requested.
     import torch
     from stable_baselines3.common.vec_env import SubprocVecEnv
     from .artifacts import save_baseline_artifact, get_baseline_artifact
     from .worker import TrainingEnvFactory
 
-    source = protocol.definition["source"]
-    primary = "validation" if "snapshot_training" in protocol.definition else "validation_A"
-    ceiling = maximum_budget if maximum_budget is not None else source["budget_ladder"][-1]
-    if ceiling not in source["budget_ladder"]:
-        raise ValueError("maximum_budget must belong to the protocol budget ladder")
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=False)
     learners, environments, rngs = {}, {}, {}
-    checkpoints = {seed: [] for seed in source["train_seed_values"]}
+    checkpoints = {seed: [] for seed in learner_seeds}
     means, decisions = [], []
+    diagnostics_path = output / "checkpoint_diagnostics.jsonl"
     try:
-        for seed in source["train_seed_values"]:
+        for seed in learner_seeds:
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
@@ -284,13 +335,18 @@ def train_controller(protocol, method, output_dir, calibration_artifact, *, cali
                     weights = checkpoint_dir / ("model.zip" if method == "ppo" else "model.pt")
                     learner.save(str(weights))
                     rngs[seed] = LearnerRNGState.capture()
+                    if snapshot_task:
+                        diagnostic = {"method": method, "train_seed": seed,
+                                      "step": step, **_checkpoint_diagnostics(learner, method)}
+                        _write(checkpoint_dir / "diagnostics.json", diagnostic)
+                        _append_jsonl(diagnostics_path, diagnostic)
                     artifact = save_baseline_artifact(checkpoint_dir / "artifact", protocol, method,
                         weights_path=weights, calibration_artifact=calibration_artifact,
                         training={"train_seed": seed, "steps": step,
                                   "episode_plan": training_budget(output / f"worlds-{seed}.jsonl")})
                     validation = evaluate_source(protocol, {"method": method, "artifact": str(artifact)},
                         checkpoint_dir / primary, calibration_artifact,
-                        calibration_data_path=calibration_data_path, evaluator=evaluator)
+                        calibration_data_path=calibration_data_path, evaluator=evaluator, workers=workers)
                     checkpoints[seed].append({"train_seed": seed, "step": step,
                                               "artifact": str(artifact), primary: validation})
                     a_scores.append(validation["mean_positive_cost"])
@@ -307,7 +363,8 @@ def train_controller(protocol, method, output_dir, calibration_artifact, *, cali
             def evaluate(row):
                 return evaluate_source(protocol, {"method": method, "artifact": row["artifact"]},
                     output / f"seed-{seed}" / f"B-step-{row['step']}", calibration_artifact,
-                    pool="validation_B", calibration_data_path=calibration_data_path, evaluator=evaluator)
+                    pool="validation_B", calibration_data_path=calibration_data_path,
+                    evaluator=evaluator, workers=workers)
             choice = select_checkpoint(protocol, rows, evaluate)
             metadata = get_baseline_artifact(choice["selected"]["artifact"], protocol)
             artifact = save_baseline_artifact(output / f"selected-{seed}", protocol, method,
@@ -315,7 +372,8 @@ def train_controller(protocol, method, output_dir, calibration_artifact, *, cali
                 training=metadata["training"], selection=choice)
             selections.append({**choice, "artifact": str(artifact)})
         report = {"status": "completed", "purpose": "fixture" if evaluator else "source_development",
-                  "method": method, "available_budget_ceiling": ceiling,
+                  "method": method, "train_seeds": list(learner_seeds),
+                  "available_budget_ceiling": ceiling,
                   "checkpoints": checkpoints, "budget_decisions": decisions,
                   "selected_models": selections, "actual_training": {
                       seed: training_budget(output / f"worlds-{seed}.jsonl") for seed in learners}}
@@ -368,7 +426,7 @@ def world_holdout_report(store, case_worlds, *, retrieval_config=None):
             for item in found.items:
                 scores.append(item.final_score)
                 distances.append(item.state_rms)
-                actions.add(encode_action(item.case.executed_window.executed_action))
+                actions.add(encode_action(item.case.executed_week.executed_action))
         result.append({"world_seed": world, "queries": len(queries), "statuses": dict(statuses),
                        "retrieved_items": len(scores), "mean_state_rms": fsum(distances)/len(distances) if distances else None,
                        "mean_score": fsum(scores)/len(scores) if scores else None,
@@ -414,10 +472,13 @@ def develop_llm(protocol, candidates, output_dir, calibration_artifact, *, calib
     return report
 
 
-def run_pilot(protocol, controller_spec, output_dir, calibration_artifact, *, calibration_data_path=None, evaluator=None):
+def run_pilot(protocol, controller_spec, output_dir, calibration_artifact, *, calibration_data_path=None,
+              evaluator=None, workers=1):
     """Four declared timing episodes; these are not training or policy validation."""
     from .worker import evaluate_job
 
+    if type(workers) is not int or workers < 1:
+        raise ValueError("pilot workers must be a positive integer")
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=False)
     jobs = [{"protocol_path": str(protocol.source_path), "controller": controller_spec,
@@ -430,7 +491,7 @@ def run_pilot(protocol, controller_spec, output_dir, calibration_artifact, *, ca
         for job, row in zip(jobs, snapshot_scenarios(protocol, "pilot")):
             job["scenario_options"].update(row["scenario_options"])
     if evaluator is None:
-        with ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn")) as executor:
+        with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn")) as executor:
             records = list(executor.map(evaluate_job, jobs))
     else:
         records = [evaluator(job) for job in jobs]
@@ -452,6 +513,8 @@ def compare_snapshot_baselines(protocol, reports, output_dir):
     if "snapshot_training" not in protocol.definition:
         raise ValueError("comparison requires the snapshot baseline task")
     expected_counts = {"ppo": 3, "ddqn": 3, "threshold": 1, "minimum": 1, "maximum_feasible": 1}
+    if "llm" in reports:
+        expected_counts["llm"] = 1
     if set(reports) != set(expected_counts):
         raise ValueError("comparison requires all five baseline methods")
     scenarios = snapshot_scenarios(protocol, "test")
@@ -468,7 +531,9 @@ def compare_snapshot_baselines(protocol, reports, output_dir):
             if (report["purpose"] != "snapshot_test" or len(rows) != len(identities)
                     or {r["scenario_id"] for r in rows} != set(identities)
                     or any(r["summary"]["status"] != "completed" or
-                           r["summary"]["execution_days"] != 112 for r in rows)):
+                           r["summary"]["execution_days"] != protocol.execution_days or
+                           (protocol.definition["engine"]["initial_baseline_days"] > 0 and
+                            r["summary"].get("control_period", {}).get("execution_days") != 112) for r in rows)):
                 raise ValueError("main comparison requires complete H112 test reports")
             mapping = {row["scenario_id"]: row for row in rows}
             if any(mapping[row["scenario_id"]]["world_seed"] != row["world_seed"] or

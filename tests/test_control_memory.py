@@ -56,35 +56,33 @@ def observation(day=0, weeks=(), *, horizon=112, resources=RESOURCES):
 def public_case(local, *, case_id=1, task_hash="a" * 64):
     return PublicCase(
         case_id, local.revision, CASE_SCHEMA_VERSION, task_hash,
-        local.pre_observation, local.executed_window, local.window_days,
-        local.followup_window, local.status, local.available_through_day,
+        local.pre_observation, local.executed_week, local.window_days,
+        local.status, local.available_through_day,
         "descriptive_not_causal", local.flags, local.description,
         {"kind": "source_simulation", "observation_sha256": public_hash(local.pre_observation),
-         "feedback_sha256": public_hash(local.executed_window),
-         "followup_sha256": public_hash(local.followup_window) if local.followup_window else None},
+         "week_sha256": public_hash(local.executed_week)},
     )
 
 
-def test_actual_execution_and_second_revision_are_immutable():
+def test_actual_execution_creates_independent_immutable_week_cases():
     memory = PublicEpisodeMemory()
     before = observation()
     memory.stage(before)
     first = week(0, action=ActionVector((1, 2, 1, 1, 0)))
     (original,) = memory.accept(PublicWeekFeedback(first))
     assert original.local_id == 1 and original.revision == 1
-    assert original.executed_window.executed_action == first.executed_action != before.current_action
-    assert "action_changed" in original.flags and "truncated_followup" in original.flags
+    assert original.executed_week.executed_action == first.executed_action != before.current_action
+    assert "action_changed" in original.flags
     memory.stage(observation(7, [first]))
     second = week(7, action=ActionVector((2, 1, 2, 0, 1)), resources=PublicResources(3, 10, 1))
-    updated, current = memory.accept(PublicWeekFeedback(second, first))
-    assert updated.local_id == original.local_id and updated.revision == 2
-    assert original.followup_window is None and updated.followup_window == second
-    assert updated.status == "closed_two" and current.local_id == 2
-    assert "followup_action_changed" in updated.flags and "capacity_changed" in updated.flags
-    assert "truncated_followup" not in updated.flags
+    (current,) = memory.accept(PublicWeekFeedback(second, first))
+    assert current.local_id == 2 and current.revision == 1
+    assert original.executed_week == first and current.executed_week == second
+    assert current.status == "closed" and "capacity_changed" in current.flags
+    assert not hasattr(original, "followup_window")
     with pytest.raises(FrozenInstanceError):
-        original.status = "closed_two"
-    assert "非因果" in updated.description and "实际执行[2, 1, 2, 0, 1]" in updated.description
+        original.status = "changed"
+    assert "非因果" in current.description and "实际执行[2, 1, 2, 0, 1]" in current.description
 
 
 def test_stage_and_accept_are_idempotent_without_re_emitting_revisions():
@@ -143,7 +141,7 @@ def test_previous_week_must_match_observation_and_duplicate_payload():
     assert len(memory.latest_revisions) == 1
 
 
-def test_h110_terminal_tail_preserves_actual_stored_days_and_truncates_previous_followup():
+def test_h110_terminal_tail_preserves_actual_stored_days():
     memory = PublicEpisodeMemory()
     weeks = []
     originals = []
@@ -156,9 +154,9 @@ def test_h110_terminal_tail_preserves_actual_stored_days_and_truncates_previous_
     latest = memory.latest_revisions
     assert len(latest) == 16
     assert latest[-1].window_days == 5  # 105..109 inclusive, with no day-110 decision.
-    assert latest[-1].status == "terminal_censored"
-    assert set(latest[-1].flags) >= {"partial_window", "truncated_followup"}
-    assert latest[-2].status == "closed_two" and "truncated_followup" in latest[-2].flags
+    assert latest[-1].status == "closed"
+    assert set(latest[-1].flags) >= {"partial_window"}
+    assert latest[-2].status == "closed" and latest[-2].revision == 1
     assert all(item.revision == 1 for item in originals)
     with pytest.raises(ValueError, match="executable"):
         memory.stage(replace(observation(105, weeks[:-1], horizon=110), decision_day=110))
@@ -241,7 +239,7 @@ def test_public_case_round_trip_validates_hashes_and_all_nested_allowlists():
     assert observation_from_dict(public_to_dict(observation())) == observation()
     assert feedback_from_dict(public_to_dict(PublicWeekFeedback(week(0)))) == PublicWeekFeedback(week(0))
     for location in ((), ("pre_observation",), ("pre_observation", "population"),
-                     ("executed_window", "cost"), ("executed_window", "resources"), ("public_source",)):
+                     ("executed_week", "cost"), ("executed_week", "resources"), ("public_source",)):
         payload = public_to_dict(case)
         target = payload
         for name in location:
@@ -250,7 +248,7 @@ def test_public_case_round_trip_validates_hashes_and_all_nested_allowlists():
         with pytest.raises((ValueError, TypeError)):
             public_case_from_dict(payload)
     changed = public_to_dict(case)
-    changed["executed_window"]["delivered_diagnoses"] = 99
+    changed["executed_week"]["delivered_diagnoses"] = 99
     with pytest.raises(ValueError, match="public_source"):
         public_case_from_dict(changed)
     with pytest.raises(TypeError):
@@ -261,9 +259,9 @@ def test_case_metadata_cannot_claim_causality_duration_or_wrong_revision():
     memory = PublicEpisodeMemory()
     memory.stage(observation())
     case = public_case(memory.accept(PublicWeekFeedback(week(0)))[0])
-    for changes in ({"attribution": "caused_success"}, {"window_days": 6}, {"revision": 2},
-                    {"available_through_day": 99}, {"status": "terminal_censored"},
-                    {"flags": ("reward_success",)}):
+    for changes in ({"attribution": "caused_success"}, {"window_days": 6}, {"revision": 0},
+                    {"available_through_day": 99},
+                    {"flags": ("reward_success",)}, {"status": "terminal_censored"}):
         with pytest.raises(ValueError):
             replace(case, **changes)
 
@@ -280,6 +278,7 @@ def test_profile_is_separate_strict_immutable_and_content_identified(tmp_path):
     assert profile.retrieval["state_weight"] == 0.75
     assert profile.retrieval["trend_weight"] == 0.25
     assert profile.retrieval["capacity_ratio_tolerances"] == (0.01, 0.03, 0.005)
+    assert "budget_policy" not in profile.data
     relocated = tmp_path / "different-name.json"
     relocated.write_text(DEFAULT_PROFILE_PATH.read_text(encoding="utf-8-sig"), encoding="utf-8")
     assert load_memory_profile(relocated).sha256 == profile.sha256

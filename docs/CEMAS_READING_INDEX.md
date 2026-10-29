@@ -1,6 +1,6 @@
 # CEMAS v1 当前工作阅读索引
 
-更新日期：2026-10-25。此索引用于接续 V1 开发；当前配置与校准接入以 [UW 控制接入](uw_control_integration.md)为准，阶段计划和历史验收不能替代当前源码及产物检查。
+更新日期：2026-10-28。此索引用于接续 V1 开发；当前配置与校准接入以 [UW 控制接入](uw_control_integration.md)为准。Feedback以[新版统一设计](llm_feedback_component_design.md)和[实施合同](PLAN%20(1).md)为准；旧P5阶段范围和旧案例/规则结构不再约束新版。
 
 ## 1. 当前进度
 
@@ -15,13 +15,14 @@
 | Phase 2 | 已实现 campus 场景、共同执行器、公共 ledger/观察、198 维编码和独立私有指标 |
 | Phase 3 | 已实现周环境、统一奖励、固定参照和日志/runner；旧 E0 已由 `cemas/e0/` 的 UW 实现替代，旧验收仅作历史记录 |
 | Phase 4 | 已实现公共 prompt、严格解析、本地计数、transport、重试、共同回退和调用审计；真实服务验收仍与离线验证分开 |
-| Phase 5 | 已实现公共记忆、数值检索、知识卡、五字段依据和案例存储；四策略重新采集/冻结已有入口，从已有 source 审计导出重建 development 库仍缺入口 |
+| Phase 5历史设计 | 记录早期公共记忆、数值检索、知识卡和只读源案例存储；当前持续学习已转入新版Feedback合同 |
+| 新版Feedback | 单周案例、平铺参考周＋四自主周、LLM周经验、支持/相悖聚合规则、v2学习库和冻结评估 |
 | Phase 6 | 已接入 Threshold、MaskablePPO、DDQN、源域训练/选择、覆盖诊断及发布校验；历史短训练不代表当前 UW 正式批次完成 |
 | Phase 7 | 最终方法比较、迁移、统计和论文结论仍待前置校准、正式源域开发与共同冻结完成 |
 
-当前权重为可执行的 `development_candidate`。正式 Threshold 调参、RL 三 seed 完整预算、108 条源轨迹、真实 LLM 四模式 A/B、共同 H/目标/敏感性冻结和 evaluation-ready 发布尚未完成；不能根据已有脚本或历史测试数字认定这些任务已经完成。
+既有RL baseline训练产物沿用已完成结果。新版LLM持续学习、共同冻结和正式方法比较应分别记录实际完成情况，不能根据已有脚本或历史工程测试数字认定科学评价已经完成。
 
-新增任务：[精简快照 baseline 训练计划](baseline_snapshot_training_plan_v1.md)及[使用说明](baseline_snapshot_training.md)。三个学习器共用128历史世界，197维输入、固定H112时间截断bootstrap、单val36选模；独立test480与五baseline报告入口已接入。此任务不包含LLM／memory；完整正式批次尚未执行。现有day0协议和上述批次数量仍保留原口径。
+快照入口见[精简快照 baseline 训练计划](baseline_snapshot_training_plan_v1.md)及[使用说明](baseline_snapshot_training.md)。新版LLM沿用既有RL baseline的种子和场景，恢复快照后先共同观察7天，再控制112天；持续学习和冻结评估使用[learn_memory入口](../examples/control_v1/learn_memory.py)。
 
 ## 2. 按此顺序阅读
 
@@ -30,8 +31,9 @@
 | 1 | [UW 控制接入](uw_control_integration.md)、[E0 配置](e0_protocol_v2.json) | 当前模型、显式背景迁移、锚点证据与运行命令 |
 | 2 | [P6 契约](control_phase6_contracts.md)、[P6 计划](control_phase6_implementation_plan.md) | 已有工程入口、历史验证、正式批次和共同冻结的剩余条件 |
 | 2a | [快照 baseline 新计划](baseline_snapshot_training_plan_v1.md)、[使用说明](baseline_snapshot_training.md) | 新任务设计、快照库生成、训练入口、验证及未完成范围 |
+| 2b | [Feedback统一设计](llm_feedback_component_design.md)、[实施合同](PLAN%20(1).md)、[人工样例](llm_feedback_component_examples.json) | 当前持续案例/规则学习、版本与统计、v2库及冻结评估 |
 | 3 | [推荐协议](llm_recommended_protocol_v1.md)、[控制配置](control_protocol_v1.json)、[记忆配置](control_memory_v1.json) | 共同任务/数值来源及当前独立 P5 配置 |
-| 4 | [P5 契约](control_phase5_contracts.md)、[P5 计划](control_phase5_implementation_plan.md)、[架构依据](llm_architecture_research/02_recommended_architecture.md) | 公共记忆、数值检索、source 工具和真实服务边界 |
+| 4 | [P5历史契约](control_phase5_contracts.md)、[P5历史计划](control_phase5_implementation_plan.md)、[架构依据](llm_architecture_research/02_recommended_architecture.md) | 追溯早期设计；弃用案例配对和规则协议以新版为准 |
 | 5 | [P4 契约](control_phase4_contracts.md)、[P3 契约](control_phase3_contracts.md) | LLM 调用与审计、周生命周期、统一奖励和历史验收 |
 | 6 | [P2 契约](control_phase2_contracts.md)、[P0 契约](control_phase0_contracts.md)、[P1 契约](control_phase1_contracts.md) | 按需查共享类型、执行、mask 和动作解析 |
 | 7 | [数据说明](../data/README.md)、[E0 研究计划](../research/historical_epidemics/e0_calibration_research_plan.md)、[工程总计划](cemas_v1_implementation_plan.md) | 观察口径、研究假设与分阶段实施历史 |
@@ -51,6 +53,7 @@
 | [controllers.py](../cemas/control/controllers.py)、[runner.py](../cemas/control/runner.py)、[logging.py](../cemas/control/logging.py) | 控制器、单回合编排、调用/决策审计和完成状态 |
 | [llm.py](../cemas/control/llm.py)、[public_v1.json](../cemas/control/prompts/public_v1.json) | 无显式记忆 LLM、两消息 prompt、计数、解析、transport 和重试 |
 | [memory.py](../cemas/control/memory.py)、[memory_store.py](../cemas/control/memory_store.py)、[retrieval.py](../cemas/control/retrieval.py)、[llm_memory.py](../cemas/control/llm_memory.py) | 确定性公共记忆、案例构建/只读库、数值检索和 P5 控制器 |
+| [feedback.py](../cemas/control/feedback.py)、[rule_memory.py](../cemas/control/rule_memory.py)、[learning_store.py](../cemas/control/learning_store.py)、[learning.py](../cemas/control/learning.py) | 平铺公开周、规则判断与检索、v2持久库及训练恢复 |
 | [training.py](../cemas/control/training.py)、[rl/](../cemas/control/rl/) | 源域调参、RL 训练/选择及 Gym 适配 |
 | [cemas/e0/](../cemas/e0/) | UW 观测、扫描/拟合/评估研究和校准锚点导出/验证 |
 | [examples/control_v1/](../examples/control_v1/) | smoke、E0、固定参照、LLM、记忆和 Baseline 薄入口 |
@@ -65,10 +68,10 @@ V1 控制实现位于 `cemas/control/`，UW 校准位于 `cemas/e0/`。旧 `cova
 - 控制器只接公共观察和闭合公共反馈。真值、reward、beta、seed、未来事件、模拟器及完整 audit/manifest 不进入 prompt、memory 或检索。
 - 训练向学习器返回真实 reward；评估返回 `0.0`，真实评价写入 runner 私有审计。两者不改变世界轨迹。
 - 五维动作共 324 组合，七日决策；公开 mask 只约束 S，T/C 每日容量由 executor 处理。
-- day0–6 固定最低干预，day7 首次自主决策；H112 包含 1 个固定首周和 15 个自主窗口。尾窗按实际天数结算，不额外推进或提前交付 pending 事件。
+- 当前快照任务day0–6为共同观察，day7首次自主决策；随后112天控制，总119天、16次自主决策。尾窗按实际天数结算，不额外推进或提前交付pending事件。
 - 每回合一次完整 initialize，周间不重新设 seed；保持 finalize、close 及日/周/终点对账语义。
 - smoke 只检查工程闭环；科学运行必须加载兼容的真实 UW 主结果锚点及原始研究文件，最终实验还须通过正式 release 校验。
-- P5 的公共案例 SQLite 与私有 JSON 来源清单分离，目标经验不追加全局库；V1 使用数值检索，不实现 embedding、LLM 反思或持久策略学习。
+- 公开学习库与私有运行审计分离。训练持续追加独立单周案例和规则判断，正式评估只读冻结库；仍使用数值检索，不增加embedding。v1学习库拒绝使用，建立v2新库。
 - 使用指定 simulation Python，依赖与历史快照说明见[文档入口](README.md#环境与依赖)；不要沿用其他机器路径或历史实装状态。
 
 ## 5. 下一次接续提示

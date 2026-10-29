@@ -21,14 +21,17 @@ current configuration, commands, and evidence limits.
 - Controllers receive public observations and closed public execution
   feedback. Hidden infections, private reward, beta, seeds, future events,
   and simulator objects do not enter LLM prompts or memory.
-- Days 0–6 use the shared minimum action. The first autonomous decision is
-  on day 7; the initial 112-day horizon includes that fixed first week.
+- The current snapshot feedback task uses seven shared observation days,
+  followed by 112 autonomous control days: 119 days and 16 decisions in total.
+  The first autonomous decision is on day 7.
 - The campus engine uses six contact layers: `d`, `clu`, `clg`, `of`, `ta`,
   and `cm`. All controllers share the weekly environment and executor.
-- P5 memory uses deterministic recent summaries, frozen public source cases,
-  knowledge cards, and numeric state/trend retrieval with `.75/.25` weights.
-  Modes are `none`, `short`, `global`, and `both`; V1 does not use embeddings
-  or an LLM reflection writer.
+- Memory uses deterministic recent summaries, knowledge cards, numeric
+  state/trend retrieval, and optional LLM weekly feedback and persistent rules.
+  Training accumulates independent weekly cases and aggregate rule statistics;
+  formal evaluation reads one frozen learning library. The current contract is
+  the [feedback design](docs/llm_feedback_component_design.md). Earlier P5
+  documents describe the historical frozen-source-only design.
 
 ## Repository and documentation
 
@@ -38,6 +41,7 @@ current configuration, commands, and evidence limits.
 | [Documentation index](docs/README.md) | Protocols, phase contracts, and environment notes |
 | [Control protocol](docs/control_protocol_v1.json) | Shared task, actions, resources, objective, seeds, and experiment settings |
 | [Memory profile](docs/control_memory_v1.json) | Active P5 numeric retrieval and memory configuration |
+| [Feedback design](docs/llm_feedback_component_design.md), [implementation contract](docs/PLAN%20(1).md) | Flat weekly feedback, persistent aggregate rules, v2 learning library, and frozen evaluation |
 | [E0 protocol](docs/e0_protocol_v2.json) | UW W1 calibration configuration |
 | [cemas/control/](cemas/control/) | Weekly control, LLM/memory controllers, baselines, training, and audit |
 | [cemas/e0/](cemas/e0/) | UW observation loading, simulation study, and control-anchor verification |
@@ -93,7 +97,10 @@ LLM runs use [run_llm.py](examples/control_v1/run_llm.py) or
 the name of a credential environment variable, official tokenizer resources,
 and a compatible E0 anchor. `global`/`both` memory additionally needs a verified
 frozen source store. Development acceptance reports are retained separately;
-normal runs do not require them as startup credentials.
+normal runs do not require them as startup credentials. Persistent feedback
+learning uses [learn_memory.py](examples/control_v1/learn_memory.py) with
+`train`, `freeze`, and `evaluate`; the new v2 learning library does not read
+deprecated v1 learning databases.
 
 ## Historical implementation and results
 

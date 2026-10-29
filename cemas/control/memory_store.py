@@ -65,6 +65,18 @@ def public_content_sha256(case):
     return public_hash(payload)
 
 
+def public_case(local, case_id, task_hash):
+    """Convert one accepted public transition; shared by source and learning stores."""
+    return PublicCase(case_id=case_id, revision=local.revision, schema_version=CASE_SCHEMA_VERSION,
+        public_task_sha256=task_hash, pre_observation=local.pre_observation,
+        executed_week=local.executed_week, window_days=local.window_days,
+        status=local.status, available_through_day=local.available_through_day,
+        attribution="descriptive_not_causal",
+        flags=local.flags, description=local.description, public_source={"kind": "source_simulation",
+            "observation_sha256": public_hash(local.pre_observation),
+            "week_sha256": public_hash(local.executed_week)})
+
+
 @dataclass(frozen=True, slots=True)
 class StoreManifest:
     schema_version: str
@@ -223,15 +235,7 @@ class PublicCaseBuilder:
                         raise CaseStoreError("new local case must begin at revision one")
                     case_id, next_id = next_id, next_id + 1
                     local_ids[local.local_id] = case_id
-                case = PublicCase(case_id=case_id,revision=local.revision,schema_version=CASE_SCHEMA_VERSION,
-                    public_task_sha256=self.public_task_sha256,pre_observation=local.pre_observation,
-                    executed_window=local.executed_window,window_days=local.window_days,
-                    followup_window=local.followup_window,status=local.status,
-                    available_through_day=local.available_through_day,attribution="descriptive_not_causal",
-                    flags=local.flags,description=local.description,public_source={"kind":"source_simulation",
-                        "observation_sha256":public_hash(local.pre_observation),
-                        "feedback_sha256":public_hash(local.executed_window),
-                        "followup_sha256":None if local.followup_window is None else public_hash(local.followup_window)})
+                case = public_case(local, case_id, self.public_task_sha256)
                 if self.purpose != "fixture" and case.pre_observation.execution_days != self.compatibility["execution_days"]:
                     raise CaseStoreError("case horizon mismatches source compatibility")
                 payload = canonical_json(public_to_dict(case))
@@ -246,8 +250,10 @@ class PublicCaseBuilder:
                     raise CaseStoreError("case revisions must be consecutive and append-only")
                 if active:
                     prior = public_case_from_dict(json.loads(self._public.execute("SELECT payload_json FROM case_revisions WHERE case_id=? AND revision=?", (case_id,active[0])).fetchone()[0]))
-                    if prior.pre_observation != case.pre_observation or prior.executed_window != case.executed_window:
-                        raise CaseStoreError("revision cannot change original public transition")
+                    if (prior.pre_observation != case.pre_observation
+                            or (prior.executed_week.start_day, prior.executed_week.end_day)
+                               != (case.executed_week.start_day, case.executed_week.end_day)):
+                        raise CaseStoreError("revision cannot change its decision or execution window")
                 self._public.execute("INSERT INTO case_revisions VALUES(?,?,?,?)", (case_id,local.revision,payload,public_content_sha256(case)))
                 self._public.execute("INSERT OR REPLACE INTO active_revision VALUES(?,?)", (case_id,local.revision))
                 self._public.execute("INSERT OR IGNORE INTO case_group VALUES(?,?)", (case_id,group))
@@ -412,7 +418,7 @@ def _public_case_coverage(cases):
     values = {name: [] for name in ("diagnoses", "growth", "diagnosis_test_proxy", "tests", "notifications",
                                   "union_person_days", "activity_person_days")}
     for case in cases:
-        pre, week = case.pre_observation, case.executed_window
+        pre, week = case.pre_observation, case.executed_week
         action = week.executed_action.values
         for index, name in enumerate(ACTION_ORDER):
             levels[name][action[index]] += 1
@@ -551,8 +557,8 @@ def freeze_public_store(staging, private_manifest, output_dir, purpose=None):
             from .types import PublicWeekFeedback
             for entry in manifest["trajectories"]:
                 trajectory = sorted((c for c in cases if c.case_id in entry["case_ids"]),
-                                    key=lambda c:c.executed_window.start_day)
-                windows = [case.executed_window for case in trajectory]
+                                    key=lambda c:c.executed_week.start_day)
+                windows = [case.executed_week for case in trajectory]
                 horizon = manifest["compatibility"]["execution_days"]
                 if not windows or windows[0].start_day!=0 or windows[-1].end_day!=horizon-1:
                     raise CaseStoreError("completed source trajectory must cover its entire horizon")
@@ -562,13 +568,10 @@ def freeze_public_store(staging, private_manifest, output_dir, purpose=None):
                         if case.pre_observation.execution_days != horizon:
                             raise ValueError("source case horizon mismatch")
                         memory.stage(case.pre_observation)
-                        memory.accept(PublicWeekFeedback(case.executed_window,previous))
-                        followup = windows[index+1] if index+1<len(windows) else None
-                        if case.followup_window != followup:
-                            raise ValueError("source followup does not match its next actual window")
-                        previous = case.executed_window
+                        memory.accept(PublicWeekFeedback(case.executed_week,previous))
+                        previous = case.executed_week
                 except (TypeError,ValueError) as exc:
-                    raise CaseStoreError("source trajectory has inconsistent public transitions or followup revisions") from exc
+                    raise CaseStoreError("source trajectory has inconsistent public transitions") from exc
     output.mkdir(parents=True,exist_ok=False)
     destination = output/DATABASE_FILENAME
     with source.open("rb") as incoming,destination.open("xb") as outgoing:
@@ -665,8 +668,10 @@ class FrozenPublicCaseStore:
                     raise CaseStoreError("public revisions must be consecutive")
                 if case_id in result:
                     previous = result[case_id]
-                    if case.pre_observation!=previous.pre_observation or case.executed_window!=previous.executed_window:
-                        raise CaseStoreError("public revision changed original transition")
+                    if (case.pre_observation != previous.pre_observation
+                            or (case.executed_week.start_day, case.executed_week.end_day)
+                               != (previous.executed_week.start_day, previous.executed_week.end_day)):
+                        raise CaseStoreError("public revision changed its decision or execution window")
                 latest[case_id],result[case_id] = revision,case
             if tuple(sorted(latest.items()))!=active:
                 raise CaseStoreError("active revision must be the latest revision")

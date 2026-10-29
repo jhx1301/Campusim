@@ -432,7 +432,7 @@ def candidate_counter(tmp_path, settings, monkeypatch):
                 "library_versions": {name: "test" for name in ("transformers", "tokenizers", "jinja2", "markupsafe")},
                 "files": {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in tmp_path.iterdir()},
                 "chat_template_file": "chat_template.jinja", "template_kwargs": {"enable_thinking": True},
-                "request_parameters_sha256": snapshot_sha256(settings.request_parameters())}
+                "input_tokenization_sha256": snapshot_sha256(settings.input_tokenization_parameters())}
     path = tmp_path / "resources.json"
     path.write_text(json.dumps(manifest), encoding="utf-8")
     import cemas.control.llm as llm
@@ -465,6 +465,77 @@ def test_official_adapter_counts_and_decides_without_acceptance(tmp_path, settin
     assert "acceptance_sha256" not in counter.identity
 
 
+@pytest.mark.parametrize("provider", ["deepseek", "qwen"])
+def test_generation_changes_reuse_tokenizer_and_keep_full_audits(
+        tmp_path, settings, observation, prompt_config, monkeypatch, provider):
+    settings = replace(settings, provider=provider, max_output_tokens=2048)
+    counter, _, _, _ = candidate_counter(tmp_path, settings, monkeypatch)
+    messages = build_public_messages(observation, prompt_config)
+    count = counter.count_input(messages, settings)
+    identity = resolved_snapshot(counter.identity)
+    for candidate in (settings, replace(settings, max_output_tokens=512),
+                      replace(settings, temperature=.5), replace(settings, primary_top_p=.5)):
+        counter.validate(candidate)
+        assert counter.count_input(messages, candidate) == count
+        assert resolved_snapshot(counter.identity) == identity
+        controller = LLMController(ScriptedTransport([response(usage={"prompt_tokens": count})]),
+                                   prompt_config, candidate, counter)
+        assert controller.decide(observation).action == ActionVector((0, 0, 0, 0, 0))
+        audit, = controller.drain_call_audits()
+        assert audit.messages == messages
+        assert resolved_snapshot(audit.request_parameters) == candidate.request_parameters()
+        output_key = "max_tokens" if provider == "deepseek" else "max_completion_tokens"
+        assert audit.request_parameters[output_key] == candidate.max_output_tokens
+        assert audit.request_parameters["temperature"] == candidate.temperature
+        if provider == "deepseek":
+            assert audit.request_parameters["top_p"] == candidate.primary_top_p
+        metadata = controller.run_metadata()
+        assert metadata["llm_settings"] == resolved_snapshot(candidate)
+        assert metadata["tokenizer_identity"] == identity
+
+
+@pytest.mark.parametrize("provider,changes", [
+    ("deepseek", {"model": "other-model"}),
+    ("deepseek", {"thinking": False}),
+    ("deepseek", {"primary_effort": "low"}),
+    ("qwen", {"model": "other-model"}),
+    ("qwen", {"thinking": False}),
+])
+def test_tokenizer_rejects_input_mode_changes(tmp_path, settings, monkeypatch, provider, changes):
+    settings = replace(settings, provider=provider)
+    counter, _, _, _ = candidate_counter(tmp_path, settings, monkeypatch)
+    counter.validate(settings)
+    with pytest.raises(LLMConfigurationError) as caught:
+        counter.validate(replace(settings, **changes))
+    assert caught.value.code == "tokenizer_incompatible"
+
+
+def test_tokenizer_requires_manifest_upgrade(tmp_path, settings, monkeypatch):
+    counter, manifest, path, _ = candidate_counter(tmp_path, settings, monkeypatch)
+    manifest.pop("input_tokenization_sha256")
+    manifest["request_parameters_sha256"] = snapshot_sha256(settings.request_parameters())
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(LLMConfigurationError, match="input_tokenization_sha256") as caught:
+        counter.validate(settings)
+    assert caught.value.code == "tokenizer_manifest_upgrade_required"
+    manifest.pop("request_parameters_sha256")
+    manifest["input_tokenization_sha256"] = snapshot_sha256(settings.input_tokenization_parameters())
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    upgraded = OfficialInputTokenCounter(path)
+    upgraded.validate(settings)
+    assert resolved_snapshot(upgraded.identity)["manifest_sha256"] == snapshot_sha256(manifest)
+
+
+def test_tokenizer_rejects_manifest_changes_during_batch(tmp_path, settings, monkeypatch):
+    counter, manifest, path, _ = candidate_counter(tmp_path, settings, monkeypatch)
+    counter.validate(settings)
+    manifest["template_kwargs"]["enable_thinking"] = False
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(LLMConfigurationError) as caught:
+        counter.validate(settings)
+    assert caught.value.code == "tokenizer_resources_changed"
+
+
 def test_real_local_tokenizer_library_counts_roles_template_and_generation_prefix(tmp_path, settings, observation, prompt_config):
     """Synthetic vocabulary tests the library path, not official model acceptance."""
     import hashlib
@@ -482,7 +553,7 @@ def test_real_local_tokenizer_library_counts_roles_template_and_generation_prefi
                 "library_versions": {name: version(name) for name in ("transformers", "tokenizers", "jinja2", "markupsafe")},
                 "files": {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in tmp_path.iterdir()},
                 "chat_template_file": "chat_template.jinja", "template_kwargs": {},
-                "request_parameters_sha256": snapshot_sha256(settings.request_parameters())}
+                "input_tokenization_sha256": snapshot_sha256(settings.input_tokenization_parameters())}
     path = tmp_path / "resources.json"
     path.write_text(json.dumps(manifest), encoding="utf-8")
     messages = build_public_messages(full_observation(observation), prompt_config)
@@ -494,7 +565,7 @@ def test_real_local_tokenizer_library_counts_roles_template_and_generation_prefi
     counter.validate(settings)
 
 
-@pytest.mark.parametrize("change", ["hash", "model", "template", "library", "request", "unpinned"])
+@pytest.mark.parametrize("change", ["hash", "model", "template", "library", "input_mode", "unpinned"])
 def test_tokenizer_readiness_failures_are_preflight(tmp_path, settings, monkeypatch, change):
     counter, manifest, path, _ = candidate_counter(tmp_path, settings, monkeypatch)
     if change == "hash":
@@ -505,8 +576,8 @@ def test_tokenizer_readiness_failures_are_preflight(tmp_path, settings, monkeypa
         manifest["chat_template_file"] = "missing.jinja"
     elif change == "library":
         manifest["library_versions"]["tokenizers"] = "other"
-    elif change == "request":
-        manifest["request_parameters_sha256"] = "0" * 64
+    elif change == "input_mode":
+        manifest["input_tokenization_sha256"] = "0" * 64
     else:
         (tmp_path / "extra.json").write_text("{}", encoding="utf-8")
     path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -557,6 +628,12 @@ def test_provider_report_validation_is_explicit_and_checks_resources_and_service
         accepted.validate_acceptance(replace(settings, endpoint="https://other.invalid/v1"))
     with pytest.raises(LLMConfigurationError):
         accepted.validate_acceptance(replace(settings, thinking=False))
+    for changes in ({"max_output_tokens": 512}, {"temperature": .5}, {"primary_top_p": .5}):
+        candidate = replace(settings, **changes)
+        accepted.validate(candidate)
+        with pytest.raises(LLMConfigurationError) as caught:
+            accepted.validate_acceptance(candidate)
+        assert caught.value.code == "tokenizer_acceptance_mismatch"
 
 
 def test_normal_counting_ignores_missing_report_and_tracks_actual_service(tmp_path, settings, observation, prompt_config, monkeypatch):

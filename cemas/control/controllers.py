@@ -48,6 +48,13 @@ class Controller(ABC):
         """Deliver completed public experience after observe(), including terminal tails."""
         return ()
 
+    def finish_episode(self) -> None:
+        """Finish learning after the last actual window, including a time limit."""
+
+    def drain_feedback_events(self) -> tuple:
+        """Deliver auxiliary calls separately from action attempts."""
+        return ()
+
 
 class UniformLegalController(Controller):
     """Collection policy using an independent local random stream."""

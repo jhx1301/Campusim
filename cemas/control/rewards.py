@@ -52,9 +52,9 @@ class V1RewardCalculator(RewardCalculator):
         weights = self._objective["burden_weights"]
         self._weights = (1.0, *(self._objective["lambda"] * weights[name]
                                 for name in REWARD_COMPONENTS[1:]))
-        normalization_days = 112 if "snapshot_training" in protocol.definition else execution_days
-        nh = population * normalization_days
-        self.normalization_days = normalization_days
+        from .timing import normalization_days
+        self.normalization_days = normalization_days(protocol, execution_days)
+        nh = population * self.normalization_days
         self._denominators = (population,
                               self._objective["test_reference_daily_ratio"] * nh,
                               self._objective["notification_reference_daily_ratio"] * nh,

@@ -31,10 +31,7 @@ def local(local_id=1,revision=1,day=0,horizon=14):
         pre = replace(pre,history=(PublicWeeklyRecord(),)*3+(PublicWeeklyRecord(0,6,10,resources=pre.resources),),
                       week_valid=(False,False,False,True))
     week = PublicWeeklyRecord(day,min(day+6,horizon-1),10 if day==0 else 12,resources=pre.resources)
-    followup = PublicWeeklyRecord(day+7,min(day+13,horizon-1),12,resources=pre.resources) if revision==2 else None
-    return LocalCaseRevision(local_id,revision,pre,week,followup,
-        "closed_two" if revision==2 else "terminal_censored" if week.end_day==horizon-1 else "closed_one",
-        ("missing_baseline","truncated_followup") if revision==1 else ("missing_baseline",),"Deterministic public record.")
+    return LocalCaseRevision(local_id,revision,pre,week,"closed",(),"Deterministic public record.")
 
 
 def registration(seed=30001,policy="minimum"):
@@ -91,6 +88,35 @@ def test_changed_or_skipped_revision_rolls_back(tmp_path):
             builder.append((local(local_id=2,revision=2),),{"trajectory_id":"one"})
         report = builder.finalize("completed")
         assert report.case_count==report.revision_count==1
+
+
+def test_revision_corrects_same_week_and_frozen_reader_keeps_latest(tmp_path):
+    first = local()
+    corrected = replace(first, revision=2,
+                        executed_week=replace(first.executed_week, delivered_diagnoses=17))
+    with PublicCaseBuilder(tmp_path / "staging", TASK) as builder:
+        builder.append((first, corrected), {"trajectory_id": "one"})
+        report = builder.finalize("completed")
+    manifest = freeze_public_store(tmp_path / "staging", report.private_manifest_path,
+                                   tmp_path / "published")
+    with FrozenPublicCaseStore.open(tmp_path / "published", manifest) as store:
+        case, = store.cases()
+        assert case.revision == 2 and case.executed_week.delivered_diagnoses == 17
+        assert store.manifest.revision_count == 2
+
+
+@pytest.mark.parametrize("changed", [
+    lambda: replace(local(revision=2), pre_observation=replace(local().pre_observation,
+                                                             initial_infections=2)),
+    lambda: local(revision=2, day=7),
+])
+def test_revision_cannot_change_decision_or_window_identity(tmp_path, changed):
+    with PublicCaseBuilder(tmp_path / "staging", TASK) as builder:
+        builder.append((local(),), {"trajectory_id": "one"})
+        with pytest.raises(CaseStoreError, match="decision or execution window"):
+            builder.append((changed(),), {"trajectory_id": "one"})
+        report = builder.finalize("completed")
+    assert report.case_count == report.revision_count == 1
 
 
 def test_single_database_commit_failure_rolls_back_source_mapping(tmp_path,monkeypatch):
@@ -170,12 +196,12 @@ def test_semantic_hash_excludes_identity_group_and_prose(tmp_path):
     with FrozenPublicCaseStore.open(tmp_path/"published",manifest) as store:
         case = store.cases()[0]
         assert public_content_sha256(case)==public_content_sha256(replace(case,case_id=999,description="Different phrasing."))
-        changed_week = replace(case.executed_window,delivered_diagnoses=11)
+        changed_week = replace(case.executed_week,delivered_diagnoses=11)
         # Reuse builder path to form a fully hash-validated changed PublicCase.
         changed = dict(public_to_dict(case))
-        changed["executed_window"] = public_to_dict(changed_week)
+        changed["executed_week"] = public_to_dict(changed_week)
         from cemas.control.memory_types import public_case_from_dict, public_hash
-        changed["public_source"]["feedback_sha256"] = public_hash(changed_week)
+        changed["public_source"]["week_sha256"] = public_hash(changed_week)
         assert public_content_sha256(case)!=public_content_sha256(public_case_from_dict(changed))
 
 
@@ -242,19 +268,17 @@ def test_development_publish_and_private_manifest_hash_binding(tmp_path):
     assert coverage_report(tmp_path/"staging")["exact_108_identity_coverage"] is False
 
 
-@pytest.mark.parametrize("change",["missing_revision","wrong_followup","conflicting_history","population_changed"])
+@pytest.mark.parametrize("change",["conflicting_history","population_changed"])
 def test_development_rejects_inconsistent_completed_public_trajectory(tmp_path,change):
     first,updated,last = local(),local(revision=2),local(local_id=2,day=7)
-    if change == "wrong_followup":
-        updated = replace(updated,followup_window=replace(updated.followup_window,delivered_diagnoses=99))
-    elif change == "conflicting_history":
+    if change == "conflicting_history":
         pre = last.pre_observation
         last = replace(last,pre_observation=replace(pre,history=pre.history[:-1]+(
             replace(pre.history[-1],delivered_diagnoses=99),)))
     elif change == "population_changed":
         last = replace(last,pre_observation=replace(last.pre_observation,
             population=PublicPopulation(200,(20,40,40,80,20),60,80,10)))
-    revisions = (first,last) if change == "missing_revision" else (first,updated,last)
+    revisions = (first,updated,last)
     with PublicCaseBuilder(tmp_path/"staging",TASK,purpose="development",compatibility=COMPATIBILITY) as builder:
         builder.append(revisions,registration())
         report = builder.finalize("completed")

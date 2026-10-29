@@ -17,7 +17,8 @@ from .logging import (
     DecisionRecord, RunLogger, hash_observation, resolved_snapshot, snapshot_sha256,
 )
 from .protocol import ControlProtocol
-from .rewards import V1RewardCalculator
+from .rewards import RewardBreakdown, V1RewardCalculator
+from .timing import scoring_start
 from .types import ActionProposal, ActionVector, ExecutedAction, PublicCost
 
 
@@ -41,7 +42,8 @@ def _validate_development_seed(protocol, seed, purpose):
     seeds = protocol.definition["seeds"]
     if "snapshot_training" in protocol.definition:
         from .snapshot_protocol import history_seeds
-        split = {"scientific": "val", "snapshot_test": "test", "pilot": "pilot"}.get(purpose)
+        split = {"scientific": "val", "snapshot_test": "test", "pilot": "pilot",
+                 "memory_training": "train", "smoke": "val"}.get(purpose)
         if split is None or seed not in history_seeds(protocol, split):
             raise ValueError("snapshot run requires a history seed from its declared split")
         return
@@ -86,6 +88,10 @@ def make_public_prompt_config(protocol: ControlProtocol, *, template_path=None):
             spec[section] = {"decision_interval_days": engine["decision_interval_days"],
                              "initial_baseline_days": engine["initial_baseline_days"],
                              "history_weeks": engine["history_weeks"], "quarantine_days": engine["quar_period"]}
+            if "snapshot_training" in protocol.definition:
+                from .timing import normalization_days
+                spec[section].update(scoring_start_day=scoring_start(protocol),
+                                     normalization_days=normalization_days(protocol, protocol.execution_days))
         else:
             source = protocol.definition[section]
             spec[section] = {key: source[key] for key in keys}
@@ -252,6 +258,31 @@ def episode_summary(protocol, snapshot, population):
     reward = fsum(window.reward for window in snapshot.windows)
     if not isclose(reward, breakdown.reward, rel_tol=1e-10, abs_tol=1e-10):
         raise ValueError("weekly return does not equal terminal objective")
+    periods = {}
+    if "snapshot_training" in protocol.definition:
+        start = scoring_start(protocol)
+        for name, lo, hi in (("observation_period", 0, start), ("control_period", start, snapshot.horizon)):
+            windows = [w for w in snapshot.windows if lo <= w.start_day < hi]
+            days = snapshot.public_daily[lo:hi]
+            private_days = snapshot.private_daily[lo:hi]
+            burden = {f.name: fsum(getattr(d.cost, f.name) for d in days) for f in fields(PublicCost)}
+            for key, value in burden.items():
+                if not isclose(value, fsum(getattr(w.feedback.week.cost, key) for w in windows),
+                               rel_tol=1e-10, abs_tol=1e-8):
+                    raise ValueError("control period daily/weekly burden mismatch")
+            new_infections = sum(d.new_infections for d in private_days)
+            if new_infections != sum(w.private_metrics.new_infections for w in windows):
+                raise ValueError("control period daily/weekly infections mismatch")
+            parts = RewardBreakdown(*(tuple(fsum(getattr(w.reward_breakdown, field)[i] for w in windows)
+                                             for i in range(5)) for field in ("normalized", "weighted")))
+            periods[name] = {"start_day": lo, "end_day": hi - 1, "execution_days": hi - lo,
+                             "new_infections": new_infections, "public_cost": burden,
+                             "delivered_diagnoses": sum(d.delivered_diagnoses for d in days),
+                             "positive_cost": parts.positive_cost,
+                             "peak_daily_infections": max((d.new_infections for d in private_days), default=0),
+                             "terminal_active_infections": private_days[-1].active_infections if private_days else None}
+            if name == "control_period":
+                breakdown, reward = parts, parts.reward
     switches = [0] * 5
     changes = [0] * 5
     for previous, current in zip(history, history[1:]):
@@ -261,6 +292,7 @@ def episode_summary(protocol, snapshot, population):
     return {
         "status": "completed", "elapsed_days": snapshot.elapsed_days,
         "execution_days": snapshot.horizon,
+        **periods,
         "execution_window_count": len(snapshot.windows),
         "fixed_window_count": int(bool(protocol.definition["engine"]["initial_baseline_days"])),
         "decision_count": len(snapshot.windows) - int(bool(protocol.definition["engine"]["initial_baseline_days"])),
@@ -298,8 +330,8 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
     _validate_development_seed(protocol, world_seed, purpose)
     controller_type = getattr(controller, "controller_type", None)
     if "snapshot_training" in protocol.definition and controller_type not in (
-            "minimum", "maximum_feasible", "threshold", "ppo", "ddqn"):
-        raise ValueError("snapshot task supports only the five baselines")
+            "minimum", "maximum_feasible", "threshold", "ppo", "ddqn", "llm"):
+        raise ValueError("snapshot task requires an implemented baseline or LLM")
     if controller_type not in ("minimum", "maximum_feasible", "llm", "uniform_legal_independent_rng", "threshold", "ppo", "ddqn"):
         raise ValueError("runner requires an implemented v1 controller")
     if public_transition_sink is not None and not callable(public_transition_sink):
@@ -314,7 +346,7 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         from .llm import LLMTransport
 
         live = isinstance(controller.transport, LLMTransport)
-        if ((live and purpose not in ("prompt_development", "scientific", "pilot"))
+        if ((live and purpose not in ("prompt_development", "scientific", "pilot", "memory_training", "snapshot_test"))
                 or (not live and purpose != "smoke")):
             raise ValueError("live LLM calls require reserved source worlds; offline transports require smoke")
     if getattr(controller, "method", None) == "llm_public_memory_v1":
@@ -342,7 +374,7 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
         from .environment import WeeklyControlEnvironment
 
         environment = WeeklyControlEnvironment(protocol, mode=mode,
-                                               purpose="scientific" if purpose in ("prompt_development", "memory_collection", "pilot", "snapshot_test") else purpose,
+                                               purpose="scientific" if "snapshot_training" in protocol.definition or purpose in ("prompt_development", "memory_collection", "pilot", "snapshot_test") else purpose,
                                                scenario_options=scenario_options)
         reset_started = perf_counter()
         observation, _ = environment.reset(world_seed)
@@ -351,7 +383,9 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
             baseline = manifest["baseline"]
             actual_calibration = environment.audit_snapshot().manifest["calibration"]["artifact_sha256"]
             extension = "snapshot_training" in protocol.definition and purpose == "snapshot_test"
-            if ((observation.execution_days != baseline["reference_horizon"] and not extension)
+            evaluation_horizon = baseline.get("evaluation_compatibility", {}).get(
+                "execution_days", baseline["reference_horizon"])
+            if ((observation.execution_days != evaluation_horizon and not extension)
                     or actual_calibration != baseline["calibration_artifact_sha256"]):
                 raise ValueError("loaded baseline and evaluation task use different H or E0 identities")
         population = observation.population.population
@@ -382,6 +416,7 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
                                                if controller_type == "llm" else None)
                         decision_evidence = controller.drain_decision_evidence()
                         logger.write_decision_evidence(decision_evidence)
+                        logger.write_feedback_events(controller.drain_feedback_events())
                     except Exception as audit_error:
                         if decision_error is None:
                             raise
@@ -396,6 +431,9 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
                     raise ValueError("a proposal cannot also carry a controller failure reason")
                 if proposal is not None and type(proposal) is not ActionProposal:
                     raise TypeError("controllers must return ActionProposal or None")
+                if proposal is None and controller_type == "llm" and "snapshot_training" in protocol.definition:
+                    from .llm import LLMError
+                    raise LLMError(failure_reason, "Snapshot LLM exhausted its action retries; episode stopped")
                 next_observation, _, terminated, truncated, _ = environment.step_proposal(
                     proposal, fallback_reason=failure_reason)
             snapshot = environment.audit_snapshot()
@@ -428,6 +466,19 @@ def run_episode(protocol: ControlProtocol, controller: Controller, output_dir: s
             if truncated and "snapshot_training" not in protocol.definition:
                 raise RuntimeError("an interrupted run cannot be reported as complete")
             if terminated or truncated:
+                finish_error = None
+                try:
+                    controller.finish_episode()
+                except BaseException as error:
+                    finish_error = error
+                    raise
+                finally:
+                    try:
+                        logger.write_feedback_events(controller.drain_feedback_events())
+                    except Exception as audit_error:
+                        if finish_error is None:
+                            raise
+                        _add_error_note(finish_error, f"Feedback audit delivery failed ({type(audit_error).__name__})")
                 break
             observation = next_observation
         environment.close()
@@ -495,7 +546,8 @@ def memory_source_compatibility(protocol, calibration_artifact=None, *, executio
 def make_memory_llm_controller(protocol, *, endpoint, api_key_env="DASHSCOPE_API_KEY", tokenizer_manifest,
                                tokenizer_acceptance=None, memory_acceptance=None, provider="deepseek", client=None,
                                memory_mode="none", memory_profile_path=None, store_path=None,
-                               store_manifest=None, build_manifest=None):
+                               store_manifest=None, build_manifest=None, learning_store=None,
+                               feedback_backend="disabled", rule_memory="off"):
     """Build a runtime controller; legacy report arguments are ignored."""
     from .llm import LLMTransport, OfficialInputTokenCounter
     from .llm_memory import MemoryLLMController
@@ -503,17 +555,20 @@ def make_memory_llm_controller(protocol, *, endpoint, api_key_env="DASHSCOPE_API
     from .memory_store import FrozenPublicCaseStore
     settings = make_llm_settings(protocol, provider=provider, endpoint=endpoint, api_key_env=api_key_env)
     profile = load_memory_profile(memory_profile_path)
-    store = None
-    if memory_mode in ("global", "both"):
+    store = learning_store
+    owns_store = False
+    if memory_mode in ("global", "both") and store is None:
         if store_path is None or store_manifest is None:
             raise ValueError("global memory requires an explicit frozen public store and manifest")
         store = FrozenPublicCaseStore.open(store_path, store_manifest)
+        owns_store = True
     try:
         controller = MemoryLLMController(LLMTransport(settings, client=client), make_public_prompt_config(protocol),
             settings, OfficialInputTokenCounter(tokenizer_manifest),
-            memory_mode=memory_mode, memory_profile=profile, store=store)
+            memory_mode=memory_mode, memory_profile=profile, store=store,
+            feedback_backend=feedback_backend, rule_memory=rule_memory)
     except BaseException:
-        if store is not None:
+        if owns_store:
             store.close()
         raise
     # Private source provenance stays with the runner, outside controller inputs.
@@ -526,6 +581,19 @@ def _validate_memory_run(protocol, controller, purpose, scenario_options):
     from .memory import public_task_hash
     from .memory_store import FrozenPublicCaseStore, verify_source_manifest
     store = controller.store
+    from .learning_store import LearningMemoryStore
+    if isinstance(store, LearningMemoryStore):
+        days = (scenario_options or {}).get("execution_days", protocol.execution_days)
+        extension = (store.readonly and "snapshot_training" in protocol.definition
+                     and days >= protocol.execution_days)
+        task_days = protocol.execution_days if extension else days
+        if store.public_task_sha256 != public_task_hash(controller.prompt_config, task_days):
+            raise LLMConfigurationError("case_task_mismatch", "Learning library belongs to a different task")
+        if purpose == "memory_training" and (store.readonly or store.episode_id is None):
+            raise LLMConfigurationError("learning_not_started", "Training requires an active library transaction")
+        if purpose not in ("memory_training", "smoke") and not store.readonly:
+            raise LLMConfigurationError("mutable_evaluation", "Evaluation requires a frozen learning library")
+        return
     if controller.memory_mode in ("global", "both"):
         if type(store) is not FrozenPublicCaseStore:
             raise LLMConfigurationError("invalid_case_store", "Episodes require the verified read-only public case store")

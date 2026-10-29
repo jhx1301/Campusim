@@ -24,10 +24,5 @@
     "redundancy_penalty": 0.1,
     "conflict_minimum_state_score": 0.8,
     "conflict_minimum_diagnosis_change": 5
-  },
-  "budget_policy": {
-    "soft_input_target": 16384,
-    "truncation_order": ["cases", "external_knowledge", "recent"],
-    "preserve_conflict_pairs": true
   }
 }

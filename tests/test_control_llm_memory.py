@@ -111,22 +111,21 @@ def controller(config, *, mode="none", counter=None, transport=None, retriever=N
                                memory_mode=mode, retriever=retriever, sleeper=kwargs.pop("sleeper", lambda _: None), **kwargs)
 
 
-def make_case(pre, prompt, identity, diagnoses, *, followup=True):
+def make_case(pre, prompt, identity, diagnoses):
     week = PublicWeeklyRecord(pre.decision_day, pre.decision_day + 6, diagnoses,
                               PublicCost(clinical_tests=7), resources=pre.resources)
-    later = replace(week, start_day=week.end_day + 1, end_day=week.end_day + 7) if followup else None
-    return PublicCase(identity, 2 if later else 1, CASE_SCHEMA_VERSION,
-                       public_task_hash(prompt, pre.execution_days), pre, week, 7, later,
-                       "closed_two" if later else "closed_one", (later or week).end_day,
-                       "descriptive_not_causal", () if later else ("truncated_followup",),
+    return PublicCase(identity, 1, CASE_SCHEMA_VERSION,
+                       public_task_hash(prompt, pre.execution_days), pre, week, 7,
+                       "closed", week.end_day,
+                       "descriptive_not_causal", (),
                        "?????????????",
                        {"kind": "source_simulation", "observation_sha256": public_hash(pre),
-                        "feedback_sha256": public_hash(week), "followup_sha256": public_hash(later) if later else None})
+                        "week_sha256": public_hash(week)})
 
 
 def retrieval_result(observation, prompt):
     cases = (make_case(observation, prompt, 101, 1), make_case(observation, prompt, 207, 11),
-             make_case(observation, prompt, 309, 5, followup=False))
+             make_case(observation, prompt, 309, 5))
     items = tuple(RetrievalItem(case, 0, 1, 1, 1 - index * .01,
                                 ("conflict_pair",) if index < 2 else ()) for index, case in enumerate(cases))
     return RetrievalResult("ok", items, ("case_conflict",))
@@ -288,7 +287,7 @@ def test_exhaustion_has_program_context_without_fabricated_model_reason(config, 
     actual = PublicWeeklyRecord(0, 6, resources=day0.resources, executed_action=day0.current_action)
     policy.observe(PublicWeekFeedback(actual))
     revision, = policy.drain_case_revisions()
-    assert revision.executed_window.executed_action == day0.current_action
+    assert revision.executed_week.executed_action == day0.current_action
 
 
 def test_truncated_completion_retries_same_input(config, day0):
@@ -299,30 +298,21 @@ def test_truncated_completion_retries_same_input(config, day0):
     assert len(policy.token_counter.counted) == 1
 
 
-def test_exact_budget_trims_complete_cases_pair_then_external_then_recent(config, observation):
+def test_over_limit_fails_without_trimming_public_material(config, observation):
     _, prompt, settings = config
     result = retrieval_result(observation, prompt)
-    def volume(messages):
-        memory = json.loads(messages[1].content)["memory"]
-        return 100 + 20 * len(memory["retrieval"]["items"]) + 10 * sum(card["id"].startswith("PH-") for card in memory["knowledge"]) + 10 * (memory["recent"] is not None)
-    counter = Counter(volume)
-    policy = MemoryLLMController(Transport(), prompt, replace(settings, input_token_budget=100), counter,
+    counter = Counter(settings.input_token_budget + 1)
+    transport = Transport()
+    policy = MemoryLLMController(transport, prompt, settings, counter,
                                  memory_mode="both", retriever=Retriever(result), sleeper=lambda _: None)
-    assert policy.decide(observation) is not None
-    evidence, = policy.drain_decision_evidence()
-    assert [event["kind"] for event in evidence["trim_events"]] == ["cases", "cases", "knowledge", "knowledge", "knowledge", "recent"]
-    assert evidence["trim_events"][0]["ids"] == (309,)
-    assert evidence["trim_events"][1]["ids"] == (101, 207)
-    assert evidence["dropped_case_ids"] == (309, 101, 207) and evidence["selected_case_ids"] == ()
-    assert set(evidence["knowledge_ids"]) == set(CORE_IDS)
-    assert "no_case" in evidence["required_uncertainty_codes"]
-    assert "case_conflict" not in evidence["required_uncertainty_codes"] and "truncated_followup" not in evidence["required_uncertainty_codes"]
-    assert not any(identity.startswith(("C:", "R:")) for identity in evidence["registry"])
-    assert len(counter.counted) == 7 and len(policy.transport.messages) == 1
-    for messages in counter.counted:
-        ids = [item["case"]["case_id"] for item in json.loads(messages[1].content)["memory"]["retrieval"]["items"]]
-        assert (101 in ids) == (207 in ids)
-
+    with pytest.raises(PromptBudgetError):
+        policy.decide(observation)
+    assert len(counter.counted) == 1 and not transport.messages
+    payload = json.loads(counter.counted[0][1].content)
+    assert len(payload["memory"]["retrieval"]["items"]) == 3
+    assert payload["memory"]["recent"] is not None
+    assert len(payload["memory"]["knowledge"]) > len(CORE_IDS)
+    assert policy.memory.pending_observation is None
 
 def test_soft_target_is_no_reason_to_drop_public_material(config, observation):
     policy = controller(config, mode="short", counter=Counter(20000))
@@ -353,7 +343,7 @@ def test_sent_case_refs_and_public_values_are_distinct_from_selected_ids(config,
     assert evidence["selected_case_ids"] == (101, 207, 309)
     assert evidence["cited_case_ids"] == (309, 101)
     assert evidence["cited_evidence"]["O:/history/3/delivered_diagnoses"] == 6
-    assert {"case_conflict", "truncated_followup"}.issubset(evidence["required_uncertainty_codes"])
+    assert "case_conflict" in evidence["required_uncertainty_codes"]
     assert evidence["review_status"] == "not_reviewed"
     with pytest.raises(TypeError):
         evidence["cited_evidence"]["O:/history/3/delivered_diagnoses"] = 0
@@ -379,9 +369,9 @@ def test_terminal_feedback_and_reset_clear_episode_only(config):
     policy.decide(observation)
     policy.observe(feedback)
     revision, = policy.drain_case_revisions()
-    assert revision.status == "terminal_censored" and revision.window_days == 5
-    assert "partial_window" in revision.flags and "truncated_followup" in revision.flags
-    assert revision.executed_window.executed_action == feedback.week.executed_action
+    assert revision.status == "closed" and revision.window_days == 5
+    assert "partial_window" in revision.flags
+    assert revision.executed_week.executed_action == feedback.week.executed_action
     assert len(policy.transport.messages) == 1
     policy.reset()
     assert policy.drain_decision_evidence() == () and policy.drain_case_revisions() == ()

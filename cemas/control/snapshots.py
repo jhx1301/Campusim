@@ -1,9 +1,11 @@
 """Historical state capture and explicit policy handoff for baseline training."""
 
 from dataclasses import replace
+from concurrent.futures import ProcessPoolExecutor
 from datetime import timedelta
 import hashlib
 import json
+import multiprocessing
 from math import ceil, log2
 from pathlib import Path
 from types import MappingProxyType
@@ -54,37 +56,21 @@ class HistoricalPublicRecorder(cv.Analyzer):
             "union": int((iso | quar).sum())})
 
 
-def generate_history_snapshots(protocol, anchor_path, output, history_seed, split, *, days=None):
-    from ..e0.artifacts import load_calibration_artifact
+def _capture_history_snapshots(protocol, output, history_seed, split, days, beta):
     from ..e0.data import load_e0_config, load_e0_data
     from ..replay.simulation import build_replay_sim
     from ..replay.study import load_replay_data
 
-    if history_seed not in history_seeds(protocol, split):
-        raise ValueError("history seed does not belong to declared snapshot split")
-    settings = protocol.definition["snapshot_training"]
-    days = list(settings["snapshot_days"] if days is None else days)
-    if not days or any(d not in settings["snapshot_days"] for d in days) or days != sorted(set(days)):
-        raise ValueError("capture days must be increasing declared snapshot days")
-    anchor = load_calibration_artifact(anchor_path, protocol)
-    identity = snapshot_identity(protocol, anchor.sha256)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
-    catalog_path = output / "snapshots_manifest.json"
-    catalog = json.loads(catalog_path.read_text(encoding="utf-8")) if catalog_path.exists() else {
-        "identity": identity, "snapshots": {}}
-    if catalog["identity"] != identity:
-        raise ValueError("snapshot output already belongs to a different model/recipe")
-    for day in days:
-        if any((output / f"{history_seed}-{day}{suffix}").exists() for suffix in (".json", ".pkl")):
-            raise FileExistsError(output / f"{history_seed}-{day}.json")
+    settings = protocol.definition["snapshot_training"]
     config = load_e0_config(ROOT / protocol.definition["calibration"]["config"])
-    sim, measures, _, _, _ = build_replay_sim(config, load_replay_data(config), anchor.beta,
+    sim, measures, _, _, _ = build_replay_sim(config, load_replay_data(config), beta,
         history_seed, **dict(settings["replay_parameters"]), w1_data=load_e0_data(config))
     recorder = HistoricalPublicRecorder()
     recorder.initialize(sim)
     sim["analyzers"].append(recorder)
-    paths = []
+    paths, entries = [], {}
     for day in days:
         while sim.t < day:
             sim.step()
@@ -97,18 +83,94 @@ def generate_history_snapshots(protocol, anchor_path, output, history_seed, spli
             "history_seed": history_seed, "snapshot_day": day, "split": split,
             "state_file": state_path.name,
             "active_infections": int(np.count_nonzero((sim.people.exposed | sim.people.infectious) & ~sim.people.dead)),
-            "population": sim.n, "beta": anchor.beta}
+            "population": sim.n, "beta": beta}
         path = state_path.with_suffix(".json")
         with path.open("x", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2)
         paths.append(str(path))
-        catalog["snapshots"][path.name] = {"history_seed": history_seed, "snapshot_day": day,
-                                          "split": split, "state_sha256": file_hash(state_path)}
-    temporary = output / "snapshots_manifest.json.tmp"
+        entries[path.name] = {"history_seed": history_seed, "snapshot_day": day,
+                              "split": split, "state_sha256": file_hash(state_path)}
+    return paths, entries
+
+
+def _capture_snapshot_job(job):
+    """Spawn entry: only world-specific state files are written by workers."""
+    from .snapshot_protocol import load_training_protocol
+
+    protocol = load_training_protocol(job["protocol_path"])
+    return _capture_history_snapshots(protocol, job["output"], job["history_seed"],
+        job["split"], job["days"], job["beta"])
+
+
+def _write_snapshot_catalog(path, catalog):
+    temporary = path.with_suffix(".json.tmp")
     with temporary.open("x", encoding="utf-8") as handle:
         json.dump(catalog, handle, indent=2)
-    temporary.replace(catalog_path)
-    return paths
+    temporary.replace(path)
+
+
+def generate_snapshot_library(protocol, anchor_path, output, split, seeds=None, *,
+                              days=None, workers=1):
+    """Capture worlds independently; the parent alone merges the shared manifest."""
+    from ..e0.artifacts import load_calibration_artifact
+
+    if type(workers) is not int or workers < 1:
+        raise ValueError("snapshot workers must be a positive integer")
+    allowed = history_seeds(protocol, split)
+    seeds = tuple(allowed if seeds is None else seeds)
+    if not seeds or len(seeds) != len(set(seeds)):
+        raise ValueError("history seeds must be nonempty and distinct")
+    if any(seed not in allowed for seed in seeds):
+        raise ValueError("history seed does not belong to declared snapshot split")
+    settings = protocol.definition["snapshot_training"]
+    days = list(settings["snapshot_days"] if days is None else days)
+    if not days or any(d not in settings["snapshot_days"] for d in days) or days != sorted(set(days)):
+        raise ValueError("capture days must be increasing declared snapshot days")
+    anchor = load_calibration_artifact(anchor_path, protocol)
+    identity = snapshot_identity(protocol, anchor.sha256)
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    lock_path = output / "snapshots_manifest.lock"
+    lock = lock_path.open("x")
+    try:
+        catalog_path = output / "snapshots_manifest.json"
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8")) if catalog_path.exists() else {
+            "identity": identity, "snapshots": {}}
+        if catalog["identity"] != identity:
+            raise ValueError("snapshot output already belongs to a different model/recipe")
+        for seed in seeds:
+            for day in days:
+                path = output / f"{seed}-{day}.json"
+                if path.exists() or path.with_suffix(".pkl").exists() or path.name in catalog["snapshots"]:
+                    raise FileExistsError(path)
+        paths = []
+
+        def merge(result):
+            captured, entries = result
+            catalog["snapshots"].update(entries)
+            _write_snapshot_catalog(catalog_path, catalog)
+            paths.extend(captured)
+            print(f"Captured {split}: {len(paths)}/{len(seeds) * len(days)} snapshots", flush=True)
+
+        if workers == 1:
+            for seed in seeds:
+                merge(_capture_history_snapshots(protocol, output, seed, split, days, anchor.beta))
+        else:
+            jobs = [{"protocol_path": str(protocol.source_path), "output": str(output),
+                     "history_seed": seed, "split": split, "days": days, "beta": anchor.beta}
+                    for seed in seeds]
+            with ProcessPoolExecutor(max_workers=min(workers, len(seeds)),
+                    mp_context=multiprocessing.get_context("spawn")) as executor:
+                for result in executor.map(_capture_snapshot_job, jobs):
+                    merge(result)
+        return paths
+    finally:
+        lock.close()
+        lock_path.unlink()
+
+
+def generate_history_snapshots(protocol, anchor_path, output, history_seed, split, *, days=None):
+    return generate_snapshot_library(protocol, anchor_path, output, split, [history_seed], days=days)
 
 
 def _resize_results(sim, horizon):
@@ -214,18 +276,34 @@ def historical_weeks(bundle):
     return weeks
 
 
+def snapshot_week(bundle, start_day, end_day):
+    """The same public window is used in observations and execution feedback."""
+    if start_day < 0:
+        return next(w for w in historical_weeks(bundle)
+                    if w.start_day == start_day and w.end_day == end_day)
+    week = bundle.public_analyzer.ledger.aggregate_week(start_day, end_day)
+    if start_day == 0 and end_day == 6:
+        history = historical_weeks(bundle)
+        if history:
+            week = replace(week, growth=log2((week.delivered_diagnoses + 1) /
+                                            (history[-1].delivered_diagnoses + 1)), growth_valid=True)
+    return week
+
+
+def snapshot_feedback(bundle, start_day, end_day):
+    from .types import PublicWeekFeedback
+    previous = (snapshot_week(bundle, start_day - 7, start_day - 1)
+                if start_day or historical_weeks(bundle) else None)
+    return PublicWeekFeedback(snapshot_week(bundle, start_day, end_day), previous)
+
+
 def snapshot_observation(observation, bundle):
     """Merge historical public facts with completed post-takeover weeks."""
     start = bundle.private_metadata["snapshot_day"]
     past = bundle.private_metadata["public_history"]
-    ledger = bundle.public_analyzer.ledger
     weeks = historical_weeks(bundle)
     for lo in range(0, observation.decision_day // 7 * 7, 7):
-        week = ledger.aggregate_week(lo, lo + 6)
-        if lo == 0 and weeks:
-            week = replace(week, growth=log2((week.delivered_diagnoses + 1)/
-                           (weeks[-1].delivered_diagnoses + 1)), growth_valid=True)
-        weeks.append(week)
+        weeks.append(snapshot_week(bundle, lo, lo + 6))
     weeks = weeks[-4:]
     known = {} if observation.decision_day else {
         "previous_day_known_isolated": past[-1]["isolated"],

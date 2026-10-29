@@ -166,9 +166,9 @@ def test_world_holdout_excludes_all_policies_and_revisions_with_real_retriever()
         resources, action, (7,)*5, (True,)*324, (PublicWeeklyRecord(),)*3+(week,), (False,)*3+(True,))
     following = PublicWeeklyRecord(7, 13, 2, PublicCost(clinical_tests=7), action, resources)
     cases = tuple(PublicCase(identity, 1, CASE_SCHEMA_VERSION, "a"*64, observation, following,
-        7, None, "closed_one", 13, "descriptive_not_causal", ("truncated_followup",), "Public example.",
+        7, "closed", 13, "descriptive_not_causal", (), "Public example.",
         {"kind": "source_simulation", "observation_sha256": public_hash(observation),
-         "feedback_sha256": public_hash(following), "followup_sha256": None}) for identity in range(1, 5))
+         "week_sha256": public_hash(following)}) for identity in range(1, 5))
     inspected = []
     def group(identity):
         inspected.append(identity)
@@ -248,7 +248,9 @@ def test_training_orchestration_keeps_all_seeds_and_saves_after_updates(protocol
     assert result["purpose"] == "fixture"
 
 
-def test_worker_reuses_runner_and_preserves_threshold_and_missing_usage_evidence(protocol, tmp_path, monkeypatch):
+@pytest.mark.parametrize("action_count,auxiliary_count", [(2, 0), (2, 3), (0, 3), (0, 0), (16, 15)])
+def test_worker_reuses_runner_and_preserves_threshold_and_missing_usage_evidence(
+        protocol, tmp_path, monkeypatch, action_count, auxiliary_count):
     import cemas.control.runner as runner
     from cemas.control.controllers import _BASELINE_METADATA
     from cemas.control.worker import evaluate_job
@@ -258,7 +260,16 @@ def test_worker_reuses_runner_and_preserves_threshold_and_missing_usage_evidence
     (output / "private_daily.csv").write_text("new_infections\n" + "1\n"*16, encoding="utf-8")
     calls = [{"elapsed_ms": 2., "response": {"usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}}},
              {"elapsed_ms": 1., "response": None}]
-    (output / "llm_calls.jsonl").write_text("\n".join(json.dumps(row) for row in calls), encoding="utf-8")
+    if action_count:
+        (output / "llm_calls.jsonl").write_text(
+            "\n".join(json.dumps(calls[i % 2]) for i in range(action_count)), encoding="utf-8")
+    if auxiliary_count:
+        events = [{"event": "provider_call", "purpose": "rule_distillation" if i % 3 == 2 else "feedback",
+                   "elapsed_ms": 5., "response": None if i == 0 else calls[0]["response"],
+                   "error_code": "timeout" if i == 0 else None} for i in range(auxiliary_count)]
+        events.extend([{"event": "result", "status": "generated"}, {"event": "preflight_error"}])
+        (output / "feedback_events.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in events), encoding="utf-8")
     parameters = threshold_candidates(protocol)[0]["parameters"]
     def run(protocol, controller, output_dir, world_seed, **kwargs):
         assert kwargs["mode"] == "evaluation" and kwargs["purpose"] == "scientific"
@@ -269,9 +280,15 @@ def test_worker_reuses_runner_and_preserves_threshold_and_missing_usage_evidence
         "controller": {"method": "threshold", "parameters": parameters},
         "output_dir": str(output), "world_seed": 20001, "scenario_options": {}})
     assert result["last_window_infections"] == 14
-    assert result["llm_usage"]["total_tokens"] == 7
-    assert result["llm_usage"]["usage_missing_attempts"] == 1
-    assert result["llm_usage"]["provider_fee"] is None
+    usage = result["llm_usage"]
+    assert (usage["attempts"], usage["auxiliary_attempts"], usage["total_attempts"]) == (
+        action_count, auxiliary_count, action_count + auxiliary_count)
+    reported = (action_count + 1) // 2 + max(auxiliary_count - 1, 0)
+    assert (usage["prompt_tokens"], usage["completion_tokens"], usage["total_tokens"]) == (
+        3 * reported, 4 * reported, 7 * reported)
+    assert usage["elapsed_ms"] == 2 * ((action_count + 1) // 2) + action_count // 2 + 5 * auxiliary_count
+    assert usage["usage_missing_attempts"] == action_count // 2 + bool(auxiliary_count)
+    assert usage["provider_fee"] is None and usage["fee_status"] == "not_supplied"
 
 
 def test_holdout_cli_uses_real_frozen_manifest_filename(tmp_path, monkeypatch):

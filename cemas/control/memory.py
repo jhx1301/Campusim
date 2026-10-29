@@ -7,7 +7,7 @@ reads a proposal, reward, private runner record, model response, or simulator.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from .memory_types import (
@@ -17,6 +17,7 @@ from .memory_types import (
     public_to_dict, strict_json_loads,
 )
 from .types import SCHEMA_VERSION, PublicObservation, PublicWeekFeedback
+from .public_history import tests_in, activity_in
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -24,7 +25,7 @@ DEFAULT_PROFILE_PATH = PROJECT_ROOT / "docs" / "control_memory_v1.json"
 _PROFILE_FIELDS = (
     "schema_version", "architecture_version", "response_schema_version",
     "template_path", "knowledge_path", "short_term_window", "trend_window",
-    "retrieval", "budget_policy",
+    "retrieval",
 )
 _RETRIEVAL_FIELDS = (
     "configuration_version", "feature_version", "state_scales", "trend_scales",
@@ -87,13 +88,6 @@ class MemoryProfile:
             if path.is_absolute() or ".." in path.parts or ":" in value:
                 raise ValueError(f"{key} must stay inside the project root")
         _validate_retrieval_config(data["retrieval"])
-        budget = data["budget_policy"]
-        _exact(budget, ("soft_input_target", "truncation_order", "preserve_conflict_pairs"), "budget policy")
-        _integer(budget["soft_input_target"], "soft_input_target", minimum=1)
-        if _sequence(budget["truncation_order"], "truncation_order") != ("cases", "external_knowledge", "recent"):
-            raise ValueError("the deterministic budget truncation order cannot change")
-        if budget["preserve_conflict_pairs"] is not True:
-            raise ValueError("conflict pairs must be removed together")
         object.__setattr__(self, "data", immutable_json(data))
         object.__setattr__(self, "sha256", public_hash(data))
 
@@ -104,10 +98,6 @@ class MemoryProfile:
     @property
     def configuration_version(self):
         return self.retrieval["configuration_version"]
-
-    @property
-    def budget_policy(self):
-        return self.data["budget_policy"]
 
     @property
     def architecture_version(self):
@@ -158,18 +148,20 @@ def recent_summary(observation):
     weeks = tuple(week for week, valid in zip(observation.history, observation.week_valid) if valid)
     windows = tuple(RecentWindow(
         week.start_day, week.end_day, week.delivered_diagnoses,
-        week.cost.clinical_tests + week.cost.screening_tests,
-        week.cost.delivered_notifications, week.cost.union_person_days,
-        week.cost.school_restriction_person_days + week.cost.work_restriction_person_days + week.cost.community_restriction_person_days,
-        week.executed_action.values, week.resources, week.growth, week.growth_valid,
+        tests_in(week),
+        None if week.historical else week.cost.delivered_notifications, week.cost.union_person_days,
+        activity_in(week),
+        None if week.historical else week.executed_action.values,
+        None if week.historical else week.resources, week.growth, week.growth_valid,
         week.diagnosis_test_proxy, week.proxy_valid,
     ) for week in weeks)
-    capacity_changed = bool(weeks and observation.resources != weeks[-1].resources)
+    capacity_changed = bool(weeks and not weeks[-1].historical and observation.resources != weeks[-1].resources)
     testing_changed = False
     direction = "insufficient"
     if len(windows) >= 2:
         previous, latest = windows[-2:]
-        testing_changed = abs(latest.tests - previous.tests) / max(previous.tests, 1) > 0.25
+        testing_changed = (previous.tests is not None and latest.tests is not None
+                           and abs(latest.tests - previous.tests) / max(previous.tests, 1) > 0.25)
         change = latest.diagnoses - previous.diagnoses
         direction = "up" if change > 0 else "down" if change < 0 else "flat"
     flags = ["partial_observability"]
@@ -184,64 +176,45 @@ def recent_summary(observation):
                          capacity_changed, testing_changed, direction, tuple(flags))
 
 
-def case_flags(pre_observation, executed_window, followup_window=None):
+def case_flags(pre_observation, executed_week):
     """Describe observed changes without reward, hidden infection, or causal labels."""
     if type(pre_observation) is not PublicObservation:
         raise TypeError("case flags require exact PublicObservation")
-    baseline = next((week for week, valid in zip(reversed(pre_observation.history), reversed(pre_observation.week_valid)) if valid), None)
+    previous = next((week for week, valid in zip(reversed(pre_observation.history), reversed(pre_observation.week_valid)) if valid), None)
     flags = []
-    if baseline is None:
-        flags.append("missing_baseline")
-    else:
-        before_tests = baseline.cost.clinical_tests + baseline.cost.screening_tests
-        after_tests = executed_window.cost.clinical_tests + executed_window.cost.screening_tests
-        if abs(after_tests - before_tests) / max(before_tests, 1) > 0.25:
+    if previous is not None:
+        before_tests, after_tests = tests_in(previous), tests_in(executed_week)
+        if before_tests is not None and abs(after_tests - before_tests) / max(before_tests, 1) > 0.25:
             flags.append("testing_changed")
-    if executed_window.resources != pre_observation.resources or (baseline is not None and baseline.resources != executed_window.resources):
+    if executed_week.resources != pre_observation.resources or (previous is not None and not previous.historical and previous.resources != executed_week.resources):
         flags.append("capacity_changed")
-    if executed_window.executed_action != pre_observation.current_action:
+    if executed_week.executed_action != pre_observation.current_action:
         flags.append("action_changed")
-    if followup_window is not None:
-        if followup_window.executed_action != executed_window.executed_action:
-            flags.append("followup_action_changed")
-        if followup_window.resources != executed_window.resources and "capacity_changed" not in flags:
-            flags.append("capacity_changed")
-        tests1 = executed_window.cost.clinical_tests + executed_window.cost.screening_tests
-        tests2 = followup_window.cost.clinical_tests + followup_window.cost.screening_tests
-        if abs(tests2 - tests1) / max(tests1, 1) > 0.25 and "testing_changed" not in flags:
-            flags.append("testing_changed")
-    if executed_window.end_day - executed_window.start_day != 6:
+    if executed_week.end_day - executed_week.start_day != 6:
         flags.append("partial_window")
-    if followup_window is None or followup_window.end_day - followup_window.start_day != 6:
-        flags.append("truncated_followup")
     return tuple(flags)
 
 
-def describe_case(pre_observation, executed_window, followup_window=None):
+def describe_case(pre_observation, executed_week):
     """A fixed, reproducible descriptive template; no LLM reflection is involved."""
     if type(pre_observation) is not PublicObservation:
         raise TypeError("case descriptions require exact PublicObservation")
-    week = executed_window
+    week = executed_week
     cost = week.cost
     tests = cost.clinical_tests + cost.screening_tests
     activity = cost.school_restriction_person_days + cost.work_restriction_person_days + cost.community_restriction_person_days
-    baseline = next((item for item, valid in zip(reversed(pre_observation.history), reversed(pre_observation.week_valid)) if valid), None)
-    before = f"最近完整周交付诊断{baseline.delivered_diagnoses}" if baseline is not None else "无已完成完整周"
-    if followup_window is None:
-        after = "后窗尚未交付"
-    else:
-        after = (f"后窗{followup_window.start_day}至{followup_window.end_day}日实际执行"
-                 f"{list(followup_window.executed_action.values)}，交付诊断{followup_window.delivered_diagnoses}")
+    previous = next((item for item, valid in zip(reversed(pre_observation.history), reversed(pre_observation.week_valid)) if valid), None)
+    before = f"最近完整周交付诊断{previous.delivered_diagnoses}" if previous is not None else "无已完成完整周"
     return (f"在公开状态（{before}）实际执行{list(week.executed_action.values)}持续"
             f"{week.end_day - week.start_day + 1}日；随后交付诊断{week.delivered_diagnoses}，"
             f"实际检测{tests}，通知{cost.delivered_notifications}，并集{cost.union_person_days:g}人天，"
-            f"活动{activity:g}人天；{after}；这些是关联记录，非因果估计。")
+            f"活动{activity:g}人天；这些是关联记录，非因果估计。")
 
 
 class PublicEpisodeMemory:
-    """Pair staged O with actual public execution; publish immutable revisions."""
+    """Pair staged observations with one actual public execution week."""
 
-    __slots__ = ("_pending", "_staged", "_accepted", "_waiting", "_last_feedback", "_next_id", "_latest_revisions")
+    __slots__ = ("_pending", "_staged", "_accepted", "_last_feedback", "_next_id", "_latest_revisions")
 
     def __init__(self):
         self.reset()
@@ -250,7 +223,6 @@ class PublicEpisodeMemory:
         self._pending = None
         self._staged = {}
         self._accepted = {}
-        self._waiting = None
         self._last_feedback = None
         self._next_id = 1
         self._latest_revisions = {}
@@ -263,7 +235,7 @@ class PublicEpisodeMemory:
     def pending_observation(self):
         return self._pending[1] if self._pending is not None else None
 
-    def stage(self, observation):
+    def validate_observation(self, observation):
         if type(observation) is not PublicObservation:
             raise TypeError("memory stage requires exact PublicObservation")
         day = observation.decision_day
@@ -277,27 +249,37 @@ class PublicEpisodeMemory:
         if self._pending is not None:
             raise ValueError("the pending public decision must be closed before staging a new day")
         weeks = tuple(week for week, valid in zip(observation.history, observation.week_valid) if valid)
-        expected_count = min(day // 7, 4)
+        expected_count = min((observation.snapshot_day + day) // 7, 4)
         if len(weeks) != expected_count or (weeks and weeks[-1].end_day != day - 1):
             raise ValueError("staged observation lacks the current complete public history")
+        if any(b.start_day != a.end_day + 1 for a, b in zip(weeks, weeks[1:])):
+            raise ValueError("staged public history must be contiguous")
         if self._last_feedback is not None:
             previous = self._last_feedback.week
             if day != previous.end_day + 1 or previous != weeks[-1]:
                 raise ValueError("new observation must follow the last accepted public window")
-            known_windows = {case.executed_window.start_day: case.executed_window
+            known_windows = {case.executed_week.start_day: case.executed_week
                              for case in self._latest_revisions.values()}
             if any(week.start_day in known_windows and week != known_windows[week.start_day] for week in weeks):
                 raise ValueError("staged history conflicts with previously accepted public windows")
-            prior_observation = self._latest_revisions[max(self._latest_revisions)].pre_observation
-            if (observation.execution_days != prior_observation.execution_days
+            prior_observation = (self._latest_revisions[max(self._latest_revisions)].pre_observation
+                                 if self._latest_revisions else None)
+            if prior_observation is not None and (observation.execution_days != prior_observation.execution_days
                     or observation.population != prior_observation.population
                     or observation.initial_infections != prior_observation.initial_infections):
                 raise ValueError("public task constants cannot change within an episode")
+
+    def stage(self, observation):
+        self.validate_observation(observation)
+        day = observation.decision_day
+        if day in self._staged:
+            return
+        digest = public_hash(observation)
         self._pending = (self._next_id, observation)
         self._next_id += 1
         self._staged[day] = digest
 
-    def accept(self, feedback):
+    def accept(self, feedback, *, publish=True):
         if type(feedback) is not PublicWeekFeedback:
             raise TypeError("memory accept requires exact PublicWeekFeedback")
         digest = public_hash(feedback)
@@ -315,24 +297,18 @@ class PublicEpisodeMemory:
         previous = next((week for week, valid in zip(reversed(observation.history), reversed(observation.week_valid)) if valid), None)
         if feedback.previous_week != previous:
             raise ValueError("feedback previous_week must equal the staged observation's latest public week")
-        emitted = []
-        if self._waiting is not None:
-            waiting = self._waiting
-            if waiting.executed_window.end_day + 1 != feedback.week.start_day:
-                raise ValueError("followup must be the adjacent actual public window")
-            updated = replace(waiting, revision=2, followup_window=feedback.week, status="closed_two",
-                              flags=case_flags(waiting.pre_observation, waiting.executed_window, feedback.week),
-                              description=describe_case(waiting.pre_observation, waiting.executed_window, feedback.week))
-            emitted.append(updated)
-        status = "terminal_censored" if feedback.week.end_day == observation.execution_days - 1 else "closed_one"
-        current = LocalCaseRevision(local_id, 1, observation, feedback.week, None, status,
+        if not publish:
+            self._pending = None
+            self._last_feedback = feedback
+            self._accepted[day] = digest
+            return ()
+        current = LocalCaseRevision(local_id, 1, observation, feedback.week, "closed",
                                     case_flags(observation, feedback.week),
                                     describe_case(observation, feedback.week))
-        emitted.append(current)
+        emitted = [current]
         # Mutate only after all new public revisions have validated successfully.
         for revision in emitted:
             self._latest_revisions[revision.local_id] = revision
-        self._waiting = None if status == "terminal_censored" else current
         self._pending = None
         self._last_feedback = feedback
         self._accepted[day] = digest

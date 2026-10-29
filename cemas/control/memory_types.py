@@ -19,7 +19,7 @@ from .types import (ActionVector, PublicCost, PublicObservation,
                     PublicWeeklyRecord, _action_id)
 
 
-CASE_SCHEMA_VERSION = "cemas-public-case-v1"
+CASE_SCHEMA_VERSION = "cemas-public-case-v2"
 QUERY_SCHEMA_VERSION = "cemas-case-query-v1"
 MEMORY_SCHEMA_VERSION = "cemas-control-memory-v1"
 ARCHITECTURE_VERSION = "numeric-public-memory-v1"
@@ -27,11 +27,10 @@ RESPONSE_SCHEMA_VERSION = "cemas-public-decision-v1"
 FEATURE_VERSION = "cemas-public-case-features-v1"
 RETRIEVAL_VERSION = "numeric-retrieval-v1"
 CASE_FLAGS = ("testing_changed", "capacity_changed", "action_changed",
-              "followup_action_changed", "partial_window", "missing_baseline",
-              "conflicting_peer", "truncated_followup")
+              "partial_window", "conflicting_peer")
 UNCERTAINTY_CODES = ("partial_observability", "no_history", "testing_changed",
                      "capacity_changed", "no_case", "case_conflict",
-                     "out_of_support", "truncated_followup")
+                     "out_of_support")
 
 
 def _exact(value, expected, name):
@@ -100,7 +99,9 @@ def _latest(observation):
     return next((week for week, valid in zip(reversed(observation.history), reversed(observation.week_valid)) if valid), None)
 
 
-def _validate_case_windows(pre, executed, followup, status, revision):
+def _validate_case_window(pre, executed, status):
+    if status != "closed":
+        raise ValueError("a delivered single-week case must be closed")
     if type(pre) is not PublicObservation or type(executed) is not PublicWeeklyRecord:
         raise TypeError("cases require exact public observation and weekly record types")
     if pre.decision_day >= pre.execution_days or pre.decision_day % 7:
@@ -109,17 +110,6 @@ def _validate_case_windows(pre, executed, followup, status, revision):
         raise ValueError("executed window does not match the public decision horizon")
     if not pre.legal_action_mask[_action_id(executed.executed_action.values)]:
         raise ValueError("actual executed action must be legal under its public pre-state")
-    terminal = executed.end_day == pre.execution_days - 1
-    if followup is None:
-        if revision != 1 or status != ("terminal_censored" if terminal else "closed_one"):
-            raise ValueError("first revision status does not match its closed window")
-    else:
-        if type(followup) is not PublicWeeklyRecord:
-            raise TypeError("followup_window must be PublicWeeklyRecord or None")
-        if terminal or revision != 2 or status != "closed_two":
-            raise ValueError("a followup requires a second closed revision")
-        if followup.start_day != executed.end_day + 1 or followup.end_day != min(followup.start_day + 6, pre.execution_days - 1):
-            raise ValueError("followup must be the next actual closed public window")
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,28 +117,33 @@ class RecentWindow:
     start_day: int
     end_day: int
     diagnoses: int
-    tests: int
-    notifications: int
+    tests: int | None
+    notifications: int | None
     union_person_days: float
-    activity_person_days: float
-    executed_action: tuple[int, ...]
-    resources: PublicResources
+    activity_person_days: float | None
+    executed_action: tuple[int, ...] | None
+    resources: PublicResources | None
     growth: float
     growth_valid: bool
     proxy: float
     proxy_valid: bool
 
     def __post_init__(self):
-        for name in ("start_day", "end_day", "diagnoses", "tests", "notifications"):
-            _integer(getattr(self, name), name)
+        for name in ("start_day", "end_day"):
+            if type(getattr(self, name)) is not int:
+                raise ValueError("window dates must be integers")
+        for name in ("diagnoses", "tests", "notifications"):
+            if getattr(self, name) is not None:
+                _integer(getattr(self, name), name)
         if self.end_day != self.start_day + 6:
             raise ValueError("recent windows must contain exactly seven completed days")
         for name in ("union_person_days", "activity_person_days", "proxy"):
-            _number(getattr(self, name), name, minimum=0)
+            if getattr(self, name) is not None:
+                _number(getattr(self, name), name, minimum=0)
         _number(self.growth, "growth")
-        action = ActionVector(self.executed_action)
-        object.__setattr__(self, "executed_action", action.values)
-        if type(self.resources) is not PublicResources:
+        if self.executed_action is not None:
+            object.__setattr__(self, "executed_action", ActionVector(self.executed_action).values)
+        if self.resources is not None and type(self.resources) is not PublicResources:
             raise TypeError("resources must be PublicResources")
         if type(self.growth_valid) is not bool or type(self.proxy_valid) is not bool:
             raise TypeError("validity values must be booleans")
@@ -197,8 +192,7 @@ class LocalCaseRevision:
     local_id: int
     revision: int
     pre_observation: PublicObservation
-    executed_window: PublicWeeklyRecord
-    followup_window: PublicWeeklyRecord | None
+    executed_week: PublicWeeklyRecord
     status: str
     flags: tuple[str, ...]
     description: str
@@ -206,17 +200,17 @@ class LocalCaseRevision:
     def __post_init__(self):
         _integer(self.local_id, "local_id", minimum=1)
         _integer(self.revision, "revision", minimum=1)
-        _validate_case_windows(self.pre_observation, self.executed_window, self.followup_window, self.status, self.revision)
+        _validate_case_window(self.pre_observation, self.executed_week, self.status)
         object.__setattr__(self, "flags", _flags(self.flags, CASE_FLAGS))
         _text(self.description, "description")
 
     @property
     def window_days(self):
-        return self.executed_window.end_day - self.executed_window.start_day + 1
+        return self.executed_week.end_day - self.executed_week.start_day + 1
 
     @property
     def available_through_day(self):
-        return (self.followup_window or self.executed_window).end_day
+        return self.executed_week.end_day
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,9 +220,8 @@ class PublicCase:
     schema_version: str
     public_task_sha256: str
     pre_observation: PublicObservation
-    executed_window: PublicWeeklyRecord
+    executed_week: PublicWeeklyRecord
     window_days: int
-    followup_window: PublicWeeklyRecord | None
     status: str
     available_through_day: int
     attribution: str
@@ -242,23 +235,22 @@ class PublicCase:
         if self.schema_version != CASE_SCHEMA_VERSION:
             raise ValueError("unsupported public case schema")
         _digest(self.public_task_sha256, "public_task_sha256")
-        _validate_case_windows(self.pre_observation, self.executed_window, self.followup_window, self.status, self.revision)
+        _validate_case_window(self.pre_observation, self.executed_week, self.status)
         _integer(self.window_days, "window_days", minimum=1)
         _integer(self.available_through_day, "available_through_day")
-        if self.window_days != self.executed_window.end_day - self.executed_window.start_day + 1:
+        if self.window_days != self.executed_week.end_day - self.executed_week.start_day + 1:
             raise ValueError("window_days must equal the actual executed duration")
-        if self.available_through_day != (self.followup_window or self.executed_window).end_day:
+        if self.available_through_day != self.executed_week.end_day:
             raise ValueError("available_through_day must describe the latest delivered window")
         if self.attribution != "descriptive_not_causal":
             raise ValueError("public cases cannot assert causal or reward labels")
         object.__setattr__(self, "flags", _flags(self.flags, CASE_FLAGS))
         _text(self.description, "description")
-        _exact(self.public_source, ("kind", "observation_sha256", "feedback_sha256", "followup_sha256"), "public_source")
+        _exact(self.public_source, ("kind", "observation_sha256", "week_sha256"), "public_source")
         if self.public_source["kind"] != "source_simulation":
             raise ValueError("public source must be an audited source simulation")
         expected = {"observation_sha256": public_hash(self.pre_observation),
-                    "feedback_sha256": public_hash(self.executed_window),
-                    "followup_sha256": public_hash(self.followup_window) if self.followup_window is not None else None}
+                    "week_sha256": public_hash(self.executed_week)}
         for key, digest in expected.items():
             if self.public_source[key] != digest:
                 raise ValueError(f"public_source {key} does not match public content")
@@ -428,11 +420,11 @@ def public_to_dict(value):
     if type(value) is PublicObservation:
         from .logging import public_observation_to_dict
         return public_observation_to_dict(value)
+    if type(value) is PublicWeeklyRecord:
+        from .public_history import week_values
+        return week_values(value)
     if type(value) in _PUBLIC_TYPES:
         result = {item.name: public_to_dict(getattr(value, item.name)) for item in fields(value)}
-        if type(value) is PublicWeeklyRecord and not value.historical:
-            for name in ("historical", "total_tests"):
-                result.pop(name)
         return result
     if isinstance(value, Mapping):
         if any(type(key) is not str for key in value):
@@ -475,6 +467,11 @@ def resources_from_dict(value):
 
 def weekly_record_from_dict(value):
     values = _record_dict(value, PublicWeeklyRecord)
+    if values["historical"]:
+        # Native records keep placeholders; the historical flag hides them at every public projection.
+        values["cost"] = {key: 0 if item is None else item for key, item in values["cost"].items()}
+        values["resources"] = values["resources"] or public_to_dict(PublicResources())
+        values["executed_action"] = values["executed_action"] or public_to_dict(ActionVector((0, 0, 0, 0, 0)))
     values["cost"] = PublicCost(**_record_dict(values["cost"], PublicCost))
     values["resources"] = resources_from_dict(values["resources"])
     values["executed_action"] = _action_from_dict(values["executed_action"])
@@ -506,18 +503,14 @@ def feedback_from_dict(value):
 def local_case_from_dict(value):
     values = _record_dict(value, LocalCaseRevision)
     values["pre_observation"] = observation_from_dict(values["pre_observation"])
-    values["executed_window"] = weekly_record_from_dict(values["executed_window"])
-    if values["followup_window"] is not None:
-        values["followup_window"] = weekly_record_from_dict(values["followup_window"])
+    values["executed_week"] = weekly_record_from_dict(values["executed_week"])
     return LocalCaseRevision(**values)
 
 
 def public_case_from_dict(value):
     values = _record_dict(value, PublicCase)
     values["pre_observation"] = observation_from_dict(values["pre_observation"])
-    values["executed_window"] = weekly_record_from_dict(values["executed_window"])
-    if values["followup_window"] is not None:
-        values["followup_window"] = weekly_record_from_dict(values["followup_window"])
+    values["executed_week"] = weekly_record_from_dict(values["executed_week"])
     return PublicCase(**values)
 
 
@@ -530,7 +523,8 @@ def recent_summary_from_dict(value):
     windows = []
     for item in _sequence(values["windows"], "windows"):
         window = _record_dict(item, RecentWindow)
-        window["resources"] = resources_from_dict(window["resources"])
+        if window["resources"] is not None:
+            window["resources"] = resources_from_dict(window["resources"])
         windows.append(RecentWindow(**window))
     values["windows"] = tuple(windows)
     return RecentSummary(**values)

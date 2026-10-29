@@ -15,6 +15,9 @@ def main(argv=None):
         command.add_argument("--artifact", type=Path, required=True, help="Verified E0 calibration artifact")
         command.add_argument("--data", type=Path)
         command.add_argument("--output", type=Path, required=True)
+        if name != "develop":
+            command.add_argument("--workers", type=int, default=1,
+                                 help="Spawn workers (train: checkpoint validation only)")
         if name in ("pilot", "evaluate"):
             group = command.add_mutually_exclusive_group(required=True)
             group.add_argument("--baseline", type=Path)
@@ -25,6 +28,8 @@ def main(argv=None):
         elif name == "train":
             command.add_argument("--method", choices=("ppo", "ddqn"), required=True)
             command.add_argument("--maximum-budget", type=int, choices=(8192, 16384, 32768))
+            command.add_argument("--train-seed", type=int,
+                                 help="Train only one declared learner seed")
         elif name == "develop":
             command.add_argument("--candidates", type=Path, required=True,
                                  help="Prespecified four-mode LLM candidates with identities, hypotheses and settings")
@@ -48,6 +53,8 @@ def main(argv=None):
                          help="JSON mapping ppo/ddqn to three evaluation.json paths and other methods to one each")
     compare.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
+    if hasattr(args, "workers") and args.workers < 1:
+        parser.error("--workers must be a positive integer")
 
     from cemas.control.snapshot_protocol import load_training_protocol as load_protocol
     from cemas.control.training import (develop_llm, evaluate_source, horizon_report,
@@ -87,21 +94,18 @@ def main(argv=None):
             if args.output.resolve() != (root / protocol.definition["snapshot_training"]["library"]).resolve():
                 parser.error("--output must match the snapshot configuration's library path")
             from cemas.control.snapshot_protocol import history_seeds
-            from cemas.control.snapshots import generate_history_snapshots
+            from cemas.control.snapshots import generate_snapshot_library
             worlds = args.history_seed or history_seeds(protocol, args.split)
-            if len(worlds) != len(set(worlds)):
-                parser.error("duplicate history seeds")
-            paths = []
-            for seed in worlds:
-                paths.extend(generate_history_snapshots(protocol, args.artifact, args.output,
-                    seed, args.split, days=args.day))
-                print(f"Captured history {seed}: {len(paths)} snapshots", flush=True)
+            paths = generate_snapshot_library(protocol, args.artifact, args.output, args.split,
+                worlds, days=args.day, workers=args.workers)
+            print(f"Captured {args.split}: {len(paths)} snapshots", flush=True)
             return 0
         elif args.command == "tune":
-            result = tune_threshold(protocol, args.output, args.artifact, **kwargs)
+            result = tune_threshold(protocol, args.output, args.artifact, workers=args.workers, **kwargs)
         elif args.command == "train":
             result = train_controller(protocol, args.method, args.output, args.artifact,
-                                      maximum_budget=args.maximum_budget, **kwargs)
+                                      maximum_budget=args.maximum_budget, train_seed=args.train_seed,
+                                      workers=args.workers, **kwargs)
         elif args.command == "develop":
             result = develop_llm(protocol, json.loads(args.candidates.read_text(encoding="utf-8")),
                                  args.output, args.artifact, **kwargs)
@@ -109,11 +113,12 @@ def main(argv=None):
             spec = ({"method": "baseline", "artifact": str(args.baseline)} if args.baseline
                     else {"method": args.reference})
             if args.command == "pilot":
-                result = run_pilot(protocol, spec, args.output, args.artifact, **kwargs)
+                result = run_pilot(protocol, spec, args.output, args.artifact,
+                                   workers=args.workers, **kwargs)
             else:
                 result = evaluate_source(protocol, spec, args.output, args.artifact,
                     pool=(args.split or "val") if snapshot_task else f"validation_{args.split or 'A'}",
-                    execution_days=args.execution_days, **kwargs)
+                    execution_days=args.execution_days, workers=args.workers, **kwargs)
         print(f"{args.command}: {args.output}")
         return 0
     with args.output.open("x", encoding="utf-8", newline="\n") as handle:

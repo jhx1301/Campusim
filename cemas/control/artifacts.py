@@ -37,7 +37,9 @@ def baseline_task_configuration(protocol):
         settings.pop("library")
         task["snapshot_training"] = settings
         task["time_limit_bootstrap"] = True
-        task["normalization_days"] = 112
+        from .timing import normalization_days, scoring_start
+        task["normalization_days"] = normalization_days(protocol, protocol.execution_days)
+        task["scoring_start_day"] = scoring_start(protocol)
     return task
 
 
@@ -97,21 +99,34 @@ def get_baseline_artifact(path, protocol):
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schema_version") != BASELINE_SCHEMA or payload.get("method") not in ("threshold", "ppo", "ddqn"):
         raise ValueError("unsupported baseline artifact")
-    if (payload.get("task") != baseline_task_configuration(protocol)
-            or payload.get("task_sha256") != snapshot_sha256(payload["task"])):
+    task = baseline_task_configuration(protocol)
+    transfer = _snapshot_policy_transfer(payload.get("task"), task)
+    if (payload.get("task_sha256") != snapshot_sha256(payload.get("task"))
+            or (payload.get("task") != task and not transfer)):
         raise ValueError("baseline task is incompatible with current protocol")
     if (payload.get("action_encoding") != ACTION_ENCODING
             or payload.get("rl_encoding") != rl_encoding_version(protocol)
             or payload.get("reference_population") != protocol.population
-            or payload.get("reference_horizon") != protocol.execution_days):
+            or payload.get("reference_horizon") != payload["task"]["execution_days"]):
         raise ValueError("baseline action or observation encoding is incompatible")
     semantics = {"threshold": THRESHOLD_ALGORITHM_SEMANTICS, "ppo": "sb3-maskable-ppo-v1",
                  "ddqn": "masked-double-dqn-v1"}
     if payload.get("algorithm_semantics") != semantics[payload["method"]]:
         raise ValueError("baseline algorithm semantics are incompatible")
     from .runner import memory_source_compatibility
-    if payload.get("source_code_sha256") != memory_source_compatibility(protocol)["source_code_sha256"]:
+    current_source = memory_source_compatibility(protocol)["source_code_sha256"]
+    if not transfer and payload.get("source_code_sha256") != current_source:
         raise ValueError("baseline source code is incompatible with the current implementation")
+    if transfer:
+        _sha256(payload.get("source_code_sha256"))
+        # Keep the archived task/source intact: this is frozen-policy inference
+        # under a new handoff, not an artifact trained with the observation week.
+        payload["evaluation_compatibility"] = {
+            "mode": "frozen_snapshot_policy_transfer",
+            "task_sha256": snapshot_sha256(task),
+            "execution_days": protocol.execution_days,
+            "source_code_sha256": current_source,
+        }
     if payload["calibration_artifact_file"] is not None:
         _sha256(payload["calibration_artifact_sha256"])
         _, calibration = _read_reference(payload["calibration_artifact_file"], path.parent)
@@ -129,6 +144,24 @@ def get_baseline_artifact(path, protocol):
     payload["artifact_path"] = str(path)
     payload["artifact_sha256"] = file_sha256(path)
     return payload
+
+
+def _snapshot_policy_transfer(training_task, evaluation_task):
+    """Allow only the v2 immediate-handoff to v3 shared-observation transition."""
+    if not isinstance(training_task, dict):
+        return False
+    settings = evaluation_task.get("snapshot_training", {})
+    if (settings.get("schema_version") != "uw-snapshot-training-v3"
+            or settings.get("observation_days") != 7 or settings.get("control_days") != 112):
+        return False
+    expected = {**evaluation_task, "execution_days": 112, "initial_baseline_days": 0}
+    expected.pop("scoring_start_day")
+    legacy = dict(settings)
+    legacy.pop("observation_days")
+    legacy.pop("control_days")
+    legacy.update(schema_version="uw-snapshot-training-v2", execution_days=112)
+    expected["snapshot_training"] = legacy
+    return training_task == expected
 
 
 def _sha256(value):
@@ -155,12 +188,14 @@ def _read_reference(reference, root):
 def training_budget(record_path):
     """Count autonomous samples separately from fixed windows and all actual days."""
     worlds, transitions, fixed_windows, days = {}, 0, 0, 0
-    fixed_cost, autonomous_cost = 0.0, 0.0
+    fixed_cost, autonomous_cost, controlled_days = 0.0, 0.0, 0
     with Path(record_path).open(encoding="utf-8") as handle:
         for line in handle:
             event = json.loads(line)
             if "episode_completed" in event:
                 transitions += 1
+                controlled_days += event.get("window_days", 7)
+                fixed_cost += event.get("observation_positive_cost", 0.)
                 current = worlds.setdefault(event["episode_id"], {"elapsed_days": 0, "completed": False})
                 days += event["elapsed_days"] - current["elapsed_days"]
                 current.update(elapsed_days=event["elapsed_days"], completed=event["episode_completed"])
@@ -191,7 +226,8 @@ def training_budget(record_path):
                 worlds[world]["completed"] = True
     if worlds and "world_seed" not in next(iter(worlds.values())):
         return {"step_count": transitions, "episode_count": sum(r["completed"] for r in worlds.values()),
-                "simulated_days": days, "positive_cost": autonomous_cost}
+                "simulated_days": days, "control_simulated_days": controlled_days,
+                "observation_positive_cost": fixed_cost, "positive_cost": autonomous_cost}
     return {"transitions": transitions, "autonomous_decisions": transitions,
             "fixed_windows": fixed_windows, "simulated_days": days,
             "fixed_window_positive_cost": fixed_cost, "autonomous_positive_cost": autonomous_cost,

@@ -11,25 +11,32 @@ from .protocol import load_protocol, _freeze
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA = "uw-snapshot-training-v2"
+SCHEMA = "uw-snapshot-training-v3"
 
 
 def load_training_protocol(path):
     path = Path(path).resolve()
     settings = json.loads(path.read_text(encoding="utf-8"))
-    if settings.get("schema_version") != SCHEMA:
+    legacy = settings.get("schema_version") == "uw-snapshot-training-v2"
+    if settings.get("schema_version") != SCHEMA and not legacy:
         return load_protocol(path)
-    required = {"schema_version", "base_protocol", "library", "execution_days", "snapshot_days",
+    required = {"schema_version", "base_protocol", "library", "snapshot_days",
                 "training_worlds", "schedule_seed", "future_seed_root", "test_branches",
                 "replay_parameters"}
+    required |= {"execution_days"} if legacy else {"observation_days", "control_days"}
     if set(settings) - {"validation_worlds"} != required:
         raise ValueError("snapshot training configuration has missing or unexpected fields")
     base = load_protocol(ROOT / settings["base_protocol"])
     for key in {"training_worlds", "test_branches", "validation_worlds"} & settings.keys():
         if type(settings[key]) is not int or settings[key] < 1:
             raise ValueError(f"snapshot {key} must be a positive integer")
-    if settings["execution_days"] != 112:
+    control = settings["execution_days"] if legacy else settings["control_days"]
+    observation = 0 if legacy else settings["observation_days"]
+    if type(control) is not int or control != 112:
         raise ValueError("snapshot training uses fixed H=112; extensions belong to frozen evaluation")
+    if type(observation) is not int or observation != (0 if legacy else 7):
+        raise ValueError("snapshot observation period must be seven days")
+    total = observation + control
     days = settings["snapshot_days"]
     if (not isinstance(days, list) or not days or days != sorted(set(days))
             or any(type(d) is not int or not 7 <= d <= 74 or d % 7 for d in days)):
@@ -43,14 +50,15 @@ def load_training_protocol(path):
     HistoricalMeasures(**settings["replay_parameters"])
     definition = resolved_snapshot(base.definition)
     definition["snapshot_training"] = settings
-    definition["engine"].update(initial_baseline_days=0, execution_days=settings["execution_days"],
-                                 n_days=settings["execution_days"] - 1)
-    definition["protocol_id"] = "uw-snapshot-control-v1"
+    definition["engine"].update(initial_baseline_days=observation, execution_days=total,
+                                 n_days=total - 1)
+    identity = "uw-snapshot-control-v1" if legacy else "uw-snapshot-control-v2"
+    definition["protocol_id"] = identity
     definition["controllers"]["methods"] = ["maskable_ppo", "double_dqn", "tuned_threshold",
-                                             "minimum", "maximum_feasible"]
+                                             "minimum", "maximum_feasible", "llm_full"]
     definition["source"]["budget_ladder"] = [8192, 16384]
-    return replace(base, protocol_id="uw-snapshot-control-v1", execution_days=settings["execution_days"],
-                   n_days=settings["execution_days"] - 1, definition=_freeze(definition),
+    return replace(base, protocol_id=identity, execution_days=total,
+                   n_days=total - 1, definition=_freeze(definition),
                    source_path=path, source_sha256=snapshot_sha256({"base": base.source_sha256,
                                                                             "snapshot": settings}))
 

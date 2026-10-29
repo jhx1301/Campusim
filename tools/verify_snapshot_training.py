@@ -42,7 +42,8 @@ def main():
             result = run_episode(protocol, MinimumController(), output / str(day), 20101,
                 purpose="scientific", scenario_options={"snapshot_path":str(root / "library" / f"20101-{day}.json"),
                     "future_seed":123, "calibration_artifact":str(args.artifact)})
-            assert result.summary["decision_count"] == 16 and result.summary["fixed_window_count"] == 0
+            assert result.summary["decision_count"] == 16 and result.summary["fixed_window_count"] == 1
+            assert result.summary["execution_days"] == 119 and result.summary["control_period"]["execution_days"] == 112
             rows.append({"snapshot_day":day, "summary":resolved_snapshot(result.summary)})
         report = {"purpose":"engineering_acceptance", "runs":rows}
     else:

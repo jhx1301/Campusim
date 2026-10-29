@@ -17,6 +17,7 @@ from .observation import build_observation
 from .protocol import ControlProtocol
 from .resolution import resolve_action
 from .rewards import RewardBreakdown, V1RewardCalculator
+from .timing import scoring_start
 from .scenarios import (
     base_model_configuration, build_scenario, configuration_sha256,
     population_configuration,
@@ -298,14 +299,11 @@ class WeeklyControlEnvironment:
                 if (len(bundle.public_analyzer.ledger.snapshot()) != self._elapsed_days
                         or len(bundle.private_analyzer.records) != self._elapsed_days):
                     raise RuntimeError("public/private daily records disagree with completed days")
-            feedback = bundle.public_analyzer.ledger.feedback(start, end)
-            if start == 0 and end == 6 and "snapshot_training" in self.protocol.definition:
-                from .snapshots import historical_weeks
-                from math import log2
-                previous = historical_weeks(bundle)[-1]
-                week = replace(feedback.week, growth=log2((feedback.week.delivered_diagnoses + 1)/
-                               (previous.delivered_diagnoses + 1)), growth_valid=True)
-                feedback = PublicWeekFeedback(week, previous)
+            if snapshot_task:
+                from .snapshots import snapshot_feedback
+                feedback = snapshot_feedback(bundle, start, end)
+            else:
+                feedback = bundle.public_analyzer.ledger.feedback(start, end)
             metrics = bundle.private_analyzer.aggregate(start, end)
             history = (ExecutedAction(start, end, resolution.executed_action),)
             breakdown = self._reward.breakdown(metrics, feedback.week.cost, history)
@@ -316,7 +314,7 @@ class WeeklyControlEnvironment:
                 self._terminal_metrics = bundle.private_analyzer.aggregate(0, end)
                 if snapshot_task:
                     origin = bundle.private_metadata["snapshot_day"]
-                    infected = (bundle.sim.people.date_exposed >= origin) & (bundle.sim.people.date_exposed < origin + self._horizon)
+                    infected = (bundle.sim.people.date_exposed >= origin + scoring_start(self.protocol)) & (bundle.sim.people.date_exposed < origin + self._horizon)
                     students = bundle.sim.people.campus_registry_metadata["student_indices"]
                     student_count = int(infected[students].sum())
                     self._manifest = _freeze({**dict(self._manifest), "group_new_infections": {
@@ -342,17 +340,17 @@ class WeeklyControlEnvironment:
             after = int(bundle.sim.results["cum_infections"][-1]) - bundle.private_metadata["cum_infections_at_x"]
             if after != metrics.new_infections:
                 raise RuntimeError("post-takeover infections differ from cumulative endpoint difference")
-            return
         if len(public) != self._horizon or len(private) != self._horizon:
             raise RuntimeError("terminal day count does not match horizon")
-        initial = bundle.private_metadata["initial_infections"]
+        initial = metrics.initial_infections
+        engine_initial = bundle.private_metadata.get("cum_infections_at_x", initial)
         start_day = bundle.private_metadata.get("snapshot_day", 0)
         infections = sum(day.new_infections for day in private)
         if (sum(window.private_metrics.new_infections for window in self._windows) != infections
                 or metrics.new_infections != infections
                 or metrics.cumulative_infections != initial + infections
-                or bundle.sim.results["cum_infections"][-1] != initial + infections
-                or initial + infections > bundle.registry.public_population.population):
+                or bundle.sim.results["cum_infections"][-1] != engine_initial + infections
+                or engine_initial + infections > bundle.registry.public_population.population):
             raise RuntimeError("daily, weekly and terminal infections do not reconcile")
         if not np.array_equal([day.new_infections for day in private],
                               bundle.sim.results["new_infections"].values[start_day:]):

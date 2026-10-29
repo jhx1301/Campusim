@@ -43,6 +43,7 @@ def evaluate_job(job):
     from .logging import resolved_snapshot
     from .snapshot_protocol import load_training_protocol as load_protocol
     from .runner import make_memory_llm_controller, run_episode
+    from .timing import observation_days
 
     protocol = load_protocol(job["protocol_path"])
     spec = job["controller"]
@@ -58,7 +59,17 @@ def evaluate_job(job):
     elif method in ("ppo", "ddqn", "baseline"):
         controller, _ = load_baseline_controller(protocol, spec["artifact"])
     elif method == "llm":
-        controller = make_memory_llm_controller(protocol, **spec["settings"])
+        settings = dict(spec["settings"])
+        library = settings.pop("learning_store_path", None)
+        if library is not None:
+            from .learning_store import LearningMemoryStore
+            settings["learning_store"] = LearningMemoryStore(library, readonly=True)
+        try:
+            controller = make_memory_llm_controller(protocol, **settings)
+        except BaseException:
+            if library is not None:
+                settings["learning_store"].close()
+            raise
     else:
         raise ValueError("unsupported source evaluation method")
     started = perf_counter()
@@ -75,14 +86,20 @@ def evaluate_job(job):
     with private_path.open(encoding="utf-8", newline="") as handle:
         days = list(csv.DictReader(handle))
     width = protocol.definition["horizon_gate"]["last_window_days"]
-    usage = {"attempts": 0, "elapsed_ms": 0., "prompt_tokens": 0,
+    usage = {"attempts": 0, "auxiliary_attempts": 0, "total_attempts": 0,
+             "elapsed_ms": 0., "prompt_tokens": 0,
              "completion_tokens": 0, "total_tokens": 0, "usage_missing_attempts": 0,
              "provider_fee": None, "fee_status": "not_supplied"}
-    calls = result.output_dir / "llm_calls.jsonl"
-    if calls.exists():
+    for filename in ("llm_calls.jsonl", "feedback_events.jsonl"):
+        calls = result.output_dir / filename
+        if not calls.exists():
+            continue
         for line in calls.read_text(encoding="utf-8").splitlines():
             call = json.loads(line)
-            usage["attempts"] += 1
+            if filename == "feedback_events.jsonl" and call.get("event") != "provider_call":
+                continue
+            usage["attempts" if filename == "llm_calls.jsonl" else "auxiliary_attempts"] += 1
+            usage["total_attempts"] += 1
             usage["elapsed_ms"] += call["elapsed_ms"]
             reported = (call.get("response") or {}).get("usage", {})
             if any(name not in reported for name in ("prompt_tokens", "completion_tokens", "total_tokens")):
@@ -110,8 +127,8 @@ def evaluate_job(job):
                if "snapshot_training" in protocol.definition else {}),
             **({"scenario_id": job["scenario_id"], "snapshot_day": job["snapshot_day"]}
                if "scenario_id" in job else {}),
-            **({"day112_active_infections": int(days[111]["active_infections"])}
-               if "snapshot_training" in protocol.definition and len(days) >= 112 else {}),
+            **({"day112_active_infections": int(days[observation_days(protocol) + 111]["active_infections"])}
+               if "snapshot_training" in protocol.definition and len(days) >= observation_days(protocol) + 112 else {}),
             "last_window_infections": sum(int(row["new_infections"]) for row in days[-width:]),
             "elapsed_seconds": perf_counter() - started, "llm_usage": usage,
             "output_dir": str(result.output_dir)}

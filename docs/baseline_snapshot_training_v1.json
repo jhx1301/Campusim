@@ -1,8 +1,9 @@
 {
-  "schema_version": "uw-snapshot-training-v2",
+  "schema_version": "uw-snapshot-training-v3",
   "base_protocol": "docs/control_protocol_v1.json",
   "library": "results/snapshot_baseline_v1/library",
-  "execution_days": 112,
+  "observation_days": 7,
+  "control_days": 112,
   "snapshot_days": [21, 35, 49, 63],
   "training_worlds": 128,
   "validation_worlds": 9,

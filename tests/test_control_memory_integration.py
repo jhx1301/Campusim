@@ -173,8 +173,8 @@ def test_runner_public_sink_receives_exact_two_public_types_and_terminal_tail(pr
                          scenario_options=OPTIONS, public_transition_sink=sink)
     assert result.status == "completed"
     assert transitions == [(0, 6), (7, 8)]
-    assert len(revisions) == 3 and revisions[-1].status == "terminal_censored"
-    assert revisions[-1].window_days == 2 and revisions[-2].followup_window.end_day == 8
+    assert len(revisions) == 2 and revisions[-1].status == "closed"
+    assert revisions[-1].window_days == 2 and revisions[-2].executed_week.end_day == 6
 
 
 def test_sink_failure_preserves_executed_window_and_stops_next_decision(protocol, tmp_path):
@@ -221,9 +221,9 @@ def test_four_memory_modes_complete_offline_with_evidence_and_terminal_revisions
     decisions = _json_lines(output / "decisions.jsonl")
     assert all(item["retrieved_case_ids"] == [] for item in decisions)
     revisions = _json_lines(output / "memory_revisions.jsonl")
-    assert [item["revision"] for item in revisions] == [1, 2, 1]
-    assert revisions[-1]["executed_window"]["end_day"] == 8
-    assert revisions[-1]["status"] == "terminal_censored"
+    assert [item["revision"] for item in revisions] == [1]
+    assert revisions[-1]["executed_week"]["end_day"] == 8
+    assert revisions[-1]["status"] == "closed"
     for messages in transport.messages:
         user = json.loads(messages[1].content)
         assert (user["memory"]["recent"] is not None) == (mode in ("short", "both"))
@@ -319,7 +319,7 @@ def test_memory_controller_inherits_one_retry_loop_with_same_bytes_and_public_fa
     decisions = _json_lines(output / "decisions.jsonl")[1:]
     assert decisions[0]["fallback_reason"] == "llm_retry_exhausted"
     cases = _json_lines(output / "memory_revisions.jsonl")
-    assert cases[2]["executed_window"]["executed_action"] == decisions[0]["executed_action"]
+    assert cases[0]["executed_week"]["executed_action"] == decisions[0]["executed_action"]
     assert not any(name in json.dumps(cases) for name in ("private_metrics", "world_seed", "reward"))
 
 

@@ -22,6 +22,7 @@
 |---|---|
 | `runner.make_public_prompt_config(protocol, template_path=None)` | 白名单投影、加载固定模板，返回嵌套不可变的 PublicPromptConfig |
 | `runner.make_llm_settings(protocol, provider, endpoint, api_key_env)` | 模型/预算/重试/采样参数取自协议；只接收凭据环境变量名，不接收密钥值 |
+| `LLMSettings.input_tokenization_parameters()` | 从完整请求参数投影 model 和 extra_body，供 tokenizer 输入模式绑定；不包含输出预算或采样参数 |
 | `runner.make_llm_controller(..., tokenizer_manifest)` | 组装生产transport、配置和本地计数器；SDK/tokenizer不在包导入时加载；旧tokenizer_acceptance参数兼容接受但不读取 |
 | `LLMTransport(settings, client=None).complete(messages)` | 单次OpenAI兼容SDK请求；主模型thinking/effort/top_p，次模型enable_thinking；完整输出限制分别适配max_tokens/max_completion_tokens |
 | `OfficialInputTokenCounter(resource_manifest, acceptance_path=None)` | 正常运行validate仅检查计数资源；计数及本批次服务身份检查；acceptance_path仅供显式validate_acceptance使用 |
@@ -37,9 +38,29 @@
 
 完整输入保护上限131072，完整输出保护上限65536，不单设次模型推理预算。输出包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens。上限是异常膨胀保护，不要求每次用满，修订依据见第7节。官方本地 tokenizer 必须包含模型对应关系、文件内容 hash、消息模板和加载库版本；正常运行不下载、不估算。每次 decide 构造/计数一次，重试复用消息；输入超限零调用。实际 usage 与本地计数不一致或超限时终止。
 
-当前离线适配为 `official_local_chat_template_v1` / `hf_apply_chat_template_v1`：显式 `tokenize=True, add_generation_prompt=True, return_dict=False, truncation=False, padding=False`。资源manifest包含 `adapter/provider/model/official_source/library_versions/files/chat_template_file/template_kwargs/request_parameters_sha256`；files逐一锁原始字节hash，库版本锁transformers、tokenizers、jinja2、markupsafe。请求模式hash来自 `snapshot_sha256(settings.request_parameters())`。不接受覆写计数控制参数或未固定的加载资源。官方资源没有可核验消息模板、需要尚未实现的其他编码器或版本不符时直接阻止，不自行发明模板。
+当前离线适配为 `official_local_chat_template_v1` / `hf_apply_chat_template_v1`：显式 `tokenize=True, add_generation_prompt=True, return_dict=False, truncation=False, padding=False`。资源manifest包含 `adapter/provider/model/official_source/library_versions/files/chat_template_file/template_kwargs/input_tokenization_sha256`；files逐一锁原始字节hash，库版本锁transformers、tokenizers、jinja2、markupsafe。输入模式hash来自 `snapshot_sha256(settings.input_tokenization_parameters())`，只绑定请求的 `model` 和 `extra_body`：DeepSeek保留thinking开关和reasoning_effort，Qwen保留enable_thinking。输出预算、temperature、top_p、stream不参与此hash；仅改变输出预算、温度或top_p时可复用同一资源manifest和计数器实例，输入计数与资源身份保持不变。provider/model、模板及template_kwargs、文件和库版本仍受原检查约束。不接受覆写计数控制参数或未固定的加载资源。官方资源没有可核验消息模板、需要尚未实现的其他编码器或版本不符时直接阻止，不自行发明模板。
+
+2026-10-27起只接受新字段；含 `request_parameters_sha256` 的旧manifest报 `tokenizer_manifest_upgrade_required`。升级时保留其他字段和所有资源文件，删除旧字段并根据实际运行的 `settings` 计算新字段。以下示例中的 `settings` 由现有 `runner.make_llm_settings(...)` 工厂按当前协议、provider和endpoint构造：
+
+```python
+import json
+from pathlib import Path
+from cemas.control.logging import snapshot_sha256
+
+manifest_path = Path("path/to/resources.json")
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+del manifest["request_parameters_sha256"]
+manifest["input_tokenization_sha256"] = snapshot_sha256(
+    settings.input_tokenization_parameters()
+)
+manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+```
+
+升级后新建 `OfficialInputTokenCounter(manifest_path)`；已加载实例仍禁止批次内manifest变化。升级会改变manifest及资源身份hash，历史验收报告和冻结产物不自动改写或重新签认。
 
 正常运行不读取或要求 `tokenizer_acceptance.json`。资源完整性、输入预算和实际 usage 检查直接针对当前请求；本批次首个实际返回建立服务型号/指纹基准，后续变化时终止。开发验收仍可生成报告，通过显式 `validate_acceptance(settings)` 核对资源身份、endpoint、请求参数、三个case的消息/hash/usage与服务一致性；报告内容不设置正常运行的服务基准。hash用于完整性和关联，不代替官方资源来源核验或真实账户调用证据。
+
+完整生成参数继续写入调用审计、运行元数据和开发验收报告。资源可复用不表示旧报告已验证新生成配置；输出预算、temperature或实际请求中的top_p变化后，显式验收仍因完整请求参数不匹配而拒绝旧报告。Qwen请求本身不使用top_p。
 
 独立 provider 验收覆盖 day0、完整四周及长数值消息，保存每次完整消息、本地计数、实际 usage、模型与服务指纹。报告用于开发验证和留档，不作为使用程序的启动凭证。正常运行仍需要可用计数资源；mock通过不代表完成真实服务验收。
 

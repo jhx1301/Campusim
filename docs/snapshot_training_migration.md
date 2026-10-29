@@ -1,5 +1,7 @@
 # 通过 GitHub 迁移快照 baseline 训练
 
+2026-10-27任务修订：当前配置为uw-snapshot-training-v3，恢复历史快照后先共同观察7天，再自主控制112天（总119天）。历史迁移/训练记录保留原含义，不代表新增观察期、反馈和规则机制已经过真实人口或付费模型验收。
+
 更新：2026-10-26。代码和小数据通过 GitHub 同步；被忽略的校准证据和 Python 环境单独传输。新电脑应使用 Windows x64，以复用当前环境和锚点。
 
 ## 代码与数据
@@ -59,8 +61,10 @@ psutil==7.2.2
 
 只做数据和锚点加载的迁移完整性核对，不追加测试或短训练。训练入口和现有用法见[使用说明](baseline_snapshot_training.md)。真实人口新版197维、γ=1、H112截断Bootstrap的PPO256步／DDQN513步已完成真实更新和权重往返；本次短训练未见数值膨胀，但不证明长期稳定性。
 
-**正式执行计划中的以下改造尚未实现：** snapshots／pilot／evaluate／tune的多worker调度、不同Seed独立训练入口、每2048步checkpoint的最大|V|／|Q|诊断日志。现有snapshots仍串行并共写manifest，评估池固定单worker，三个训练Seed仍轮流推进，不能直接并行运行快照写入任务。
+2026-10-26 第一、第二阶段：本机已在 `D:\programfile\miniconda3\envs\simulation` 恢复迁移包内的Python 3.10.20环境；原3.11环境保留为同级 `simulation-backup-py311-20261026`。10份证据哈希全部匹配，严格锚点加载、历史75天、128／9／20／4世界及val36均通过；记录见 `results/snapshot_stage12_20261026/migration_integrity.json`。
 
-先完成这些调度和日志改造，再根据新电脑CPU与可用内存启动正式批次：完整快照库 → pilot及val36固定参照／Threshold32候选 → PPO／DDQN各Seed11、22、33、每Seed固定8192步。现有train命令应显式传 `--maximum-budget 8192`，省略参数可能允许预算增长到16384；不自动翻倍，不提前用test选模。
+**正式调度改造已实现：** snapshots／pilot／evaluate／tune支持 `--workers`；快照按历史世界分配任务，只有父进程合并manifest，以库级锁防止多个命令同时写清单。训练支持 `--train-seed 11/22/33` 的独立入口和独立输出目录，单seed固定8192步；每2048步记录checkpoint最大|V|／|Q|诊断。80项相关测试在恢复后的环境通过，包含spawn调度、单seed预算、日志和既有训练／快照回归；不代表正式建库或长期训练已完成。
+
+下一阶段仅在明确指定后生成644份快照（包含test80份），汇报耗时、磁盘体积及train／val／test在day49／63的零活动感染数量、分母和比例，然后停止。再次指定后才运行pilot及val36固定参照／Threshold32选参；随后另行指定PPO／DDQN训练及独立test。“不使用test”指不运行test评估、不用test选模，不排除生成test快照。独立test输入为9个已选策略产物，各评估480场景得到9份报告后才比较。每阶段完成即停止，不自动延长到16384或进入下一阶段。
 
 迁移不要求重做E0校准。若锚点加载失败，应核对提交版本、原始文件字节、完整证据目录及实际环境版本。

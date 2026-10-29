@@ -116,7 +116,7 @@ def main():
     parser.add_argument("--method", choices=("ppo", "ddqn"), required=True)
     args = parser.parse_args()
     protocol = load_training_protocol(args.protocol)
-    assert protocol.population == 69457 and protocol.execution_days == 112
+    assert protocol.population == 69457 and protocol.execution_days == 119
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     torch.set_num_threads(1)
@@ -180,7 +180,8 @@ def main():
     report = {"purpose": "short_training_diagnostics", "method": args.method, "population": 69457,
         "encoding": SNAPSHOT_RL_ENCODING_VERSION, "observation_size": 197, "gamma": config["gamma"],
         "effective_time_limit": {"terminated": False, "truncated": True, "bootstrap": True},
-        "horizon": 112, "learner_seed": 11, "protocol": str(args.protocol.resolve()),
+        "horizon": 112, "physical_execution_days": protocol.execution_days,
+        "learner_seed": 11, "protocol": str(args.protocol.resolve()),
         "config": config, "parameters_changed": changed, "weights_roundtrip": True,
         "actual_training": training_budget(log), "learning_seconds": learning_seconds,
         "elapsed_seconds": perf_counter()-started, **details}

@@ -19,6 +19,7 @@ import time
 from types import MappingProxyType
 from urllib.parse import urlsplit
 
+from .actions import encode_action
 from .controllers import Controller
 from .logging import public_observation_to_dict, resolved_snapshot, snapshot_sha256
 from .types import AGE_BANDS, ActionProposal, ActionVector, PublicObservation, PublicWeekFeedback
@@ -117,6 +118,8 @@ class PublicPromptConfig:
             raise LLMConfigurationError("invalid_template", "Template values must be nonempty text")
         _exact_keys(self.public_spec, PUBLIC_SPEC_FIELDS, "public_spec")
         for section, keys in PUBLIC_SPEC_FIELDS.items():
+            if section == "task" and "scoring_start_day" in self.public_spec[section]:
+                keys = (*keys, "scoring_start_day", "normalization_days")
             _exact_keys(self.public_spec[section], keys, section)
         age_bands = self.public_spec["observation"]["age_bands_shared"]
         if (not isinstance(age_bands, (list, tuple)) or len(age_bands) != len(AGE_BANDS)
@@ -215,7 +218,15 @@ def _render_system(config):
                         f"活动限制比例{params['restriction_time_fraction']}")
             lines.append(f"{name}{entry['level']} = {text}")
         replacements[f"{name}_levels"] = "\n".join(lines)
-    return Template(config.template["system"]).substitute(replacements)
+    rendered = Template(config.template["system"]).substitute(replacements)
+    if "scoring_start_day" in task:
+        rendered = rendered.replace("H是公开总执行日数，以本次观察为准", "H是自主控制评分的归一化天数")
+        rendered = rendered.replace("H包含这段固定首周，不额外延长。day0没有已完成周。",
+            "物理日期相对快照恢复点计时；恢复后先执行共同观察周，快照已有历史继续保留。")
+        rendered += (f"\n本任务主评分从相对恢复点day{task['scoring_start_day']}开始；"
+                     f"目标公式H={task['normalization_days']}，observation.execution_days是包含观察期的总物理天数。"
+                     "恢复前历史中未知的动作、容量、检测分项及负担为null，不代表零。")
+    return rendered
 
 
 def _public_rates(observation):
@@ -240,6 +251,12 @@ def _public_rates(observation):
             record[scope + "_target_valid"] = valid and target > 0
             record[scope + "_restriction_person_days_over_7_target"] = (
                 getattr(cost, scope + "_restriction_person_days") / (7 * target) if valid and target else 0)
+        if week.historical:
+            for key in tuple(record):
+                if ("capacity" in key or key.startswith(("clinical_tests", "screening_tests", "delivered_notifications"))
+                        or "restriction_person_days" in key):
+                    record[key] = None
+            record["total_tests_over_7_population"] = week.total_tests / (7 * n) if week.total_tests is not None else None
         history.append(record)
     return {"decision_day_over_horizon": observation.decision_day / h,
             "initial_infections_over_population": observation.initial_infections / n,
@@ -358,6 +375,11 @@ class LLMSettings:
             params.update(max_completion_tokens=self.max_output_tokens,
                           extra_body={"enable_thinking": self.thinking})
         return params
+
+    def input_tokenization_parameters(self):
+        """Bind the model and input mode without generation limits or sampling."""
+        params = self.request_parameters()
+        return {"model": params["model"], "extra_body": params["extra_body"]}
 
 
 @dataclass(frozen=True, slots=True)
@@ -515,14 +537,19 @@ class OfficialInputTokenCounter:
         except (OSError, ValueError):
             raise LLMConfigurationError("tokenizer_missing", "Cannot read local tokenizer resource manifest") from None
         self._manifest = manifest
+        if isinstance(manifest, Mapping) and "request_parameters_sha256" in manifest:
+            raise LLMConfigurationError(
+                "tokenizer_manifest_upgrade_required",
+                "Replace request_parameters_sha256 with input_tokenization_sha256 computed by "
+                "snapshot_sha256(settings.input_tokenization_parameters()); see docs/control_phase4_contracts.md")
         required = ("adapter", "provider", "model", "official_source", "library_versions", "files",
-                    "chat_template_file", "template_kwargs", "request_parameters_sha256")
+                    "chat_template_file", "template_kwargs", "input_tokenization_sha256")
         _exact_keys(manifest, required, "tokenizer manifest")
         if self._identity is not None and self._identity["manifest_sha256"] != snapshot_sha256(manifest):
             raise LLMConfigurationError("tokenizer_resources_changed", "Tokenizer manifest changed during this batch")
         if (manifest["adapter"] != "hf_apply_chat_template_v1" or settings.token_count_method != "official_local_chat_template_v1"
                 or (manifest["provider"], manifest["model"]) != (settings.provider, settings.model)
-                or manifest["request_parameters_sha256"] != snapshot_sha256(settings.request_parameters())):
+                or manifest["input_tokenization_sha256"] != snapshot_sha256(settings.input_tokenization_parameters())):
             raise LLMConfigurationError("tokenizer_incompatible", "Tokenizer model, adapter or request mode is incompatible")
         if not isinstance(manifest["official_source"], str) or not manifest["official_source"].startswith("https://"):
             raise LLMConfigurationError("tokenizer_provenance_missing", "Official resource provenance is required")
@@ -711,46 +738,67 @@ class LLMController(Controller):
                                         "input_tokens": count if count is not None else error.details.get("input_tokens"),
                                         "input_token_budget": self.settings.input_token_budget})
             raise
-        for attempt in range(1, self.settings.max_attempts + 1):
-            started = self._clock()
-            called_at = datetime.now(timezone.utc).isoformat()
-            response = None
-            caught = None
-            try:
-                response = self.transport.complete(messages)
-                if type(response) is not LLMResponse:
-                    raise TypeError("transport must return LLMResponse")
-                actual = response.usage.get("prompt_tokens")
-                if actual is not None and (type(actual) is not int or actual != count
-                                           or actual > self.settings.input_token_budget):
-                    raise TokenCountMismatchError("token_count_mismatch", "Provider input usage disagrees with the accepted local counter",
-                                                  details={"input_tokens": count, "provider_input_tokens": actual,
-                                                           "input_token_budget": self.settings.input_token_budget,
-                                                           "messages_sha256": digest})
-                self.token_counter.verify_response(response)
-                if response.finish_reason == "length":
-                    raise ActionResponseError("truncated_content", "Provider output reached its generation limit")
-                proposal = self._parse_response(response, observation)
-                self._decision_finished(observation, proposal, attempt)
-                return proposal
-            except (LLMServiceError, ActionResponseError) as error:
-                caught = error
-            except BaseException as error:
-                caught = error
-                raise
-            finally:
-                known = isinstance(caught, LLMError)
-                self._audits.append(LLMCallAudit(
-                    observation.decision_day, attempt, called_at, self.settings.provider,
-                    self.settings.endpoint, self.settings.model, self.settings.request_parameters(), messages,
-                    self.prompt_config.version, self.prompt_config.template_sha256,
-                    self.prompt_config.public_spec_sha256, digest, self.token_counter.identity,
-                    count, self.settings.input_token_budget, response, (self._clock() - started) * 1000,
-                    type(caught).__name__ if caught else None, caught.code if known else ("unexpected_error" if caught else None),
-                    caught.retryable if known else False,
-                    str(caught) if known else ("Unexpected transport or program failure" if caught else None)))
-            if attempt < self.settings.max_attempts:
-                self._sleeper(self.settings.retry_delays_seconds[attempt - 1])
-        self._failure_reason = "llm_retry_exhausted"
-        self._decision_finished(observation, None, self.settings.max_attempts)
-        return None
+        def parse_response(response):
+            proposal = self._parse_response(response, observation)
+            if ("scoring_start_day" in self.prompt_config.public_spec["task"]
+                    and not observation.legal_action_mask[encode_action(proposal.action)]):
+                raise ActionResponseError("illegal_action", "Main action is not legal for the current public resources")
+            return proposal
+
+        result = bounded_request(self.transport, self.token_counter, self.settings, messages, count,
+            self.prompt_config, observation.decision_day,
+            parse_response, self._audits.append,
+            sleeper=self._sleeper, clock=self._clock,
+            on_success=lambda proposal, attempt: self._decision_finished(observation, proposal, attempt))
+        if result is None:
+            self._failure_reason = "llm_retry_exhausted"
+            self._decision_finished(observation, None, self.settings.max_attempts)
+        return result
+
+
+def bounded_request(transport, counter, settings, messages, count, prompt_config, decision_day,
+                    parser, audit, *, sleeper=time.sleep, clock=time.perf_counter, on_success=None):
+    """Execute the same immutable request with bounded retries and per-attempt audit."""
+    digest = snapshot_sha256(messages)
+    for attempt in range(1, settings.max_attempts + 1):
+        started = clock()
+        called_at = datetime.now(timezone.utc).isoformat()
+        response = None
+        caught = None
+        try:
+            response = transport.complete(messages)
+            if type(response) is not LLMResponse:
+                raise TypeError("transport must return LLMResponse")
+            actual = response.usage.get("prompt_tokens")
+            if actual is not None and (type(actual) is not int or actual != count
+                                       or actual > settings.input_token_budget):
+                raise TokenCountMismatchError("token_count_mismatch", "Provider input usage disagrees with the accepted local counter",
+                                              details={"input_tokens": count, "provider_input_tokens": actual,
+                                                       "input_token_budget": settings.input_token_budget,
+                                                       "messages_sha256": digest})
+            counter.verify_response(response)
+            if response.finish_reason == "length":
+                raise ActionResponseError("truncated_content", "Provider output reached its generation limit")
+            result = parser(response)
+            if on_success is not None:
+                on_success(result, attempt)
+            return result
+        except (LLMServiceError, ActionResponseError) as error:
+            caught = error
+        except BaseException as error:
+            caught = error
+            raise
+        finally:
+            known = isinstance(caught, LLMError)
+            audit(LLMCallAudit(
+                decision_day, attempt, called_at, settings.provider,
+                settings.endpoint, settings.model, settings.request_parameters(), messages,
+                prompt_config.version, prompt_config.template_sha256,
+                prompt_config.public_spec_sha256, digest, counter.identity,
+                count, settings.input_token_budget, response, (clock() - started) * 1000,
+                type(caught).__name__ if caught else None, caught.code if known else ("unexpected_error" if caught else None),
+                caught.retryable if known else False,
+                str(caught) if known else ("Unexpected transport or program failure" if caught else None)))
+        if attempt < settings.max_attempts:
+            sleeper(settings.retry_delays_seconds[attempt - 1])
+    return None

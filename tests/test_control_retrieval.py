@@ -34,11 +34,11 @@ def case(case_id,pre=None,after=10,action=ZERO,resources=None,task=TASK):
     executed = PublicWeeklyRecord(day,min(day+6,pre.execution_days-1),after,executed_action=action,
         resources=resources or pre.resources)
     return PublicCase(case_id,1,CASE_SCHEMA_VERSION,task,pre,executed,
-        executed.end_day-executed.start_day+1,None,
-        "terminal_censored" if executed.end_day==pre.execution_days-1 else "closed_one",
-        executed.end_day,"descriptive_not_causal",("truncated_followup",),"Descriptive public record.",
+        executed.end_day-executed.start_day+1,
+        "closed",
+        executed.end_day,"descriptive_not_causal",(),"Descriptive public record.",
         {"kind":"source_simulation","observation_sha256":public_hash(pre),
-            "feedback_sha256":public_hash(executed),"followup_sha256":None})
+            "week_sha256":public_hash(executed)})
 
 
 class Store:

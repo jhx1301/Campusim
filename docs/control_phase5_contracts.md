@@ -1,5 +1,7 @@
 # CEMAS v1 Phase 5 实施契约
 
+> 历史材料（2026-10-28）：当前Feedback以[统一设计](llm_feedback_component_design.md)、[实施合同](PLAN%20(1).md)及[人工样例](llm_feedback_component_examples.json)为准。本文的早期只读案例库、followup配对和不含持久LLM学习的范围不再约束新版。旧格式不迁移；新版使用单周案例及v2学习库。
+
 > 2026-10-23：本文的旧校准、人口及验收数字为历史记录。当前唯一标准和运行入口以 [UW 控制接入](uw_control_integration.md) 为准；旧结果不作为 UW 验收。
 
 更新日期：2026-10-23。状态：**公共记忆与四策略采集/冻结链已实现；从已有 source 审计导出重建 development 库仍缺入口，真实 provider/tokenizer 验收和当前配置的正式源库未完成。**

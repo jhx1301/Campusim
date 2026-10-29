@@ -1,5 +1,7 @@
 # CEMAS v1 Phase 5 实施计划：公共记忆、案例检索与决策依据
 
+> 历史材料（2026-10-28）：本文记录早期只读源案例库方案及当时验证，不是当前Feedback实施合同。新版见[统一设计](llm_feedback_component_design.md)、[实施与验收合同](PLAN%20(1).md)和[人工样例](llm_feedback_component_examples.json)。旧的followup案例配对、无LLM周经验/持久学习范围及其数据格式已弃用；保留本文仅供追溯，不要求新版兼容。
+
 编制：2026-10-17；状态更新：2026-10-23。状态：**主要离线链和采集/冻结工具已实现；从已有 source 审计导出重建 development 库仍缺入口，不能宣布本计划全部完成。真实 provider/tokenizer 验收及正式源库待执行。** 实现与证据见 [Phase 5 契约](control_phase5_contracts.md)。
 
 当前模型和运行前提以 [UW 控制接入](uw_control_integration.md) 为准：69,457 人、教师 2,321 / 其他职员 21,596、`campus_k_ts=3`，尚无此配置的 E0 校准结果。旧角色锚点和案例库是历史证据，不能作为当前科学运行的输入。

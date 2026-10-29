@@ -1,12 +1,13 @@
 """Public memory decisions layered on the single Phase 4 request/retry path."""
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import json
 import time
+from uuid import uuid4
 
 from .actions import encode_action
-from .knowledge import CORE_IDS, KnowledgeBundle, load_knowledge_bundle, observation_flags
+from .knowledge import KnowledgeBundle, load_knowledge_bundle, observation_flags
 from .llm import (ActionResponseError, ChatMessage, LLMConfigurationError, LLMController,
                   LLMError, PromptBudgetError, PublicPromptConfig, _immutable,
                   _public_rates, _reject_constant, _render_system, _unique_pairs)
@@ -162,14 +163,10 @@ def _required_flags(observation, context):
     paired = [item for item in context.retrieval.items if "conflict_pair" in item.applicability_codes]
     if len(paired) == 2:
         flags.add("case_conflict")
-    for item in context.retrieval.items:
-        followup = item.case.followup_window
-        if followup is None or followup.end_day - followup.start_day + 1 < 7:
-            flags.add("truncated_followup")
     return tuple(code for code in UNCERTAINTY_CODES if code in flags)
 
 
-def build_memory_messages(observation, prompt_config, context):
+def build_memory_messages(observation, prompt_config, context, *, feedback=None, learned_rules=None):
     """Pure two-message construction plus the exact sent reference values."""
     if (type(observation) is not PublicObservation or type(prompt_config) is not PublicPromptConfig
             or type(context) is not PublicMemoryContext):
@@ -179,6 +176,11 @@ def build_memory_messages(observation, prompt_config, context):
     payload = {"observation": public_observation_to_dict(observation), "public_rates": _public_rates(observation),
                "memory": public_to_dict(context), "evidence_registry": list(registry),
                "required_uncertainty_codes": list(required)}
+    for name, entries in (("feedback", feedback), ("learned_rules", learned_rules)):
+        if entries is not None:
+            payload[name] = entries
+            registry.update((entry["id"], entry) for entry in entries)
+    payload["evidence_registry"] = list(registry)
     messages = (ChatMessage("system", _render_system(prompt_config)), ChatMessage("user", canonical_json(payload)))
     return messages, registry, required
 
@@ -206,10 +208,19 @@ class MemoryLLMController(LLMController):
 
     def __init__(self, transport, prompt_config, settings, token_counter, *, memory_mode="none",
                  memory_profile=None, knowledge_bundle=None, store=None, retriever=None,
+                 feedback_backend="disabled", rule_memory="off",
                  sleeper=time.sleep, clock=time.perf_counter):
         if memory_mode not in MEMORY_MODES:
             raise LLMConfigurationError("invalid_memory_mode", "Unknown public memory mode")
         self.memory_mode = memory_mode
+        if feedback_backend not in ("disabled", "llm") or rule_memory not in ("off", "adaptive"):
+            raise LLMConfigurationError("invalid_feedback_mode", "Unknown feedback or rule memory mode")
+        from .learning_store import LearningMemoryStore
+        if rule_memory != "off" and not isinstance(store, LearningMemoryStore):
+            raise LLMConfigurationError("missing_learning_store", "Rules require a learning library")
+        self.learning_store = store if isinstance(store, LearningMemoryStore) else None
+        self.feedback_backend, self.rule_memory = feedback_backend, rule_memory
+        self.control_start = prompt_config.public_spec["task"]["initial_baseline_days"]
         self.memory_profile = load_memory_profile() if memory_profile is None else memory_profile
         if type(self.memory_profile) is not MemoryProfile:
             raise TypeError("memory_profile must be MemoryProfile")
@@ -226,7 +237,14 @@ class MemoryLLMController(LLMController):
             from .retrieval import NumericRetriever
             self.retriever = NumericRetriever(store, self.memory_profile.retrieval)
         self.memory = PublicEpisodeMemory()
-        super().__init__(transport, memory_prompt_config(prompt_config, self.memory_profile), settings, token_counter,
+        config = memory_prompt_config(prompt_config, self.memory_profile)
+        if feedback_backend != "disabled" or rule_memory != "off":
+            template = dict(config.template)
+            template["version"] = "cemas-public-learning-prompt-v2"
+            template["system"] += ("\n本次可含feedback近期经验和learned_rules检索规则。F:和L:仅引用本次实际展示的条目。"
+                "经验和规则未经语义验证，只是建议；按适用状态、当前事实和固定约束判断是否采用。")
+            config = PublicPromptConfig(template, config.public_spec, config.reason_max_chars)
+        super().__init__(transport, config, settings, token_counter,
                          sleeper=sleeper, clock=clock)
 
     def reset(self):
@@ -236,19 +254,126 @@ class MemoryLLMController(LLMController):
         self._case_revisions = []
         self._prepared_context = None
         self._parsed_decision = None
+        self._feedback_events = []
+        self._pending_cases = {}
+        self._latest_cases = {}
+        self._notes = {}
+        self._processed = set()
+        self._rule_days = set()
+        self._episode_group = uuid4().hex
+        self._last_day = 0
+        self._sent_feedback, self._sent_rules = None, None
 
     def observe_initial_week(self, observation, feedback):
+        if observation.snapshot_day:
+            return
         self.memory.stage(observation)
-        self.observe(feedback)
+        # The shared observation week seeds public history but is not an algorithm case.
+        self.memory.accept(feedback, publish=False)
 
     def observe(self, feedback):
         if type(feedback) is not PublicWeekFeedback:
             raise TypeError("MemoryLLMController requires PublicWeekFeedback")
-        self._case_revisions.extend(self.memory.accept(feedback))
+        revisions = self.memory.accept(feedback)
+        self._case_revisions.extend(revisions)
+        self._last_day = feedback.week.end_day + 1
+        cases = revisions
+        if self.learning_store is not None and not self.learning_store.readonly:
+            cases = self.learning_store.append_cases(revisions)
+        from .feedback import case_key
+        for case in cases:
+            key = case_key(case)
+            self._latest_cases[key] = case
+            self._pending_cases[key] = case
+        self._notes = {key: note for key, note in self._notes.items()
+                       if all(self._latest_cases[k].revision == revision
+                              for k, revision in note["dependencies"].items())}
+
+    def drain_feedback_events(self):
+        result, self._feedback_events = tuple(self._feedback_events), []
+        return result
+
+    def _generator(self):
+        from .llm_feedback import LLMFeedback
+        from .rule_memory import prepare_patch
+        return LLMFeedback(self.transport, self.token_counter, self.settings, self.prompt_config,
+            self._feedback_events, sleeper=self._sleeper, clock=self._clock,
+            rule_parser=lambda raw, bundle, rules: prepare_patch(raw, bundle, rules, self.learning_store))
+
+    def _maintain_rules(self, day):
+        from .timing import rule_update_due
+        from .rule_memory import rule_bundle
+        store = self.learning_store
+        if self.rule_memory == "off" or store.readonly:
+            return
+        if not rule_update_due(day, self.control_start) or day in self._rule_days:
+            return
+        key = f"rules:{day}"
+        if store.operation(key) is not None:
+            self._rule_days.add(day)
+            return
+        rules = store.current_rules()
+        cases = tuple(self._latest_cases.values())
+        bundle = rule_bundle(cases, rules, store, day, self.control_start,
+                             public_to_dict(self.knowledge_bundle.cards))
+        result = self._generator().propose(bundle, rules)
+        if result is not None:
+            store.write_rule_changes(result["rules"], result["updates"])
+        store.record_operation(key, {"status": "unavailable" if result is None else "completed"})
+        self._rule_days.add(day)
+
+    def finish_episode(self):
+        if self._last_day:
+            self._maintain_rules(self._last_day)
+
+    def _prepare_feedback(self, observation):
+        from .feedback import project_feedback, case_key
+        day = observation.decision_day
+        if self.feedback_backend == "llm" and self._pending_cases:
+            cases = sorted(self._pending_cases.values(), key=lambda c: (c.executed_week.start_day, c.revision))[-2:]
+            packet = project_feedback(cases, day, self._task_hash(observation),
+                control_start=self.control_start,
+                group_for=(self.learning_store.group_for
+                           if self.learning_store is not None and not self.learning_store.readonly
+                           else lambda _: self._episode_group))
+            packet["task_rules"] = public_to_dict(self.knowledge_bundle.cards)
+            digest = public_hash(packet)
+            if packet["weeks"] and digest not in self._processed:
+                result = self._generator().generate(packet)
+                self._processed.add(digest)
+                if result is not None:
+                    dependencies = {case_key(c): c.revision for c in cases}
+                    weeks_by_id = {item["window_id"]: item for item in packet["weeks"]}
+                    for item in result["items"]:
+                        if item["status"] == "candidate":
+                            refs = tuple(dict.fromkeys(item["finding"]["evidence_ids"] + item["decision_check"]["evidence_ids"]))
+                            note_key = item["window_id"]
+                            self._notes[note_key] = {"id": "F:" + public_hash({"packet": digest, "item": item}),
+                                "item": item, "facts": {ref: packet["facts"][ref] for ref in refs},
+                                "dependencies": dependencies, "generated_for_decision_day": day,
+                                "earliest_day": min(weeks_by_id[packet["facts"][ref]["window_id"]]["start_day"]
+                                                    for ref in refs),
+                                "semantic_review": "not_reviewed"}
+            self._pending_cases.clear()
+        self._maintain_rules(day)
+        self._sent_feedback = None
+        if self.feedback_backend == "llm":
+            eligible = [n for n in self._notes.values() if n["earliest_day"] >= day - 28]
+            eligible.sort(key=lambda n: (-n["generated_for_decision_day"], n["item"]["window_id"]))
+            self._sent_feedback = eligible[:2]
+        self._sent_rules = None
+        if self.rule_memory != "off":
+            from .rule_memory import retrieve_rules
+            self._sent_rules = retrieve_rules(observation, self.learning_store, self.memory_profile.retrieval)
 
     def drain_decision_evidence(self):
         result, self._evidence = tuple(self._evidence), []
         return result
+
+    def _task_hash(self, observation):
+        # Frozen extensions retain the training task and normalization semantics.
+        return (self.learning_store.public_task_sha256 if self.learning_store is not None
+                else public_task_hash(self.prompt_config, observation.execution_days))
 
     def drain_case_revisions(self):
         result, self._case_revisions = tuple(self._case_revisions), []
@@ -261,6 +386,12 @@ class MemoryLLMController(LLMController):
                     architecture_version=self.memory_profile.data["architecture_version"],
                     case_store_sha256=getattr(self.store, "store_sha256", None),
                     retrieval_config_sha256=public_hash(self.memory_profile.retrieval))
+        if self.learning_store is not None or self.feedback_backend != "disabled" or self.rule_memory != "off":
+            from .llm_feedback import FEEDBACK_PROMPT, RULE_PROMPT
+            data.update(feedback_backend=self.feedback_backend, rule_memory=self.rule_memory,
+                        learning_readonly=getattr(self.learning_store, "readonly", None),
+                        feedback_template_sha256=public_hash(FEEDBACK_PROMPT),
+                        rule_template_sha256=public_hash(RULE_PROMPT))
         return data
 
     def _prepare_input(self, observation):
@@ -268,11 +399,16 @@ class MemoryLLMController(LLMController):
             raise TypeError("MemoryLLMController requires PublicObservation")
         self._prepared_context = None
         self._parsed_decision = None
+        self.memory.validate_observation(observation)
+        if self.feedback_backend != "disabled" or self.rule_memory != "off":
+            self.token_counter.validate(self.settings)
+            self.transport.prepare()
+            self._prepare_feedback(observation)
         recent = self.memory.recent(observation) if self.memory_mode in ("short", "both") else None
         knowledge = self.knowledge_bundle.select(observation)
         if self.memory_mode in ("global", "both"):
             from .retrieval import build_case_query
-            query = build_case_query(observation, public_task_hash(self.prompt_config, observation.execution_days), self.memory_profile)
+            query = build_case_query(observation, self._task_hash(observation), self.memory_profile)
             retrieved = self.retriever.retrieve(query)
             if type(retrieved) is not RetrievalResult:
                 raise TypeError("retrievers must return exact public RetrievalResult")
@@ -281,50 +417,25 @@ class MemoryLLMController(LLMController):
         context = PublicMemoryContext(self.memory_mode, recent, knowledge, retrieved)
         initial_knowledge_ids = tuple(card.id for card in knowledge)
         dropped_case_ids, trims = [], []
-        messages, registry, required = build_memory_messages(observation, self.prompt_config, context)
+        messages, registry, required = build_memory_messages(observation, self.prompt_config, context,
+            feedback=self._sent_feedback, learned_rules=self._sent_rules)
         count = None
         try:
             self.token_counter.validate(self.settings)
-            while True:
-                count = self.token_counter.count_input(messages, self.settings)
-                if type(count) is not int or count < 0:
-                    raise LLMConfigurationError("tokenizer_invalid_result", "Input token count must be a nonnegative ordinary integer")
-                if count <= self.settings.input_token_budget:
-                    break
-                if context.retrieval.items:
-                    last = context.retrieval.items[-1]
-                    if "conflict_pair" in last.applicability_codes:
-                        removed = tuple(item.case.case_id for item in context.retrieval.items if "conflict_pair" in item.applicability_codes)
-                    else:
-                        removed = (last.case.case_id,)
-                    items = tuple(item for item in context.retrieval.items if item.case.case_id not in removed)
-                    flags = tuple(flag for flag in context.retrieval.flags if flag != "case_conflict" or len([item for item in items if "conflict_pair" in item.applicability_codes]) == 2)
-                    if not items:
-                        flags = tuple(dict.fromkeys((*flags, "budget_trimmed")))
-                    retrieval = replace(context.retrieval, status="ok" if items else "empty", items=items, flags=flags)
-                    context = replace(context, retrieval=retrieval)
-                    dropped_case_ids.extend(removed)
-                    trims.append({"kind": "cases", "ids": removed, "reason": "input_budget_exceeded"})
-                else:
-                    external = [card for card in context.knowledge if card.id not in CORE_IDS]
-                    if external:
-                        # Higher numerical priority is more important; ties use ID.
-                        removed = min(external, key=lambda card: (card.priority, card.id)).id
-                        context = replace(context, knowledge=tuple(card for card in context.knowledge if card.id != removed))
-                        trims.append({"kind": "knowledge", "ids": (removed,), "reason": "input_budget_exceeded"})
-                    elif context.recent is not None:
-                        context = replace(context, recent=None)
-                        trims.append({"kind": "recent", "reason": "input_budget_exceeded"})
-                    else:
-                        raise PromptBudgetError(count, self.settings.input_token_budget, snapshot_sha256(messages))
-                messages, registry, required = build_memory_messages(observation, self.prompt_config, context)
+            count = self.token_counter.count_input(messages, self.settings)
+            if type(count) is not int or count < 0:
+                raise LLMConfigurationError("tokenizer_invalid_result", "Input token count must be a nonnegative ordinary integer")
+            if count > self.settings.input_token_budget:
+                raise PromptBudgetError(count, self.settings.input_token_budget, snapshot_sha256(messages))
         except LLMError as error:
             error.details = _immutable({**error.details, "messages_sha256": snapshot_sha256(messages), "input_tokens": count,
                                         "memory_profile_sha256": self.memory_profile.sha256,
                                         "knowledge_sha256": self.knowledge_bundle.sha256})
             raise
         context_hash = public_hash({"memory": public_to_dict(context), "evidence_registry": list(registry),
-                                    "required_uncertainty_codes": list(required)})
+                                    "required_uncertainty_codes": list(required),
+                                    **({"feedback": self._sent_feedback, "learned_rules": self._sent_rules}
+                                       if self._sent_feedback is not None or self._sent_rules is not None else {})})
         # Stage only after profile/token/count validation and deterministic context construction.
         # A fatal preflight/query/budget failure must not create a pending case.
         self.memory.stage(observation)
@@ -374,7 +485,7 @@ class MemoryLLMController(LLMController):
                     "retrieval_flags": prepared.context.retrieval.flags,
                     "template_sha256": self.prompt_config.template_sha256,
                     "public_spec_sha256": self.prompt_config.public_spec_sha256,
-                    "public_task_sha256": public_task_hash(self.prompt_config, observation.execution_days),
+                    "public_task_sha256": self._task_hash(observation),
                     "case_store_sha256": getattr(self.store, "store_sha256", None),
                     "retrieval_config_sha256": public_hash(self.memory_profile.retrieval),
                     "program_flags": prepared.required_uncertainty_codes,

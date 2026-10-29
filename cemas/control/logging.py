@@ -72,19 +72,10 @@ def public_observation_to_dict(observation: PublicObservation) -> dict:
     if type(observation) is not PublicObservation:
         raise TypeError("only PublicObservation can be serialized as a public observation")
     data = asdict(observation)
+    from .public_history import week_values
+    data["history"] = [week_values(w) for w in observation.history]
     if not observation.snapshot_day:
         data.pop("snapshot_day")
-        for week in data["history"]:
-            for name in ("historical", "total_tests"):
-                week.pop(name)
-    else:
-        for week in data["history"]:
-            if week["historical"]:
-                week["executed_action"] = week["resources"] = None
-                for name in ("clinical_tests", "screening_tests", "delivered_notifications",
-                             "school_restriction_person_days", "work_restriction_person_days",
-                             "community_restriction_person_days"):
-                    week["cost"][name] = None
     return json.loads(json.dumps(data, ensure_ascii=False, allow_nan=False))
 
 
@@ -276,6 +267,9 @@ class RunLogger:
         if type(evidence) is not tuple or any(not isinstance(item, Mapping) for item in evidence):
             raise TypeError("decision evidence must be a tuple of public mappings")
         self._write_sidecar("decision_evidence.jsonl", evidence)
+
+    def write_feedback_events(self, events) -> None:
+        self._write_sidecar("feedback_events.jsonl", events)
 
     def write_evidence_resolution(self, evidence, resolution) -> None:
         records = tuple({"event": "resolved", "decision_day": item["decision_day"],

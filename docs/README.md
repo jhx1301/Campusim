@@ -1,6 +1,6 @@
 # CEMAS v1 开发文档
 
-更新：2026-10-25。接续开发先读 [UW 控制接入](uw_control_integration.md)和[当前工作阅读索引](CEMAS_READING_INDEX.md)，再查看对应阶段契约。
+更新：2026-10-28。接续开发先读 [UW 控制接入](uw_control_integration.md)和[当前工作阅读索引](CEMAS_READING_INDEX.md)。Feedback持续学习以[新版统一设计](llm_feedback_component_design.md)为准，旧P5材料仅作历史说明。
 
 当前 UW 配置为 69,457 人、初始感染 100、教师 2,321 / 其他职员 21,596、`campus_k_ts=3`；weekly E0 与员工接触背景迁移已完成，40 个评估世界重放一致。当前锚点为 `results/e0_v5_iso0_w1trace/weekly_background_v1_local/control_anchor.json`。P6 工程入口已经实现，正式源域开发、共同冻结和最终实验尚未完成。旧阶段验收数字和旧模型产物保留为历史证据。
 
@@ -11,19 +11,20 @@
 | [E0 配置](e0_protocol_v2.json)、[研究计划](../research/historical_epidemics/e0_calibration_research_plan.md) | UW W1 校准参数与原始方法记录 |
 | [软件工程实现计划](cemas_v1_implementation_plan.md) | Phase 0–7 的范围、接口、产物和验收顺序 |
 | [推荐实施协议](llm_recommended_protocol_v1.md)、[控制配置](control_protocol_v1.json) | 共同任务、动作、观察、资源、实验与统计规则 |
-| [记忆配置](control_memory_v1.json) | 当前 P5 数值检索和预算参数；旧混合检索候选不参与运行 |
+| [记忆配置](control_memory_v1.json) | 当前数值检索和记忆参数；输入不按token裁剪 |
+| [Feedback统一设计](llm_feedback_component_design.md)、[实施合同](PLAN%20(1).md)、[人工样例](llm_feedback_component_examples.json) | 当前快照7天观察＋112天控制、单周案例、聚合规则统计、v2学习库及冻结评估 |
 | [Phase 0 契约](control_phase0_contracts.md) | 公共接口、schema 与公共/私有信息边界 |
 | [Phase 1 契约](control_phase1_contracts.md) | 324 动作编解码、合法 mask 和动作解析 |
 | [Phase 2 契约](control_phase2_contracts.md) | 共同执行器、公共 ledger/观察和私有指标 |
 | [Phase 3 契约](control_phase3_contracts.md) | 周环境、奖励、参照策略及历史 E0 验收 |
 | [Phase 4 契约](control_phase4_contracts.md) | 无显式记忆 LLM、计数、重试、共同回退与审计 |
-| [Phase 5 计划](control_phase5_implementation_plan.md)、[契约](control_phase5_contracts.md) | 公共记忆、数值检索、知识、案例存储与剩余工具边界 |
+| [Phase 5 历史计划](control_phase5_implementation_plan.md)、[历史契约](control_phase5_contracts.md) | 早期只读源案例库设计及验证记录；弃用协议不再约束新版Feedback |
 | [Phase 6 计划](control_phase6_implementation_plan.md)、[契约](control_phase6_contracts.md) | Baseline/RL 工程、源域开发、案例库发布与共同冻结 |
 | [LLM 架构研究](llm_architecture_research/README.md) | P5 架构依据、示例与验证设计；实际运行规则以现行契约为准 |
 
 ## 环境与依赖
 
-指定解释器为 `E:/pytroch/anaconda3/envs/simulation/python.exe`。先用 `tools/check_control_environment.py` 检查当前环境，再按具体任务选择依赖；该工具只检查发现结果和安装元数据，不代表运行验收。报告中的 `future` 是 P0 留下的历史分组名称，不表示对应库现在尚未安装或尚未接入。
+指定解释器为 `D:/programfile/miniconda3/envs/simulation/python.exe`。先用 `tools/check_control_environment.py` 检查当前环境，再按具体任务选择依赖；该工具只检查发现结果和安装元数据，不代表运行验收。报告中的 `future` 是 P0 留下的历史分组名称，不表示对应库现在尚未安装或尚未接入。
 
 2026-10-23 当前解释器为 Python 3.10.20，安装元数据为 Optuna 4.8.0、Torch 2.13.0、Gymnasium 1.4.0、SB3/contrib 2.9.0、OpenAI SDK 2.33.0、Transformers 5.13.0、pytest 9.1.1。此清单是当前环境盘点，不代表本次已重跑 RL 或真实服务验收。
 

@@ -1,4 +1,4 @@
-﻿"""Deterministic 38-dimensional public-state and raw-difference retrieval."""
+"""Deterministic 38-dimensional public-state and raw-difference retrieval."""
 from __future__ import annotations
 
 from collections import Counter
@@ -12,6 +12,7 @@ from .memory_store import CaseStoreUnavailable, public_content_sha256
 from .memory_types import (CASE_SCHEMA_VERSION, QUERY_SCHEMA_VERSION, CaseQuery,
     RetrievalItem, RetrievalResult)
 from .types import ACTION_SIZES, PublicObservation
+from .public_history import tests_in, activity_in
 
 STATE_SCALES = (.01,.12,.10,.02,.05,.05,1,1,1,1,.02,.10,.01,1,1,1,1,*([1]*5),*([1]*16))
 TREND_SCALES = (.01,.12,.10,.05,1)
@@ -37,9 +38,10 @@ def _configuration(value):
 def _rates(week,population):
     count = population.population
     cost = week.cost
-    return (week.delivered_diagnoses/count,(cost.clinical_tests+cost.screening_tests)/(7*count),
-        cost.delivered_notifications/(7*count),cost.union_person_days/(7*count),
-        (cost.school_restriction_person_days+cost.work_restriction_person_days+cost.community_restriction_person_days)/(7*count))
+    tests, activity = tests_in(week), activity_in(week)
+    return (week.delivered_diagnoses/count, tests/(7*count) if tests is not None else None,
+        None if week.historical else cost.delivered_notifications/(7*count),cost.union_person_days/(7*count),
+        activity/(7*count) if activity is not None else None)
 
 
 def build_case_query(observation,public_task_sha256,profile=None):
@@ -54,7 +56,7 @@ def build_case_query(observation,public_task_sha256,profile=None):
     state,valid = [0.0]*10,[False]*10
     if weeks:
         week,cost = weeks[-1],weeks[-1].cost
-        state = [week.delivered_diagnoses/count,(cost.clinical_tests+cost.screening_tests)/(7*count),
+        state = [week.delivered_diagnoses/count,(tests_in(week) or 0)/(7*count),
             cost.delivered_notifications/(7*count),cost.isolation_person_days/(7*count),
             cost.quarantine_person_days/(7*count),cost.union_person_days/(7*count),
             cost.school_restriction_person_days/(7*school) if school else 0.,
@@ -62,6 +64,10 @@ def build_case_query(observation,public_task_sha256,profile=None):
             cost.community_restriction_person_days/(7*count),week.growth]
         valid = [True]*10
         valid[6],valid[7],valid[9] = bool(school),bool(work),week.growth_valid
+        valid[1] = tests_in(week) is not None
+        if week.historical:
+            for index in (2, 6, 7, 8):
+                valid[index] = False
     remaining = (observation.execution_days-observation.decision_day)/observation.execution_days
     state.extend((resources.clinical_daily_capacity/count,resources.screening_daily_capacity/count,
         resources.tracing_daily_index_capacity/count,remaining,school/count,work/count,population.school_work_population/count))
@@ -69,9 +75,12 @@ def build_case_query(observation,public_task_sha256,profile=None):
     state.extend(float(level==selected) for selected,size in zip(observation.current_action.values,ACTION_SIZES) for level in range(size))
     valid.extend([True]*28)
     rates = [_rates(week,population) for week in weeks[-3:]]
-    trend = tuple(tuple(b-a for a,b in zip(before,after)) for before,after in zip(rates,rates[1:]))
+    trend = tuple(tuple(b-a if a is not None and b is not None else 0. for a,b in zip(before,after))
+                  for before,after in zip(rates,rates[1:]))
+    trend_valid = tuple(tuple(a is not None and b is not None for a,b in zip(before,after))
+                        for before,after in zip(rates,rates[1:]))
     return CaseQuery(QUERY_SCHEMA_VERSION,public_task_sha256,tuple(state),tuple(valid),trend,
-        tuple((True,)*5 for _ in trend),resources,observation.legal_action_mask,remaining)
+        trend_valid,resources,observation.legal_action_mask,remaining)
 
 
 def _state_distance(left,right,config):
@@ -93,7 +102,20 @@ def _trend_score(left,right,config):
 
 def _diagnosis_change(case):
     history = [week for week,valid in zip(case.pre_observation.history,case.pre_observation.week_valid) if valid]
-    return case.executed_window.delivered_diagnoses-history[-1].delivered_diagnoses if history else None
+    return case.executed_week.delivered_diagnoses-history[-1].delivered_diagnoses if history else None
+
+
+def query_similarity(left, right, config):
+    """One state/trend distance for both case and rule retrieval."""
+    state = _state_distance(left, right, config)
+    if state is None:
+        return None
+    rms, state_score = state
+    trend_score = _trend_score(left, right, config)
+    weight = config["state_weight"] + config["trend_weight"]
+    score = (state_score if trend_score is None else
+             (config["state_weight"] * state_score + config["trend_weight"] * trend_score) / weight)
+    return rms, state_score, trend_score, score
 
 
 class NumericRetriever:
@@ -130,7 +152,7 @@ def retrieve(query,store,config=None):
             reason = "partial_window"
         elif query.remaining_fraction==1 and case.pre_observation.decision_day!=0:
             reason = "history"
-        elif not query.legal_action_mask[encode_action(case.executed_window.executed_action)]:
+        elif not query.legal_action_mask[encode_action(case.executed_week.executed_action)]:
             reason = "illegal_action"
         if reason:
             excluded[reason]+=1
@@ -140,7 +162,7 @@ def retrieve(query,store,config=None):
             excluded["history"]+=1
             continue
         population = case.pre_observation.population.population
-        capacities = case.executed_window.resources
+        capacities = case.executed_week.resources
         ratios = (capacities.clinical_daily_capacity/population,capacities.screening_daily_capacity/population,
                   capacities.tracing_daily_index_capacity/population)
         differences = (abs(a-b) for a,b in zip(query.state[10:13],ratios))
@@ -148,16 +170,12 @@ def retrieve(query,store,config=None):
                for difference,tolerance in zip(differences,config["capacity_ratio_tolerances"])):
             excluded["resource"]+=1
             continue
-        state = _state_distance(query,case_query,config)
-        if state is None:
+        similarity = query_similarity(query,case_query,config)
+        if similarity is None:
             excluded["valid_overlap"]+=1
             continue
         structural_count+=1
-        rms,state_score = state
-        trend_score = _trend_score(query,case_query,config)
-        weight = config["state_weight"]+config["trend_weight"]
-        score = (state_score if trend_score is None else
-                 (config["state_weight"]*state_score+config["trend_weight"]*trend_score)/weight)
+        rms,state_score,trend_score,score = similarity
         if rms>config["maximum_state_rms"] or score<config["minimum_score"]:
             excluded["distance"]+=1
             continue
@@ -189,7 +207,7 @@ def retrieve(query,store,config=None):
                 continue
             for right in pool[i+1:]:
                 change_right = _diagnosis_change(right[0].case)
-                if (left[0].case.executed_window.executed_action!=right[0].case.executed_window.executed_action
+                if (left[0].case.executed_week.executed_action!=right[0].case.executed_week.executed_action
                         or left[2]==right[2] or left[3]==right[3] or change_right is None
                         or abs(change_right)<minimum_change or change_left*change_right>=0
                         or similarity(left,right)<config["conflict_minimum_state_score"]):
@@ -203,8 +221,8 @@ def retrieve(query,store,config=None):
 
     def eligible(candidate):
         item,_query,group,content = candidate
-        action = item.case.executed_window.executed_action
-        return (sum(row[0].case.executed_window.executed_action==action for row in selected)<config["maximum_per_action"]
+        action = item.case.executed_week.executed_action
+        return (sum(row[0].case.executed_week.executed_action==action for row in selected)<config["maximum_per_action"]
                 and sum(row[2]==group for row in selected)<config["maximum_per_group"]
                 and all(row[3]!=content for row in selected))
 
@@ -212,8 +230,8 @@ def retrieve(query,store,config=None):
         available = [row for row in pool if row not in selected and eligible(row)]
         if not available:
             break
-        actions = {row[0].case.executed_window.executed_action for row in selected}
-        different = [row for row in available if row[0].case.executed_window.executed_action not in actions]
+        actions = {row[0].case.executed_week.executed_action for row in selected}
+        different = [row for row in available if row[0].case.executed_week.executed_action not in actions]
         if selected and len(actions)<2 and different:
             available = different
         def ranking(row):

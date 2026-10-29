@@ -1,0 +1,211 @@
+{
+  "document_kind": "design_samples",
+  "updated_on": "2026-10-28",
+  "notice": "人工设计样例，不是真实运行结果。为便于阅读，周记录values只展示有关公开字段，案例只展示结构摘要；实际序列由共享公开投影生成。",
+  "schemas": {
+    "learning_store": "cemas-learning-memory-v2",
+    "public_case": "cemas-public-case-v2",
+    "feedback_input": "cemas-public-feedback-input-v3",
+    "feedback_result": "cemas-public-feedback-result-v2",
+    "rule_input": "cemas-public-rule-input-v3",
+    "rule_patch": "cemas-public-rule-patch-v3"
+  },
+  "task": {
+    "observation_days": 7,
+    "control_days": 112,
+    "execution_days": 119,
+    "autonomous_decisions": 16,
+    "rule_update_days": [35, 63, 91, 119]
+  },
+  "single_week_case": {
+    "case_id": 1,
+    "revision": 1,
+    "schema_version": "cemas-public-case-v2",
+    "pre_observation_summary": {
+      "decision_day": 7,
+      "latest_history_window": [0, 6]
+    },
+    "executed_week_summary": {
+      "start_day": 7,
+      "end_day": 13,
+      "executed_action": [0, 0, 0, 0, 0]
+    },
+    "status": "closed",
+    "explanation": "day14立即形成独立案例，不等待后续周。opaque_group由group_for(case_id)查询，不在每个案例中复制分组注册。"
+  },
+  "rule_request": {
+    "evidence_bundle": {
+      "schema_version": "cemas-public-rule-input-v3",
+      "as_of_day": 35,
+      "public_task_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "weeks": [
+        {
+          "window_id": "W:0000000000000000000000000000000000000000000000000000000000000000",
+          "case_id": 1,
+          "revision": 1,
+          "opaque_group": "opaque-training-group-a",
+          "role": "reference",
+          "start_day": 0,
+          "end_day": 6,
+          "values": {"delivered_diagnoses": 12, "executed_action": [0, 0, 0, 0, 0]},
+          "support_window": false
+        },
+        {
+          "window_id": "W:1111111111111111111111111111111111111111111111111111111111111111",
+          "case_id": 1,
+          "revision": 1,
+          "opaque_group": "opaque-training-group-a",
+          "role": "autonomous",
+          "start_day": 7,
+          "end_day": 13,
+          "values": {"delivered_diagnoses": 15, "executed_action": [0, 0, 0, 0, 0]},
+          "support_window": true,
+          "matched_condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+        },
+        {
+          "window_id": "W:2222222222222222222222222222222222222222222222222222222222222222",
+          "case_id": 2,
+          "revision": 1,
+          "opaque_group": "opaque-training-group-a",
+          "role": "autonomous",
+          "start_day": 14,
+          "end_day": 20,
+          "values": {"delivered_diagnoses": 16, "executed_action": [0, 1, 0, 0, 0]},
+          "support_window": true,
+          "matched_condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+        },
+        {
+          "window_id": "W:3333333333333333333333333333333333333333333333333333333333333333",
+          "case_id": 3,
+          "revision": 1,
+          "opaque_group": "opaque-training-group-a",
+          "role": "autonomous",
+          "start_day": 21,
+          "end_day": 27,
+          "values": {"delivered_diagnoses": 13, "executed_action": [0, 1, 0, 0, 0]},
+          "support_window": true,
+          "matched_condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+        },
+        {
+          "window_id": "W:4444444444444444444444444444444444444444444444444444444444444444",
+          "case_id": 4,
+          "revision": 1,
+          "opaque_group": "opaque-training-group-a",
+          "role": "autonomous",
+          "start_day": 28,
+          "end_day": 34,
+          "values": {"delivered_diagnoses": 14, "executed_action": [0, 0, 0, 0, 0]},
+          "support_window": true,
+          "matched_condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+        }
+      ],
+      "comparisons": [
+        {
+          "before_window_id": "W:0000000000000000000000000000000000000000000000000000000000000000",
+          "after_window_id": "W:1111111111111111111111111111111111111111111111111111111111111111",
+          "metrics": {"delivered_diagnoses": 3},
+          "limitations": ["descriptive_not_causal"]
+        },
+        {
+          "before_window_id": "W:1111111111111111111111111111111111111111111111111111111111111111",
+          "after_window_id": "W:2222222222222222222222222222222222222222222222222222222222222222",
+          "metrics": {"delivered_diagnoses": 1},
+          "limitations": ["descriptive_not_causal", "action_changed"]
+        },
+        {
+          "before_window_id": "W:2222222222222222222222222222222222222222222222222222222222222222",
+          "after_window_id": "W:3333333333333333333333333333333333333333333333333333333333333333",
+          "metrics": {"delivered_diagnoses": -3},
+          "limitations": ["descriptive_not_causal"]
+        },
+        {
+          "before_window_id": "W:3333333333333333333333333333333333333333333333333333333333333333",
+          "after_window_id": "W:4444444444444444444444444444444444444444444444444444444444444444",
+          "metrics": {"delivered_diagnoses": 1},
+          "limitations": ["descriptive_not_causal", "action_changed"]
+        }
+      ],
+      "condition_catalog": {
+        "COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {"kind": "history", "value": 1}
+      },
+      "task_rules": []
+    },
+    "current_rule_set": []
+  },
+  "add_response": {
+    "schema_version": "cemas-public-rule-patch-v3",
+    "operations": [
+      {
+        "op": "ADD",
+        "content": {
+          "condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+          "lesson": "诊断变化应结合检测构成和实际动作共同解释。",
+          "limitations": ["相邻周比较不能证明动作的因果收益。"]
+        },
+        "increment": "记录两个自主周中相同的解释限制。",
+        "judgments": [
+          {"window_id": "W:1111111111111111111111111111111111111111111111111111111111111111", "judgment": "support"},
+          {"window_id": "W:2222222222222222222222222222222222222222222222222222222222222222", "judgment": "support"},
+          {"window_id": "W:3333333333333333333333333333333333333333333333333333333333333333", "judgment": "ignore"}
+        ]
+      }
+    ]
+  },
+  "aggregate_rule_summary": {
+    "id": 1,
+    "version": 1,
+    "status": "active",
+    "support_count": 2,
+    "contradiction_count": 0,
+    "confidence": 0.75,
+    "explanation": "规则只保存内容、条件和聚合值。窗口判断另存rule_updates，不复制事实正文。"
+  },
+  "statistics_only_revision": {
+    "request_explanation": "content与v1完全一致，只给当前请求中新的窗口判断。",
+    "operation": {
+      "op": "REVISE",
+      "target_id": 1,
+      "base_version": 1,
+      "content": {
+        "condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+        "lesson": "诊断变化应结合检测构成和实际动作共同解释。",
+        "limitations": ["相邻周比较不能证明动作的因果收益。"]
+      },
+      "increment": "登记一个相悖窗口，不改规则内容。",
+      "judgments": [
+        {"window_id": "W:4444444444444444444444444444444444444444444444444444444444444444", "judgment": "contradict"}
+      ]
+    },
+    "expected": {"version": 1, "support_count": 2, "contradiction_count": 1, "confidence": 0.6}
+  },
+  "idempotence_and_reclassification": {
+    "unique_key": ["rule_id", "rule_version", "opaque_group", "window_start", "window_end"],
+    "repeat_same_judgment": {"version": 1, "support_count": 2, "contradiction_count": 1, "confidence": 0.6},
+    "replace_last_contradict_with_support": {"version": 1, "support_count": 3, "contradiction_count": 0, "confidence": 0.8},
+    "explanation": "相同窗口不因重试或案例revision再次计数，改判替换原记录。"
+  },
+  "content_revision": {
+    "operation_summary": {"op": "REVISE", "target_id": 1, "base_version": 1, "changed_field": "lesson"},
+    "new_version_judgments": ["support"],
+    "expected": {"version": 2, "support_count": 1, "contradiction_count": 0, "confidence": 0.6666666666666666, "status": "candidate"},
+    "explanation": "内容变化产生v2，v1统计保留；v2只计算本次明确提交的判断。"
+  },
+  "suspend": {
+    "operation": {"op": "SUSPEND", "target_id": 1, "base_version": 2, "reason": "现有适用条件不足以解释观察。"},
+    "expected": {"version": 2, "status": "suspended", "statistics_unchanged": true}
+  },
+  "weekly_feedback": {
+    "input_summary": {"schema_version": "cemas-public-feedback-input-v3", "as_of_day": 14, "reference_window": [0, 6], "autonomous_window": [7, 13]},
+    "response": {
+      "schema_version": "cemas-public-feedback-result-v2",
+      "items": [
+        {"window_id": "W:1111111111111111111111111111111111111111111111111111111111111111", "status": "abstain", "reason_code": "no_new_insight"}
+      ]
+    },
+    "explanation": "周经验可引用本次facts，规则维护只引用窗口编号。"
+  },
+  "terminal_update": {"as_of_day": 119, "reference_window": [84, 90], "autonomous_windows": [[91, 97], [98, 104], [105, 111], [112, 118]], "extra_execution_required": false},
+  "retrieval": {"available_rules_in_store": 9, "maximum_rules_in_one_decision": 6, "filters": ["active", "matching_task", "support_count_at_least_2", "conditions_not_explicitly_false"], "ordering": ["matched_before_unknown", "maximum_support_state_similarity_descending", "rule_id_ascending"], "confidence_changes_action_mask": false},
+  "resume_and_freeze": {"schema": "cemas-learning-memory-v2", "completed_episode_same_scenario": "skip", "same_episode_id_different_scenario": "error", "reorder_or_append_episodes": "allowed", "change_model_or_template": "allowed_and_logged", "failed_episode": "rollback_cases_rules_judgments_and_completion", "old_v1_library": "reject_and_create_a_new_v2_library", "frozen_evaluation": "read_only_library_with_temporary_episode_feedback"},
+  "atomic_batch": {"more_than_two_legal_operations": "commit_all", "one_invalid_window_or_stale_version": "reject_all", "reference_window_as_support": "reject", "duplicate_window_for_same_rule": "reject", "empty_operations": "accept_no_change"}
+}
