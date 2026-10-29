@@ -65,7 +65,7 @@ def test_action_vector_copies_mutable_input_and_proposals_share_one_type():
         ActionProposal([0, 0, 0, 0, 0])
 
 
-@pytest.mark.parametrize("reason", ["", " ", "x" * 121, "两行\n说明", "两行\r说明"])
+@pytest.mark.parametrize("reason", ["", " ", "两行\n说明", "两行\r说明"])
 def test_reasoning_has_the_v1_public_explanation_limits(reason):
     with pytest.raises(ValueError):
         ActionProposal(ActionVector((0, 0, 0, 0, 0)), reason)

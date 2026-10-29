@@ -35,7 +35,7 @@
 
 `FeedbackBackend.generate(packet)`接收`cemas-public-feedback-input-v3`。packet包含as_of_day、公开任务hash、weeks、comparisons、facts和固定知识。facts只为本次临时经验和动作审计提供引用，不进入规则存储。
 
-响应为`cemas-public-feedback-result-v2`，每个自主window_id恰好一项：候选给finding、decision_check、applicability、limitations；前两者各含text/evidence_ids。也可用insufficient_evidence、no_new_insight或redundant_with_packet弃答。
+响应为`cemas-public-feedback-result-v2`，每个自主window_id恰好一项：候选给finding、decision_check、applicability、limitations；只有前两者各含text/evidence_ids，applicability直接是字符串，limitations是1–3个字符串。也可用insufficient_evidence、no_new_insight或redundant_with_packet弃答。提示词给出两种最小JSON示例并要求逐字复制facts中的完整引用；例如通知字段是`W:…:cost.delivered_notifications`，不能省略`cost.`。
 
 完整结构与引用检查通过才使用笔记；笔记只在本回合保存，最多展示两条近期项。未发送事实、经验和规则不能被动作响应引用。周经验是建议，不是原始观察或因果证明。
 
@@ -45,7 +45,7 @@
 
 `RuleDistiller.propose(evidence_bundle,current_rule_set)`复用现有请求基础设施。bundle为`cemas-public-rule-input-v3`，包含平铺五周、相邻比较、condition_catalog和固定知识；current_rule_set单独提供全部当前规则。请求不复制历史事实证据，也不维护另一份规则注册表。
 
-每个自主周附`matched_condition_ids`，由同一适用条件计算入口依据该周行动前公开状态生成，方便模型判断适用范围；不重复发送整份历史观察。
+每个自主周附`pre_decision_action`和`matched_condition_ids`，前者直接投影案例前态的current_action，后者由同一适用条件入口依据该周行动前公开状态生成；不重复发送整份历史观察。动作条件`kind=action`始终指决策前已在执行的动作，本周实际动作另见`values.executed_action`。例如决策前A=2、本周改为A=1，该周匹配的行动前动作条件仍是A=2；不能将本周选择的A=1替代它。所选全部条件都须适用于支持/相悖窗口，模型可对照该窗口的matched_condition_ids核对；不适用用ignore。
 
 规则内容只有condition_ids、lesson、limitations；程序把所选条件定义随规则保存。规则另存任务身份、ID、内容版本、状态、更新时间和聚合统计。不保存逐条evidence、支持/相悖事实引用或removed_evidence，也不执行旧的规则来源失效检查。
 
@@ -57,9 +57,9 @@
 | REVISE | op、target_id、base_version、content、increment、judgments |
 | SUSPEND | op、target_id、base_version、reason |
 
-content中的条件从本次condition_catalog选择；lesson为非空单行、最多180字符，限制1–3条、每条最多120字符。increment/reason最多120字符。这些是字段可读性约定，不是输入token裁剪。
+content中的条件从本次condition_catalog选择；lesson、limitations中的文字、increment和reason均为非空单行字符串，limitations保留1–3条。仅在提示词建议lesson约180字、其余每项约120字以内，必要时可稍长；程序不按字符数拒绝、截断或改写。动作reason保留现有reason_max_chars配置和解析参数用于兼容及提示长度建议，tradeoff建议约80字；它们也不再是字符数接纳门禁。ActionProposal内部同步取消120字符限制，JSON结构、类型、引用、单行及非空约束保留。
 
-judgments每项只含window_id和support/contradict/ignore。LLM判断在规则条件内，公开记录与lesson是否一致；不适用或不够判断用ignore。程序检查发送窗口、完整自主周、版本和重复，并拒绝条件明确不匹配的支持或相悖判断；ADD至少一个支持窗口。参考周不接受判断。空operations合法，操作数量无固定上限，同一目标一批最多一次，整批解析成功才写入。
+judgments每项只含window_id和support/contradict/ignore。LLM判断在规则条件内，公开记录与lesson是否一致；不适用或不够判断用ignore。程序检查发送窗口、完整自主周、版本和重复，并拒绝条件明确不匹配的支持或相悖判断；ADD至少一个支持窗口。参考周仅供比较，完全不能出现在judgments中，包括ignore。提示词分别给出ADD/REVISE/SUSPEND和空operations的最小JSON示例，示例不构成第二份可执行schema。操作数量无固定上限，同一目标一批最多一次，整批解析成功才写入。
 
 统计采用唯一窗口判断：
 
@@ -89,9 +89,15 @@ rule_updates只包含rule_id、rule_version、opaque_group、case_id、case_revi
 
 案例、规则、判断和完成记录整回合提交，致命失败整回合回滚。完成表是唯一进度，不逐周恢复。冻结在完成边界用SQLite backup生成一致副本和hash manifest。正式评估只读，经历不写库；临时周经验随回合清空。
 
-动作、周经验和规则共用transport、服务设置、官方tokenizer、bounded_request和审计。没有辅助小token预算、规则块上限或token裁剪；完整输入超服务配置硬上限时报错，输出截断不部分提交。重试发送相同输入。快照非法主动作进入原重试流程，动作耗尽停止回合并回滚训练更新。
+动作、周经验和规则共用transport、服务设置、官方tokenizer、bounded_request和审计。没有辅助小token预算、规则块上限或token裁剪；完整输入超服务配置硬上限时报错，输出截断不部分提交。每次请求仍至多三次、间隔2/4秒。连接/临时服务错误原样重发当前请求；响应校验失败改为原始完整输入加一条user纠错消息，要求重新返回完整JSON。
 
-llm_calls只计动作调用，feedback_events的provider_call计辅助调用；attempts、auxiliary_attempts、total_attempts分别报出。token、耗时及已有费用来源包含全部请求。正常弃答与空更新不是失败。模板、发送内容、引用映射和上下文hash来自同一次渲染。
+纠错只保留最近一次错误码、字段路径、要求及必要错误值，不发送完整旧答复或累积错误历史。原有校验点通过异常details提供首个错误，规则错误附操作位置、窗口和未满足条件；不新增错误码文案注册表。仅发送公开校验信息，SDK原始异常、凭证、私有信息和内部推理不进入纠错。错误编号不会因为出现于纠错中而进入合法引用registry。
+
+纠错消息变化后重新计算完整官方输入token及实际消息hash；服务重试复用当前消息和计数。纠错后超输入上限时记录预检失败而不调用服务，不截断纠错或公共上下文。重试不重新检索、不生成额外周经验或规则请求、不重复stage。快照动作耗尽仍停止回合并回滚，辅助请求耗尽记为unavailable，正常空操作或弃答不视为失败。
+
+llm_calls只计动作调用，feedback_events的provider_call计辅助调用；attempts、auxiliary_attempts、total_attempts分别报出。token、耗时及已有费用来源包含全部请求。每次调用审计保存实际消息、hash、输入计数及可选validation_error；动作成功收尾在当前调用审计追加后执行，最终决策证据引用最后一次实际请求的messages_sha256/input_tokens。纠错不增加事实，原公共context_hash和引用registry不变。提示词版本/hash升级，响应schema、条件ID和学习库schema不变，已有v2库可继续使用。
+
+独立服务验收工具沿用同一纠错流程。生成报告的最终检查只核对记录完整性和一致性，不重复解析已通过的响应或复算输入；独立读取报告时仍完整验证，重建原始上下文并计数包含可选纠错消息的实际请求。
 
 ## 7. 入口与验收边界
 

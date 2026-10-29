@@ -252,7 +252,6 @@ def test_parser_accepts_joint_endpoints(action):
     '{"action":[0,0,0,0,0],"reason":"a\\nb"}',
     '{"action":[0,0,0,0,0],"reason":"a\\n"}',
     json.dumps({"action": [0] * 5, "reason": "a\u2028b"}),
-    json.dumps({"action": [0] * 5, "reason": "a" * 121}),
 ])
 def test_parser_rejects_without_repair(raw):
     with pytest.raises(ActionResponseError):
@@ -280,14 +279,17 @@ def test_exact_retry_counts_waits_and_identical_messages(settings, prompt_config
     assert controller.consume_failure_reason() is None
 
 
-def test_observe_cannot_change_prompt_and_parse_retry_has_no_correction(settings, prompt_config, observation):
+def test_observe_cannot_change_base_prompt_and_parse_retry_has_correction(settings, prompt_config, observation):
     transport = ScriptedTransport([LLMResponse("bad json"), response(), response()])
     controller = LLMController(transport, prompt_config, settings, StubCounter(), sleeper=lambda _: None)
     controller.decide(observation)
     controller.observe(PublicWeekFeedback(PublicWeeklyRecord(0, 6, 100)))
     controller.observe(PublicWeekFeedback(PublicWeeklyRecord(7, 8, 500)))  # terminal tail
     controller.decide(observation)
-    assert transport.messages[0] == transport.messages[1] == transport.messages[2]
+    assert transport.messages[0] == transport.messages[2]
+    assert transport.messages[1][:-1] == transport.messages[0]
+    correction = json.loads(transport.messages[1][-1].content)
+    assert correction["validation_error"]["code"] == "invalid_json"
     assert len(transport.messages[0]) == 2
     assert controller.drain_call_audits()[0].error_category == "ActionResponseError"
     with pytest.raises(TypeError):
@@ -560,6 +562,11 @@ def test_real_local_tokenizer_library_counts_roles_template_and_generation_prefi
     counter = OfficialInputTokenCounter(path)
     expected = tokenizer.apply_chat_template(resolved_snapshot(messages), tokenize=True, add_generation_prompt=True, return_dict=False)
     assert counter.count_input(messages, settings) == len(expected)
+    corrected = (*messages, ChatMessage("user", json.dumps({"validation_error": {
+        "code": "invalid_fields", "path": "", "expected": ["action", "reason"]}})))
+    corrected_tokens = tokenizer.apply_chat_template(resolved_snapshot(corrected), tokenize=True,
+                                                     add_generation_prompt=True, return_dict=False)
+    assert counter.count_input(corrected, settings) == len(corrected_tokens)
     without_prefix = tokenizer.apply_chat_template(resolved_snapshot(messages), tokenize=True, add_generation_prompt=False, return_dict=False)
     assert len(expected) > len(without_prefix)
     counter.validate(settings)

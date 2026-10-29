@@ -55,8 +55,8 @@ def _window(start_day: int, end_day: int) -> None:
 def _reason(value: str | None) -> None:
     if value is None:
         return
-    if type(value) is not str or not value.strip() or len(value) > 120:
-        raise ValueError("reasoning must be nonempty text of at most 120 characters")
+    if type(value) is not str or not value.strip():
+        raise ValueError("reasoning must be nonempty text")
     if any(character in value for character in ("\n", "\r", "\u2028", "\u2029")):
         raise ValueError("reasoning must be a single line")
 

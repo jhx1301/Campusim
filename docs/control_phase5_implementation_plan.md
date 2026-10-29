@@ -222,7 +222,7 @@ manifest分别记录`purpose=fixture|development|evaluation_ready`与`storage_st
 
 程序required flags在最终裁剪后计算：始终partial_observability；O无历史为no_history；O检测/资源变化照实标记；启用global且最终无案例为no_case；保留冲突对才case_conflict；距离门槛失败为out_of_support；已发送案例后窗缺失/不足7日为truncated_followup。不增加knowledge_conflict等未定义wire枚举。
 
-主动作仅格式/范围校验，资源非法继续交共同resolver；备选mask非法只记录infeasible，既不执行也不因此重试主提案。`ActionProposal`字段不变，reason仍≤120字符。模型没有结构错误但理由不充分属于待评估的决策质量，不能在线读取私有结果重选。
+非快照主动作格式/范围校验后资源非法继续交共同resolver；快照主动作在请求成功前检查mask并进入校验重试。备选mask非法只记录infeasible，既不执行也不因此重试主提案。`ActionProposal`字段不变；2026-10-28起reason的120字仅为提示建议，不作字符数拒绝。模型没有结构错误但理由不充分属于待评估的决策质量，不能在线读取私有结果重选。
 
 ### 5.7 预算、失败与审计
 

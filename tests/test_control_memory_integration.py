@@ -305,13 +305,15 @@ def test_fatal_decision_and_secondary_evidence_failure_keep_primary_error_saniti
     assert "secret-secondary-payload" not in failure_text
 
 
-def test_memory_controller_inherits_one_retry_loop_with_same_bytes_and_public_fallback_cases(protocol, tmp_path):
+def test_memory_controller_inherits_one_corrective_retry_loop_and_public_fallback_cases(protocol, tmp_path):
     controller, transport, counter, _, sleeps = _controller(protocol, invalid_first=3)
     assert MemoryLLMController.decide is LLMController.decide
     output = tmp_path / "shared-exhaustion"
     run_episode(protocol, controller, output, 90002, scenario_options={**OPTIONS, "execution_days": 16})
-    assert len(transport.messages) == 4 and transport.messages[0] == transport.messages[1] == transport.messages[2]
-    assert len(counter.messages) == 2 and sleeps == [2, 4]
+    assert len(transport.messages) == 4
+    assert transport.messages[1][:-1] == transport.messages[0]
+    assert transport.messages[1] is transport.messages[2]
+    assert len(counter.messages) == 3 and sleeps == [2, 4]
     evidence = [item for item in _json_lines(output / "decision_evidence.jsonl") if item["event"] == "prepared"]
     assert evidence[0]["status"] == "retry_exhausted" and evidence[0]["attempt_count"] == 3
     assert evidence[0]["reason"] is None

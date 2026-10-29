@@ -218,14 +218,13 @@ def parse(raw, **kwargs):
 
 @pytest.mark.parametrize("change", [
     {"action": [True, 0, 0, 0, 0]}, {"action": [0., 0, 0, 0, 0]}, {"action": [3, 0, 0, 0, 0]},
-    {"action": [0] * 4}, {"reason": " "}, {"reason": "a\nb"}, {"reason": "a" * 121},
+    {"action": [0] * 4}, {"reason": " "}, {"reason": "a\nb"},
     {"evidence_ids": []}, {"evidence_ids": ["O:/history/0/growth"]},
     {"evidence_ids": ["O:/decision_day"] * 2}, {"evidence_ids": ["C:999"]},
     {"evidence_ids": [1]}, {"uncertainty_codes": []}, {"uncertainty_codes": ["no_history"]},
     {"uncertainty_codes": ["partial_observability", "knowledge_conflict"]},
     {"uncertainty_codes": ["partial_observability"] * 2}, {"alternative_actions": None},
     {"alternative_actions": [{"action": [0] * 5, "tradeoff": "different", "evidence_ids": ["K:SIM-01"]}]},
-    {"alternative_actions": [{"action": [1] * 5, "tradeoff": "a" * 81, "evidence_ids": ["K:SIM-01"]}]},
     {"alternative_actions": [{"action": [1] * 5, "tradeoff": "ok", "evidence_ids": ["C:999"]}]},
     {"alternative_actions": [{"action": [1] * 5, "tradeoff": "ok", "evidence_ids": ["K:SIM-01"], "score": 1}]},
     {"private_reward": 1},
@@ -267,8 +266,10 @@ def test_same_final_messages_single_retrieval_and_count_across_three_attempts(co
     policy = controller(config, mode="both", counter=counter, transport=transport, retriever=retriever, sleeper=delays.append)
     proposal = policy.decide(observation)
     assert proposal is not None and delays == [2, 4]
-    assert len(counter.counted) == 1 and len(retriever.queries) == 1 and counter.validations == 1
-    assert transport.messages[0] is transport.messages[1] is transport.messages[2]
+    assert len(counter.counted) == 2 and len(retriever.queries) == 1 and counter.validations == 1
+    assert transport.messages[0] is transport.messages[1]
+    assert transport.messages[2][:-1] == transport.messages[0]
+    assert json.loads(transport.messages[2][-1].content)["validation_error"]["code"] == "unknown_evidence_id"
     audits = policy.drain_call_audits()
     assert [audit.error_code for audit in audits] == ["timeout", "unknown_evidence_id", None]
     evidence = policy.drain_decision_evidence()
@@ -290,12 +291,13 @@ def test_exhaustion_has_program_context_without_fabricated_model_reason(config, 
     assert revision.executed_week.executed_action == day0.current_action
 
 
-def test_truncated_completion_retries_same_input(config, day0):
+def test_truncated_completion_retries_with_completion_error(config, day0):
     policy = controller(config, transport=Transport([LLMResponse(wire(), finish_reason="length"), successful_response]))
     assert policy.decide(day0) is not None
     audits = policy.drain_call_audits()
     assert [audit.error_code for audit in audits] == ["truncated_content", None]
-    assert len(policy.token_counter.counted) == 1
+    assert len(policy.token_counter.counted) == 2
+    assert audits[1].messages[:-1] == audits[0].messages
 
 
 def test_over_limit_fails_without_trimming_public_material(config, observation):
@@ -388,13 +390,7 @@ def test_p4_legacy_keeps_two_field_template_and_memory_rejection(config, day0):
 
 
 @pytest.fixture
-def memory_receipt(config, day0, observation, tmp_path):
-    """Synthetic provider evidence for the receipt code path; no service is called."""
-    class AcceptedFixtureCounter(Counter):
-        def verify_response(self, response):
-            if (response.model, response.system_fingerprint) != ("offline-model", None):
-                raise LLMConfigurationError("provider_changed", "Offline accepted service changed")
-
+def memory_probes(config, day0, observation):
     class ProbeStore:
         def cases(self):
             return tuple(item.case for item in retrieval_result(observation, config[1]).items)
@@ -418,10 +414,128 @@ def memory_receipt(config, day0, observation, tmp_path):
     probes["no_case"] = {"observation": replace(observation, resources=PublicResources(100, 100, 100)),
                          "store": store}
     probes["long_numeric"] = {"observation": long_observation, "store": store}
+    return probes
+
+
+@pytest.fixture
+def memory_receipt(config, memory_probes, tmp_path):
+    """Synthetic provider evidence for the receipt code path; no service is called."""
+    class AcceptedFixtureCounter(Counter):
+        def verify_response(self, response):
+            if (response.model, response.system_fingerprint) != ("offline-model", None):
+                raise LLMConfigurationError("provider_changed", "Offline accepted service changed")
+
     transport = Transport([lambda messages: replace(successful_response(messages), usage={"prompt_tokens": 100})] * 6)
     transport.settings = config[2]
-    receipt = accept_memory_llm(transport, AcceptedFixtureCounter(), config[1], probes, tmp_path / "offline-receipt")
+    receipt = accept_memory_llm(transport, AcceptedFixtureCounter(), config[1], memory_probes, tmp_path / "offline-receipt")
     return receipt, transport
+
+
+@pytest.mark.parametrize("correct_first", [False, True])
+def test_provider_acceptance_checks_each_call_once_and_reloads_actual_requests(
+        config, memory_probes, tmp_path, monkeypatch, correct_first):
+    import cemas.control.llm_memory as llm_memory
+
+    parsed = []
+    original_parse = llm_memory.parse_memory_response
+
+    def tracked_parse(raw, **kwargs):
+        parsed.append(raw)
+        return original_parse(raw, **kwargs)
+
+    monkeypatch.setattr(llm_memory, "parse_memory_response", tracked_parse)
+
+    class ReceiptCounter(Counter):
+        def __init__(self):
+            super().__init__(lambda messages: 100 * len(messages))
+            self.verified = []
+
+        def verify_response(self, response):
+            self.verified.append(response)
+
+    def valid_response(messages):
+        return replace(successful_response(messages), usage={"prompt_tokens": 100 * len(messages)})
+
+    outcomes = [valid_response] * 6
+    if correct_first:
+        outcomes.insert(0, lambda messages: replace(valid_response(messages), content="{}"))
+    transport, counter = Transport(outcomes), ReceiptCounter()
+    transport.settings = config[2]
+    receipt = accept_memory_llm(transport, counter, config[1], memory_probes, tmp_path / "acceptance")
+    calls = 6 + correct_first
+    assert len(transport.messages) == len(counter.counted) == len(counter.verified) == len(parsed) == calls
+    record = json.loads(receipt.read_text(encoding="utf-8"))
+    first = record["cases"][0]
+    assert first["attempt_count"] == 1 + correct_first
+    assert len(first["messages"]) == 2 + correct_first
+    assert first["input_tokens"] == 100 * len(first["messages"])
+
+    policy = controller(config, counter=counter)
+    assert validate_memory_acceptance(receipt, policy) == record
+    assert len(counter.counted) == len(counter.verified) == len(parsed) == calls + 6
+    assert resolved_snapshot(counter.counted[-6]) == first["messages"]
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda messages: messages.append({"role": "user", "content": "not JSON"}),
+    lambda messages: messages.append({"role": "user", "content": '{}'}),
+    lambda messages: messages.append({"role": "system", "content": 'changed instructions'}),
+    lambda messages: messages.extend([{"role": "user", "content": '{}'}] * 2),
+    lambda messages: messages[0].update(content="changed original instructions"),
+])
+def test_provider_receipt_rejects_malformed_corrections_and_modified_base(config, memory_receipt, mutate):
+    receipt, _ = memory_receipt
+
+    def change(record):
+        case = record["cases"][0]
+        mutate(case["messages"])
+        case["messages_sha256"] = snapshot_sha256(case["messages"])
+
+    _rewrite_receipt(receipt, change)
+    with pytest.raises(LLMConfigurationError) as caught:
+        validate_memory_acceptance(receipt, controller(config))
+    assert caught.value.code == "memory_acceptance_invalid"
+
+
+@pytest.mark.parametrize("damage", ["missing_case", "usage_mismatch"])
+def test_provider_acceptance_checks_saved_artifact_before_publishing(
+        config, memory_probes, tmp_path, monkeypatch, damage):
+    original_read = Path.read_text
+
+    def damaged_read(path, *args, **kwargs):
+        raw = original_read(path, *args, **kwargs)
+        if path.name == "candidate.json":
+            value = json.loads(raw)
+            if damage == "missing_case":
+                value["cases"].pop()
+            else:
+                value["cases"][0]["response"]["usage"]["prompt_tokens"] += 1
+            value["sha256"] = snapshot_sha256({key: item for key, item in value.items() if key != "sha256"})
+            return json.dumps(value)
+        return raw
+
+    monkeypatch.setattr(Path, "read_text", damaged_read)
+    transport = Transport([lambda messages: replace(successful_response(messages), usage={"prompt_tokens": 100})] * 6)
+    transport.settings = config[2]
+    output = tmp_path / "damaged-receipt"
+    with pytest.raises(LLMConfigurationError):
+        accept_memory_llm(transport, Counter(), config[1], memory_probes, output)
+    assert len(transport.messages) == 6
+    assert (output / "failure.json").is_file()
+    assert not (output / "memory_prompt_acceptance.json").exists()
+
+
+def test_provider_acceptance_requires_no_case_probe_to_have_empty_retrieval(config, memory_probes, tmp_path):
+    # A valid response cannot compensate for a factory supplying the wrong probe.
+    memory_probes["no_case"] = dict(memory_probes["four_weeks_global"])
+    transport = Transport([lambda messages: replace(successful_response(messages), usage={"prompt_tokens": 100})] * 6)
+    transport.settings = config[2]
+    output = tmp_path / "wrong-probe"
+    with pytest.raises(LLMConfigurationError) as caught:
+        accept_memory_llm(transport, Counter(), config[1], memory_probes, output)
+    assert caught.value.code == "memory_acceptance_invalid"
+    assert (output / "failure.json").is_file()
+    assert not (output / "memory_prompt_acceptance.json").exists()
 
 
 @pytest.mark.parametrize("mode", MEMORY_MODES)

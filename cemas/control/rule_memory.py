@@ -62,47 +62,63 @@ def rule_bundle(cases, rules, store, as_of_day, control_start, task_rules):
     for week in packet["weeks"]:
         if week["role"] == "autonomous":
             observation = by_id[week["case_id"]].pre_observation
+            week["pre_decision_action"] = list(observation.current_action.values)
             week["matched_condition_ids"] = [identity for identity, condition in packet["condition_catalog"].items()
                                                if applicability({identity: condition}, observation) == "matched"]
     packet["task_rules"] = task_rules
     return packet
 
 
-def _content(content, bundle):
-    exact(content, CONTENT_FIELDS, "rule content")
-    references(content["condition_ids"], bundle["condition_catalog"], nonempty=True)
-    text_field(content["lesson"], "lesson", 180)
+def _content(content, bundle, path):
+    exact(content, CONTENT_FIELDS, "rule content", path=path)
+    references(content["condition_ids"], bundle["condition_catalog"], nonempty=True, path=path + "/condition_ids")
+    text_field(content["lesson"], "lesson", path=path + "/lesson")
     if not isinstance(content["limitations"], list) or not 1 <= len(content["limitations"]) <= 3:
-        raise FeedbackResponseError("invalid_limitations", "Rules require one to three limitations")
-    for value in content["limitations"]:
-        text_field(value, "limitation", 120)
+        raise FeedbackResponseError("invalid_limitations", "Rules require one to three limitations",
+            details={"path": path + "/limitations", "expected": "list of one to three strings",
+                     "actual": len(content["limitations"]) if isinstance(content["limitations"], list) else type(content["limitations"]).__name__})
+    for index, value in enumerate(content["limitations"]):
+        text_field(value, "limitation", path=f"{path}/limitations/{index}")
 
 
-def _judgments(value, bundle, *, require_support=False):
+def _judgments(value, bundle, *, require_support=False, path):
     if not isinstance(value, list):
-        raise FeedbackResponseError("invalid_judgments", "Judgments must be a list")
-    if any(not isinstance(item, dict) for item in value):
-        raise FeedbackResponseError("invalid_judgment", "Judgments must be objects")
-    identities = [item.get("window_id") for item in value]
-    if any(not isinstance(identity, str) for identity in identities):
-        raise FeedbackResponseError("invalid_judgment", "Window IDs must be strings")
-    if len(identities) != len(set(identities)):
-        raise FeedbackResponseError("invalid_judgments", "Judgments must identify distinct supplied windows")
+        raise FeedbackResponseError("invalid_judgments", "Judgments must be a list",
+            details={"path": path, "expected": "list", "actual": type(value).__name__})
     windows = {item["window_id"]: item for item in bundle.get("weeks", [])}
     result = []
-    for item in value:
-        exact(item, ("window_id", "judgment"), "judgment")
+    seen = set()
+    for index, item in enumerate(value):
+        item_path = f"{path}/{index}"
+        exact(item, ("window_id", "judgment"), "judgment", path=item_path)
         identity, judgment = item["window_id"], item["judgment"]
-        if identity not in windows or judgment not in JUDGMENT_VALUES:
-            raise FeedbackResponseError("invalid_judgment", "Unknown window or judgment")
+        if not isinstance(identity, str) or identity not in windows:
+            raise FeedbackResponseError("invalid_judgment", "Unknown window",
+                details={"path": item_path + "/window_id", "expected": "supplied autonomous window ID",
+                         "actual": identity if isinstance(identity, str) else type(identity).__name__})
+        if identity in seen:
+            raise FeedbackResponseError("invalid_judgments", "Judgments must identify distinct supplied windows",
+                details={"path": item_path + "/window_id", "expected": "window not already judged in this operation",
+                         "actual": identity})
+        seen.add(identity)
+        if judgment not in JUDGMENT_VALUES:
+            raise FeedbackResponseError("invalid_judgment", "Unknown judgment",
+                details={"path": item_path + "/judgment", "expected": list(JUDGMENT_VALUES),
+                         "actual": judgment if isinstance(judgment, str) else type(judgment).__name__})
         window = windows[identity]
         if window["role"] != "autonomous":
-            raise FeedbackResponseError("invalid_judgment", "The reference week is comparison context only")
+            raise FeedbackResponseError("invalid_judgment", "Reference weeks must be omitted from judgments, including ignore",
+                details={"path": item_path + "/window_id", "expected": "autonomous window; omit reference weeks entirely",
+                         "actual": identity, "window_id": identity, "role": window["role"]})
         if judgment != "ignore" and not window.get("support_window", False):
-            raise FeedbackResponseError("invalid_judgment", "Only complete autonomous windows can update rule statistics")
+            raise FeedbackResponseError("invalid_judgment", "Only complete autonomous windows can update rule statistics",
+                details={"path": item_path + "/judgment", "expected": "ignore for an incomplete autonomous window",
+                         "actual": judgment, "window_id": identity})
         result.append({"window_id": identity, "judgment": judgment})
     if require_support and not any(item["judgment"] == "support" for item in result):
-        raise FeedbackResponseError("missing_support", "A new rule requires a supporting window")
+        raise FeedbackResponseError("missing_support", "A new rule requires a supporting window",
+            details={"path": path, "expected": "at least one supporting complete autonomous window",
+                     "actual": "no supporting judgment"})
     return result
 
 
@@ -119,14 +135,20 @@ def _rows(rule_id, version, judgments, bundle):
     return rows
 
 
-def _check_conditions(judgments, bundle, conditions, store):
+def _check_conditions(judgments, bundle, conditions, store, path):
     windows = {item["window_id"]: item for item in bundle["weeks"]}
-    for item in judgments:
+    for index, item in enumerate(judgments):
         if item["judgment"] != "ignore":
             window = windows[item["window_id"]]
             case = store.case(window["case_id"], window["revision"])
-            if applicability(conditions, case.pre_observation) == "not_matched":
-                raise FeedbackResponseError("conditions_not_matched", "Inapplicable windows must be ignored")
+            missing = [identity for identity, condition in conditions.items()
+                       if applicability({identity: condition}, case.pre_observation) == "not_matched"]
+            if missing:
+                raise FeedbackResponseError("conditions_not_matched", "Conditions apply to the pre-decision state; inapplicable windows must be ignored",
+                    details={"path": f"{path}/{index}/judgment", "expected": "ignore unless every rule condition matches the pre-decision state",
+                             "actual": item["judgment"], "window_id": item["window_id"],
+                             "missing_condition_ids": missing,
+                             "pre_decision_action": list(case.pre_observation.current_action.values)})
 
 
 def _rule_payload(old, *, identity, version, content, conditions, store, bundle,
@@ -154,32 +176,46 @@ def prepare_patch(raw, bundle, rules, store):
     """Parse and resolve a complete aggregate-statistics patch without writing it."""
     patch = parse_json(raw)
     exact(patch, ("schema_version", "operations"), "rule patch")
-    if patch["schema_version"] != "cemas-public-rule-patch-v3" or not isinstance(patch["operations"], list):
-        raise FeedbackResponseError("invalid_schema", "Unknown rule patch schema")
+    if patch["schema_version"] != "cemas-public-rule-patch-v3":
+        raise FeedbackResponseError("invalid_schema", "Unknown rule patch schema",
+            details={"path": "/schema_version", "expected": "cemas-public-rule-patch-v3",
+                     "actual": patch["schema_version"] if isinstance(patch["schema_version"], str) else type(patch["schema_version"]).__name__})
+    if not isinstance(patch["operations"], list):
+        raise FeedbackResponseError("invalid_schema", "Rule operations must be a list",
+            details={"path": "/operations", "expected": "list", "actual": type(patch["operations"]).__name__})
     current = {rule["id"]: rule for rule in rules}
     next_id = max(current, default=0) + 1
     changed, updates, seen = [], [], set()
-    for operation in patch["operations"]:
+    for index, operation in enumerate(patch["operations"]):
+        path = f"/operations/{index}"
         if not isinstance(operation, dict):
-            raise FeedbackResponseError("invalid_operation", "Expected rule operation")
+            raise FeedbackResponseError("invalid_operation", "Expected rule operation",
+                details={"path": path, "expected": "operation object", "actual": type(operation).__name__})
         op = operation.get("op")
         fields = {"ADD": ("op", "content", "increment", "judgments"),
                   "REVISE": ("op", "target_id", "base_version", "content", "increment", "judgments"),
                   "SUSPEND": ("op", "target_id", "base_version", "reason")}
         if not isinstance(op, str) or op not in fields:
-            raise FeedbackResponseError("invalid_operation", "Unknown rule operation")
-        exact(operation, fields[op], op)
+            raise FeedbackResponseError("invalid_operation", "Unknown rule operation",
+                details={"path": path + "/op", "expected": list(fields),
+                         "actual": op if isinstance(op, str) else type(op).__name__})
+        exact(operation, fields[op], op, path=path)
         old = None
         if op != "ADD":
             target = operation["target_id"]
             if type(target) is not int or target not in current or target in seen:
-                raise FeedbackResponseError("invalid_target", "Target missing or modified twice")
+                raise FeedbackResponseError("invalid_target", "Target missing or modified twice",
+                    details={"path": path + "/target_id", "expected": "existing integer rule ID not already changed in this batch",
+                             "actual": target if type(target) is int else type(target).__name__})
             old = current[target]
             if type(operation["base_version"]) is not int or operation["base_version"] != old["version"]:
-                raise FeedbackResponseError("stale_version", "Rule target version is stale")
+                raise FeedbackResponseError("stale_version", "Rule target version is stale",
+                    details={"path": path + "/base_version", "expected": old["version"],
+                             "actual": operation["base_version"] if type(operation["base_version"]) is int else type(operation["base_version"]).__name__,
+                             "rule_id": target})
             seen.add(target)
         if op == "SUSPEND":
-            text_field(operation["reason"], "reason", 120)
+            text_field(operation["reason"], "reason", path=path + "/reason")
             changed.append(_rule_payload(old, identity=old["id"], version=old["version"],
                                          content=deepcopy(old["content"]),
                                          conditions=deepcopy(old["conditions"]), store=store,
@@ -187,21 +223,23 @@ def prepare_patch(raw, bundle, rules, store):
                                          status="suspended", reason=operation["reason"]))
             continue
         content = deepcopy(operation["content"])
-        _content(content, bundle)
+        _content(content, bundle, path + "/content")
         content["condition_ids"].sort()
-        text_field(operation["increment"], "increment", 120)
+        text_field(operation["increment"], "increment", path=path + "/increment")
         content_changed = old is not None and content != old["content"]
-        judgments = _judgments(operation["judgments"], bundle, require_support=old is None)
+        judgments = _judgments(operation["judgments"], bundle, require_support=old is None, path=path + "/judgments")
         identity = old["id"] if old else next_id
         if old is None:
             next_id += 1
         version = old["version"] + 1 if content_changed else (old["version"] if old else 1)
         new_rows = _rows(identity, version, judgments, bundle)
         if old is not None and not content_changed and not judgments:
-            raise FeedbackResponseError("empty_update", "A rule update requires content or judgments")
+            raise FeedbackResponseError("empty_update", "A rule update requires content or judgments",
+                details={"path": path, "expected": "changed content or at least one window judgment",
+                         "actual": "unchanged content and empty judgments", "rule_id": old["id"]})
         updates.extend(new_rows)
         conditions = {key: bundle["condition_catalog"][key] for key in content["condition_ids"]}
-        _check_conditions(judgments, bundle, conditions, store)
+        _check_conditions(judgments, bundle, conditions, store, path + "/judgments")
         changed.append(_rule_payload(old, identity=identity, version=version, content=content, conditions=conditions,
                                      store=store, bundle=bundle,
                                      increment=operation["increment"],

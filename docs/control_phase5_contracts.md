@@ -66,7 +66,7 @@ $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = '1'
 
 按本轮用户修订，验收是开发完成后的独立验证，不作为程序使用规则。`make_memory_llm_controller()` 和正常运行入口不要求、不读取 P4/P5 验收报告，runner不要求四模式报告；旧报告参数仅为兼容已有调用而保留，不参与运行。live transport仍使用官方 tokenizer 检查当前输入、预算与实际usage；服务身份基于本批次首个实际返回。global/both的只读store、public task hash、私有source manifest和E0兼容性校验仍针对实际运行数据。
 
-`examples/control_v1/accept_memory_llm.py` 保留原命令入口，实现已移到 `tools/memory_acceptance.py`，不再由 `cemas` 或 `cemas.control` 加载、导出。验收函数需显式从工具模块导入，可独立执行六类服务探针，不需要已有P4报告。`validate_memory_acceptance()` 仅在显式开发验证时重建探针消息、复算计数并校验响应；四模式覆盖要求只适用于这项验证。报告用于留档，不改变运行模式，也不参与正常回合启动。
+`examples/control_v1/accept_memory_llm.py` 保留原命令入口，实现已移到 `tools/memory_acceptance.py`，不再由 `cemas` 或 `cemas.control` 加载、导出。验收函数需显式从工具模块导入，可独立执行六类服务探针，不需要已有P4报告。生成报告时，各探针沿生产请求路径检查响应、输入计数与服务身份，并核对命名场景的覆盖要求；收尾只检查保存记录的完整性、hash、用例覆盖和消息/usage配对，不重复解析响应或执行token计数。`validate_memory_acceptance()` 用于独立读取报告，才重建原始两条消息、对实际完整请求复算计数并重新校验响应及服务身份。允许原始输入后追加一条user纠错消息；纠错不扩大原始引用registry，原始上下文仍须完全匹配。四模式覆盖要求只适用于独立验收，不影响正常运行。报告用于留档，不改变运行模式，也不参与正常回合启动。
 
 `collect_observable_memory.py` 已支持四策略重新采集、冻结、覆盖检查及 Phase 6 验证后的晋升；`import-fixture` 只接受明确标为 synthetic fixture 的公共导出。它仍不支持凭私有审计 manifest 从已有真实 source 公共导出重建 development 库；这是独立于重新采集的计划缺口，不能据此宣称 P5 全部工程验收通过。
 

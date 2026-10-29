@@ -58,6 +58,7 @@
           "role": "autonomous",
           "start_day": 7,
           "end_day": 13,
+          "pre_decision_action": [0, 0, 0, 0, 0],
           "values": {"delivered_diagnoses": 15, "executed_action": [0, 0, 0, 0, 0]},
           "support_window": true,
           "matched_condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
@@ -70,6 +71,7 @@
           "role": "autonomous",
           "start_day": 14,
           "end_day": 20,
+          "pre_decision_action": [0, 0, 0, 0, 0],
           "values": {"delivered_diagnoses": 16, "executed_action": [0, 1, 0, 0, 0]},
           "support_window": true,
           "matched_condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
@@ -82,6 +84,7 @@
           "role": "autonomous",
           "start_day": 21,
           "end_day": 27,
+          "pre_decision_action": [0, 1, 0, 0, 0],
           "values": {"delivered_diagnoses": 13, "executed_action": [0, 1, 0, 0, 0]},
           "support_window": true,
           "matched_condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
@@ -94,6 +97,7 @@
           "role": "autonomous",
           "start_day": 28,
           "end_day": 34,
+          "pre_decision_action": [0, 1, 0, 0, 0],
           "values": {"delivered_diagnoses": 14, "executed_action": [0, 0, 0, 0, 0]},
           "support_window": true,
           "matched_condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
@@ -207,5 +211,29 @@
   "terminal_update": {"as_of_day": 119, "reference_window": [84, 90], "autonomous_windows": [[91, 97], [98, 104], [105, 111], [112, 118]], "extra_execution_required": false},
   "retrieval": {"available_rules_in_store": 9, "maximum_rules_in_one_decision": 6, "filters": ["active", "matching_task", "support_count_at_least_2", "conditions_not_explicitly_false"], "ordering": ["matched_before_unknown", "maximum_support_state_similarity_descending", "rule_id_ascending"], "confidence_changes_action_mask": false},
   "resume_and_freeze": {"schema": "cemas-learning-memory-v2", "completed_episode_same_scenario": "skip", "same_episode_id_different_scenario": "error", "reorder_or_append_episodes": "allowed", "change_model_or_template": "allowed_and_logged", "failed_episode": "rollback_cases_rules_judgments_and_completion", "old_v1_library": "reject_and_create_a_new_v2_library", "frozen_evaluation": "read_only_library_with_temporary_episode_feedback"},
-  "atomic_batch": {"more_than_two_legal_operations": "commit_all", "one_invalid_window_or_stale_version": "reject_all", "reference_window_as_support": "reject", "duplicate_window_for_same_rule": "reject", "empty_operations": "accept_no_change"}
+  "atomic_batch": {"more_than_two_legal_operations": "commit_all", "one_invalid_window_or_stale_version": "reject_all", "reference_window_as_support": "reject", "reference_window_as_ignore": "reject", "duplicate_window_for_same_rule": "reject", "empty_operations": "accept_no_change"},
+  "soft_text_length": {
+    "notice": "人工设计样例：字数只是提示建议，字符串仍须非空、单行；不截断或改写。",
+    "ordinary_action_response": {"action": [0, 0, 0, 0, 0], "reason": "Recent delivered diagnoses, testing composition, notification delays and the existing restrictions must be interpreted together; preserve a feasible action while checking the next public window."},
+    "alternative_explanation": "Lower screening and activity restrictions reduce observed burden, while their effect on hidden infections remains unknown.",
+    "expected": "reason超过原120字符、tradeoff超过原80字符不再单独触发拒绝；其他字段检查照常。"
+  },
+  "condition_time_example": {
+    "pre_decision_action": [2, 2, 2, 2, 2],
+    "values": {"executed_action": {"values": [2, 2, 2, 2, 1]}},
+    "selected_condition": {"kind": "action", "dimension": 4, "value": 1},
+    "expected": "本周虽执行A=1，行动前A=2，因此该条件不匹配；不能support或contradict，可ignore。选择行动前A=2条件时再判断语义。"
+  },
+  "validation_retry": {
+    "notice": "人工设计示例的字段值用于说明纠错，不是额外可引用事实。",
+    "invalid_response_field": {"applicability": {"text": "仅用于相邻公开周的解释。"}},
+    "latest_error": {"code": "invalid_text", "path": "/items/0/applicability", "expected": "nonempty single-line string", "actual": "dict"},
+    "corrected_response_field": {"applicability": "仅用于相邻公开周的解释。"},
+    "request_flow": ["原始system和user输入", "原始输入加一条user纠错，重新返回完整JSON", "仍失败则以最新错误替换纠错消息，不累计旧错误"],
+    "connection_failure": "原样重发当前请求，不另加模型纠错。",
+    "reference_failure": "reference窗口不能出现在judgments中，即使judgment=ignore。",
+    "reference_id_example": "通知事实编号须复制W:…:cost.delivered_notifications，不能漏写cost.。",
+    "audit": "validation_error保存公开错误；最终决策hash/token取最后一次实际调用，context_hash和合法引用集合不变。",
+    "budget": "纠错消息改变后重新官方计数；超现有输入上限时记录预检失败，零额外外部调用。"
+  }
 }

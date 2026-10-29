@@ -9,8 +9,9 @@ from uuid import uuid4
 from .actions import encode_action
 from .knowledge import KnowledgeBundle, load_knowledge_bundle, observation_flags
 from .llm import (ActionResponseError, ChatMessage, LLMConfigurationError, LLMController,
-                  LLMError, PromptBudgetError, PublicPromptConfig, _immutable,
-                  _public_rates, _reject_constant, _render_system, _unique_pairs)
+                  LLMError, PublicPromptConfig, _immutable,
+                  _public_rates, _reject_constant, _render_system, _unique_pairs,
+                  _response_text, count_request)
 from .logging import public_observation_to_dict, snapshot_sha256
 from .memory import MemoryProfile, PublicEpisodeMemory, load_memory_profile, public_task_hash
 from .memory_types import (RESPONSE_SCHEMA_VERSION, UNCERTAINTY_CODES, PublicMemoryContext,
@@ -59,28 +60,27 @@ class PreparedDecision:
             object.__setattr__(self, name, tuple(getattr(self, name)))
 
 
-def _ordinary_action(value):
+def _ordinary_action(value, *, path):
     if type(value) is not list or len(value) != 5 or any(type(item) is not int for item in value):
-        raise ActionResponseError("invalid_action_type", "Action must contain five ordinary integers")
+        raise ActionResponseError("invalid_action_type", "Action must contain five ordinary integers",
+            details={"path": path, "expected": "five integers in T,S,C,E,A order", "actual": type(value).__name__})
     try:
         return ActionVector(tuple(value))
     except (TypeError, ValueError):
-        raise ActionResponseError("invalid_action_range", "Action levels are outside the shared ranges") from None
+        raise ActionResponseError("invalid_action_range", "Action levels are outside the shared ranges",
+            details={"path": path, "expected": "levels within the supplied action ranges", "actual": value}) from None
 
 
-def _single_line(value, limit, name):
-    if (type(value) is not str or not value.strip() or len(value) > limit
-            or value.splitlines() != [value]):
-        raise ActionResponseError("invalid_" + name, "Expected nonempty single-line text within its character limit")
-    return value
-
-
-def _evidence_ids(value, registry, maximum):
+def _evidence_ids(value, registry, maximum, *, path):
     if (type(value) is not list or not 1 <= len(value) <= maximum
             or any(type(item) is not str for item in value) or len(set(value)) != len(value)):
-        raise ActionResponseError("invalid_evidence_ids", "Evidence IDs must be a bounded list of distinct strings")
+        raise ActionResponseError("invalid_evidence_ids", "Evidence IDs must be a bounded list of distinct strings",
+            details={"path": path, "expected": f"1 to {maximum} distinct string IDs",
+                     "actual": type(value).__name__})
     if any(item not in registry for item in value):
-        raise ActionResponseError("unknown_evidence_id", "Evidence references must exist in the final sent registry")
+        raise ActionResponseError("unknown_evidence_id", "Evidence references must exist in the final sent registry",
+            details={"path": path, "expected": "copy IDs exactly from evidence_registry",
+                     "actual": [item for item in value if item not in registry]})
     return tuple(value)
 
 
@@ -88,32 +88,43 @@ def parse_memory_response(raw_text, *, registry, required_uncertainty_codes=(),
                           legal_action_mask=None, reason_max_chars=120):
     """Validate the five-field wire; leave main-action feasibility to the resolver."""
     if type(raw_text) is not str:
-        raise ActionResponseError("invalid_content", "Final content must be text")
+        raise ActionResponseError("invalid_content", "Final content must be text",
+            details={"path": "", "expected": "JSON text", "actual": type(raw_text).__name__})
     try:
         value = json.loads(raw_text, object_pairs_hook=_unique_pairs, parse_constant=_reject_constant)
     except (json.JSONDecodeError, ValueError, RecursionError) as error:
         if isinstance(error, ActionResponseError):
             raise
-        raise ActionResponseError("invalid_json", "Final content is not a single JSON value") from None
+        raise ActionResponseError("invalid_json", "Final content is not a single JSON value",
+            details={"path": "", "expected": "one JSON object without Markdown"}) from None
     expected = {"action", "reason", "evidence_ids", "alternative_actions", "uncertainty_codes"}
     if type(value) is not dict or set(value) != expected:
-        raise ActionResponseError("invalid_fields", "Response must contain exactly the five public decision fields")
-    action = _ordinary_action(value["action"])
-    reason = _single_line(value["reason"], reason_max_chars, "reason")
-    evidence = _evidence_ids(value["evidence_ids"], registry, 8)
+        raise ActionResponseError("invalid_fields", "Response must contain exactly the five public decision fields",
+            details={"path": "", "expected": sorted(expected),
+                     "actual": list(value) if type(value) is dict else type(value).__name__})
+    action = _ordinary_action(value["action"], path="/action")
+    reason = _response_text(value["reason"], "reason", path="/reason")
+    evidence = _evidence_ids(value["evidence_ids"], registry, 8, path="/evidence_ids")
     alternatives = value["alternative_actions"]
     if type(alternatives) is not list or len(alternatives) > 2:
-        raise ActionResponseError("invalid_alternatives", "At most two alternative actions are allowed")
+        raise ActionResponseError("invalid_alternatives", "At most two alternative actions are allowed",
+            details={"path": "/alternative_actions", "expected": "array of zero to two objects",
+                     "actual": len(alternatives) if type(alternatives) is list else type(alternatives).__name__})
     parsed_alternatives, seen = [], {action.values}
-    for item in alternatives:
+    for index, item in enumerate(alternatives):
+        path = f"/alternative_actions/{index}"
         if type(item) is not dict or set(item) != {"action", "tradeoff", "evidence_ids"}:
-            raise ActionResponseError("invalid_alternative_fields", "Alternative action fields are invalid")
-        vector = _ordinary_action(item["action"])
+            raise ActionResponseError("invalid_alternative_fields", "Alternative action fields are invalid",
+                details={"path": path, "expected": ["action", "tradeoff", "evidence_ids"],
+                         "actual": list(item) if type(item) is dict else type(item).__name__})
+        vector = _ordinary_action(item["action"], path=path + "/action")
         if vector.values in seen:
-            raise ActionResponseError("duplicate_alternative", "Alternative actions must differ from the main action and one another")
+            raise ActionResponseError("duplicate_alternative", "Alternative actions must differ from the main action and one another",
+                details={"path": path + "/action", "expected": "action distinct from main and earlier alternatives",
+                         "actual": vector.values})
         seen.add(vector.values)
-        tradeoff = _single_line(item["tradeoff"], 80, "tradeoff")
-        ids = _evidence_ids(item["evidence_ids"], registry, 4)
+        tradeoff = _response_text(item["tradeoff"], "tradeoff", path=path + "/tradeoff")
+        ids = _evidence_ids(item["evidence_ids"], registry, 4, path=path + "/evidence_ids")
         feasible = bool(legal_action_mask[encode_action(vector)]) if legal_action_mask is not None else None
         parsed_alternatives.append({"action": vector.values, "tradeoff": tradeoff,
                                     "evidence_ids": ids, "feasible": feasible})
@@ -121,7 +132,11 @@ def parse_memory_response(raw_text, *, registry, required_uncertainty_codes=(),
     if (type(flags) is not list or not 1 <= len(flags) <= 8 or any(type(item) is not str for item in flags)
             or len(set(flags)) != len(flags) or any(item not in UNCERTAINTY_CODES for item in flags)
             or not set(required_uncertainty_codes).issubset(flags)):
-        raise ActionResponseError("invalid_uncertainty_codes", "Uncertainty codes must include all final program-required flags")
+        raise ActionResponseError("invalid_uncertainty_codes", "Uncertainty codes must include all final program-required flags",
+            details={"path": "/uncertainty_codes", "expected": {"allowed": UNCERTAINTY_CODES,
+                     "required": required_uncertainty_codes, "count": "1 to 8 distinct values"},
+                     "actual": flags if type(flags) is list and all(type(item) is str for item in flags)
+                               else type(flags).__name__})
     return ParsedMemoryDecision(ActionProposal(action, reasoning=reason), evidence,
                                 tuple(parsed_alternatives), tuple(flags))
 
@@ -197,7 +212,7 @@ def memory_prompt_config(prompt_config, profile=None):
         template = strict_json_loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         raise LLMConfigurationError("memory_template_missing", "Cannot read the frozen P5 prompt template") from None
-    if type(template) is not dict or template.get("version") != "cemas-public-memory-prompt-v1":
+    if type(template) is not dict or template.get("version") != "cemas-public-memory-prompt-v2":
         raise LLMConfigurationError("memory_template_version", "Unknown P5 prompt template version")
     return PublicPromptConfig(template, prompt_config.public_spec, prompt_config.reason_max_chars)
 
@@ -240,7 +255,7 @@ class MemoryLLMController(LLMController):
         config = memory_prompt_config(prompt_config, self.memory_profile)
         if feedback_backend != "disabled" or rule_memory != "off":
             template = dict(config.template)
-            template["version"] = "cemas-public-learning-prompt-v2"
+            template["version"] = "cemas-public-learning-prompt-v3"
             template["system"] += ("\n本次可含feedback近期经验和learned_rules检索规则。F:和L:仅引用本次实际展示的条目。"
                 "经验和规则未经语义验证，只是建议；按适用状态、当前事实和固定约束判断是否采用。")
             config = PublicPromptConfig(template, config.public_spec, config.reason_max_chars)
@@ -422,13 +437,10 @@ class MemoryLLMController(LLMController):
         count = None
         try:
             self.token_counter.validate(self.settings)
-            count = self.token_counter.count_input(messages, self.settings)
-            if type(count) is not int or count < 0:
-                raise LLMConfigurationError("tokenizer_invalid_result", "Input token count must be a nonnegative ordinary integer")
-            if count > self.settings.input_token_budget:
-                raise PromptBudgetError(count, self.settings.input_token_budget, snapshot_sha256(messages))
+            count = count_request(messages, self.token_counter, self.settings)
         except LLMError as error:
-            error.details = _immutable({**error.details, "messages_sha256": snapshot_sha256(messages), "input_tokens": count,
+            error.details = _immutable({**error.details, "messages_sha256": snapshot_sha256(messages),
+                                        "input_tokens": count if count is not None else error.details.get("input_tokens"),
                                         "memory_profile_sha256": self.memory_profile.sha256,
                                         "knowledge_sha256": self.knowledge_bundle.sha256})
             raise
@@ -454,6 +466,7 @@ class MemoryLLMController(LLMController):
 
     def _decision_finished(self, observation, proposal, attempt_count):
         prepared = self._prepared_context
+        final_call = self._audits[-1]
         parsed = self._parsed_decision if proposal is not None else None
         citations = tuple(parsed.evidence_ids) if parsed is not None else ()
         all_citations = list(citations)
@@ -466,8 +479,8 @@ class MemoryLLMController(LLMController):
         evidence = {"event": "prepared", "schema_version": self.response_schema_version,
                     "status": "success" if proposal is not None else "retry_exhausted",
                     "decision_day": observation.decision_day, "observation_hash": prepared.observation_hash,
-                    "context_hash": prepared.context_hash, "messages_sha256": prepared.messages_sha256,
-                    "input_tokens": prepared.input_tokens, "selected_case_ids": cases,
+                    "context_hash": prepared.context_hash, "messages_sha256": final_call.messages_sha256,
+                    "input_tokens": final_call.input_tokens, "selected_case_ids": cases,
                     "cited_case_ids": tuple(int(identity[2:]) for identity in all_citations if identity.startswith("C:")),
                     "dropped_case_ids": prepared.dropped_case_ids, "knowledge_ids": cards,
                     "knowledge_sha256": sent_knowledge_hash, "knowledge_bundle_sha256": self.knowledge_bundle.sha256,

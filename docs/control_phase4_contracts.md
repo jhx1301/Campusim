@@ -34,9 +34,9 @@
 
 模板、公共规则快照、最终消息分别使用排序键、紧凑分隔符、UTF-8 JSON 的 SHA-256。消息数组保持顺序；完整协议 hash 仅留在 runner 私有元数据。
 
-响应只能是恰含 action/reason 的 JSON 对象。拒绝重复键、NaN/Infinity、围栏、额外正文和修补。action 是五个普通整数，范围由 ActionVector 检查；reason 非空、单行、至多协议规定的120字符，不截断。资源非法提案仍交共同 resolver。
+响应只能是恰含 action/reason 的 JSON 对象。拒绝重复键、NaN/Infinity、围栏、额外正文和自动修补。action 是五个普通整数，范围由 ActionVector 检查；reason 是非空单行字符串，提示词建议约reason_max_chars（默认120）字以内但不再硬性计数，不截断或改写。配置字段和解析参数名保留兼容，ActionProposal内部也不再限制字符数。最小格式为`{"action":[0,0,0,0,0],"reason":"根据当前公开观察选择动作。"}`，实际动作须满足当前mask。非快照资源非法提案仍交共同resolver；快照主动作在请求成功前检查合法mask，非法进入响应校验重试。
 
-完整输入保护上限131072，完整输出保护上限65536，不单设次模型推理预算。输出包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens。上限是异常膨胀保护，不要求每次用满，修订依据见第7节。官方本地 tokenizer 必须包含模型对应关系、文件内容 hash、消息模板和加载库版本；正常运行不下载、不估算。每次 decide 构造/计数一次，重试复用消息；输入超限零调用。实际 usage 与本地计数不一致或超限时终止。
+完整输入保护上限131072，完整输出保护上限65536，不单设次模型推理预算。输出包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens。上限是异常膨胀保护，不要求每次用满，修订依据见第7节。官方本地 tokenizer 必须包含模型对应关系、文件内容 hash、消息模板和加载库版本；正常运行不下载、不估算。初始消息只构造一次；校验纠错改变消息后重新官方计数并检查完整输入，连接/服务重试复用当前消息与计数。输入超限零调用。实际usage与本次实际请求的本地计数不一致或超限时终止。
 
 当前离线适配为 `official_local_chat_template_v1` / `hf_apply_chat_template_v1`：显式 `tokenize=True, add_generation_prompt=True, return_dict=False, truncation=False, padding=False`。资源manifest包含 `adapter/provider/model/official_source/library_versions/files/chat_template_file/template_kwargs/input_tokenization_sha256`；files逐一锁原始字节hash，库版本锁transformers、tokenizers、jinja2、markupsafe。输入模式hash来自 `snapshot_sha256(settings.input_tokenization_parameters())`，只绑定请求的 `model` 和 `extra_body`：DeepSeek保留thinking开关和reasoning_effort，Qwen保留enable_thinking。输出预算、temperature、top_p、stream不参与此hash；仅改变输出预算、温度或top_p时可复用同一资源manifest和计数器实例，输入计数与资源身份保持不变。provider/model、模板及template_kwargs、文件和库版本仍受原检查约束。不接受覆写计数控制参数或未固定的加载资源。官方资源没有可核验消息模板、需要尚未实现的其他编码器或版本不符时直接阻止，不自行发明模板。
 
@@ -68,7 +68,9 @@ manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\
 
 transport 单次请求，SDK 内部重试为0。controller 最多三次尝试，连续可重试失败恰好三次，间隔2/4秒；成功立即结束。重试覆盖临时连接/超时、408、限流429、临时5xx和严格解析失败。配置、鉴权、模型、参数、余额/硬配额、预算或计数器错误立即终止。先看结构化错误码再看HTTP状态，未知错误保留异常终止。
 
-耗尽返回 None，失败原因 `llm_retry_exhausted`。runner 将该原因传给 `step_proposal()`，沿用保持当前组合、必要时只投影S的共同回退。None 必须有失败原因；有效提案不得同时带失败原因。
+响应校验失败后的消息为原始完整输入加一条user纠错：仅包含最近一次错误码、字段路径、正确要求及必要错误值，要求重新返回完整JSON，不附整份旧答复、不累积历次错误。现有异常details在报错点提供首个错误，不新增并行错误注册表。纠错不得带SDK原始消息、凭证、私有信息或内部推理，也不扩大可引用证据集合。连接/临时服务失败原样重发当前请求；重试不重做检索、反馈或stage，纠错后输入超限只记预检失败，不记provider attempt。
+
+耗尽返回None，失败原因`llm_retry_exhausted`。非快照runner将该原因传给step_proposal()，沿用保持当前组合、必要时只投影S的共同回退；快照任务停止回合并回滚本训练事务，不执行替代动作。None必须有失败原因；有效提案不得同时带失败原因。
 
 错误码按供应商解释：Qwen的429 `insufficient_quota` / `Throttling.AllocationQuota`可能表示临时token限流；明确余额、欠费、硬额度或免费额度耗尽仍立即终止，不把包含quota的错误一律归为同一种。只在内存中读取用于区分的已知结构化描述，日志保存稳定码和通用脱敏描述。[Qwen官方错误码](https://www.alibabacloud.com/help/en/model-studio/error-code)、[限流说明](https://www.alibabacloud.com/help/en/model-studio/rate-limit)
 
@@ -78,7 +80,7 @@ runner 在 decide 成功或异常后都先交付/落盘已产生的调用审计�
 
 决策异常与审计交付异常同时发生时，runner 保留并抛出原始决策异常，将次级故障作为脱敏附注及 `failure.json` / `summary.json` 的 `details.call_audit_error` 保存。该可选摘要仅含 `stage="call_audit_delivery"`、异常类型和固定描述，不保存原始异常文本；原有错误码、计数与消息 hash 保留。持续 snapshot/flush/close 故障在安全失败日志中仅记录操作和类型，复合故障后续清理附注也不保存原始异常文本。决策成功而审计失败仍抛出审计异常并停止当前周，Python 3.10 沿用既有附注兼容路径。
 
-私有 `llm_calls.jsonl` 逐次保存日/序号/UTC时间、供应商及endpoint、请求和返回模型、响应id/指纹、完整消息及三种hash、计数器身份和输入量/预算、usage、最终原文、finish reason、耗时、稳定错误及可重试性。不得保存认证头、密钥或原始供应商异常文本。DecisionRecord 新增默认值 `llm_attempt_count=0`、`llm_succeeded=None`。
+私有 `llm_calls.jsonl` 逐次保存日/序号/UTC时间、供应商及endpoint、请求和返回模型、响应id/指纹、完整消息及三种hash、计数器身份和输入量/预算、usage、最终原文、finish reason、耗时、稳定错误及可重试性，并增加默认空的validation_error。不得保存认证头、密钥或原始供应商异常文本。动作成功收尾在当前调用审计追加后执行，决策证据的messages_sha256/input_tokens取最后一次实际调用；公共context_hash和原引用registry不因纠错变化。DecisionRecord的llm_attempt_count仍只计动作请求，llm_succeeded口径不变。
 
 离线 smoke 使用既有 smoke 世界；真实 prompt 开发使用40001–40009，仅 runner 管理 seed，内部仍走 scientific 环境和真实 E0 门禁。后续P6工程已接入源域A/B、pilot及训练/冻结工具，正式开发批次与共同冻结尚未完成；最终测试池保持关闭。
 
@@ -137,7 +139,7 @@ E0 兼容性校验包含人口登记及标定源码的 hash。这两处源码修
 
 ## 7. 输入输出保护上限修订
 
-2026-10-16，按用户要求移除次模型单独的4096推理预算，将输入上限改为131072、完整输出上限改为65536。模型自主结束后立即返回，上限只拦截异常膨胀。最终action/reason结构及reason≤120字继续作为决策格式契约；输出空间同时考虑模型推理，不能只按最终JSON长度设置。
+2026-10-16，按用户要求移除次模型单独的4096推理预算，将输入上限改为131072、完整输出上限改为65536。模型自主结束后立即返回，上限只拦截异常膨胀。当时reason≤120字是格式契约；2026-10-28修订后仅作为提示建议，硬字符限制取消，action/reason结构和非空单行要求保留。输出空间同时考虑模型推理，不能只按最终JSON长度设置。
 
 本轮使用现有公共prompt构造器及离线测试的day0/four_weeks/long_numeric观察，测量两条完整消息的规范JSON体积；没有调用模型或安装依赖：
 

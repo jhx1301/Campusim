@@ -77,8 +77,10 @@ def test_snapshot_illegal_main_action_retries_before_execution(small_world, tmp_
     assert len(calls) == min(failures + 1, 3)
     assert [c["error_code"] for c in calls] == ["illegal_action"] * failures + ([None] if failures < 3 else [])
     assert all(c["retryable"] for c in calls[:failures])
-    assert all(messages is transport.messages[0] for messages in transport.messages)
-    assert len(counter.counted) == 1 and waits == [2, 4][:failures]
+    assert all(messages[:2] == transport.messages[0] for messages in transport.messages)
+    assert all(json.loads(messages[-1].content)["validation_error"]["code"] == "illegal_action"
+               for messages in transport.messages[1:])
+    assert len(counter.counted) == 2 and waits == [2, 4][:failures]
     decisions = [json.loads(line) for line in (output / "decisions.jsonl").read_text(encoding="utf-8").splitlines()]
     assert len(decisions) == (1 if failures == 3 else 2)
     if failures < 3:
