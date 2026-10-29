@@ -111,8 +111,11 @@ def make_llm_settings(protocol: ControlProtocol, *, provider="deepseek", endpoin
             "retry_delays_seconds", "timeout_seconds", "temperature", "thinking", "primary_effort",
             "primary_top_p", "token_count_method")
     model_key = "primary_api_model" if provider == "deepseek" else "secondary_api_model"
+    values = {key: llm[key] for key in keys}
+    if provider == "qwen":
+        values["max_output_tokens"] = llm.get("secondary_max_output_tokens", llm["max_output_tokens"])
     return LLMSettings(provider=provider, model=llm[model_key], endpoint=endpoint,
-                       api_key_env=api_key_env, **{key: llm[key] for key in keys})
+                       api_key_env=api_key_env, **values)
 
 
 def make_llm_controller(protocol: ControlProtocol, *, endpoint, api_key_env, tokenizer_manifest,

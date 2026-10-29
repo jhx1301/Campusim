@@ -36,7 +36,7 @@
 
 响应只能是恰含 action/reason 的 JSON 对象。拒绝重复键、NaN/Infinity、围栏、额外正文和自动修补。action 是五个普通整数，范围由 ActionVector 检查；reason 是非空单行字符串，提示词建议约reason_max_chars（默认120）字以内但不再硬性计数，不截断或改写。配置字段和解析参数名保留兼容，ActionProposal内部也不再限制字符数。最小格式为`{"action":[0,0,0,0,0],"reason":"根据当前公开观察选择动作。"}`，实际动作须满足当前mask。非快照资源非法提案仍交共同resolver；快照主动作在请求成功前检查合法mask，非法进入响应校验重试。
 
-完整输入保护上限131072，完整输出保护上限65536，不单设次模型推理预算。输出包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens。上限是异常膨胀保护，不要求每次用满，修订依据见第7节。官方本地 tokenizer 必须包含模型对应关系、文件内容 hash、消息模板和加载库版本；正常运行不下载、不估算。初始消息只构造一次；校验纠错改变消息后重新官方计数并检查完整输入，连接/服务重试复用当前消息与计数。输入超限零调用。实际usage与本次实际请求的本地计数不一致或超限时终止。
+完整输入保护上限131072；DeepSeek完整输出保护上限131072（max_output_tokens），Qwen保持65536（secondary_max_output_tokens），不单设推理预算。未配置secondary_max_output_tokens的旧配置继续沿用max_output_tokens。输出包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens。上限是异常膨胀保护，不要求每次用满，修订依据见第7节。官方本地 tokenizer 必须包含模型对应关系、文件内容 hash、消息模板和加载库版本；正常运行不下载、不估算。初始消息只构造一次；校验纠错改变消息后重新官方计数并检查完整输入，连接/服务重试复用当前消息与计数。输入超限零调用。实际usage与本次实际请求的本地计数不一致或超限时终止。
 
 当前离线适配为 `official_local_chat_template_v1` / `hf_apply_chat_template_v1`：显式 `tokenize=True, add_generation_prompt=True, return_dict=False, truncation=False, padding=False`。资源manifest包含 `adapter/provider/model/official_source/library_versions/files/chat_template_file/template_kwargs/input_tokenization_sha256`；files逐一锁原始字节hash，库版本锁transformers、tokenizers、jinja2、markupsafe。输入模式hash来自 `snapshot_sha256(settings.input_tokenization_parameters())`，只绑定请求的 `model` 和 `extra_body`：DeepSeek保留thinking开关和reasoning_effort，Qwen保留enable_thinking。输出预算、temperature、top_p、stream不参与此hash；仅改变输出预算、温度或top_p时可复用同一资源manifest和计数器实例，输入计数与资源身份保持不变。provider/model、模板及template_kwargs、文件和库版本仍受原检查约束。不接受覆写计数控制参数或未固定的加载资源。官方资源没有可核验消息模板、需要尚未实现的其他编码器或版本不符时直接阻止，不自行发明模板。
 
@@ -138,6 +138,8 @@ E0 兼容性校验包含人口登记及标定源码的 hash。这两处源码修
 使用指定的 `D:/programfile/miniconda3/envs/simulation/python.exe`（Python 3.11.14），全部 `tests/test_control_*.py` 加 `test_cemas_import.py`、`test_campusLayer.py` 的非 online 回归为 **571 passed、1 failed**，16.12秒。唯一失败仍是本机缺少 `tokenizers` 导致既有合成词表测试无法导入；未安装依赖，也未将此结果登记为全量通过。最终证据为 `results/control_v1_phase4` 之外独立的 `results/phase4_fixes_20261016/regression_verified.log` 和同名 XML。新增验收包含100名仅学校成员的七日 E2/A0=420、E0/A2=140活动限制人天及对应奖励、预算两入口校验、年龄区间说明与严格类型检查、单次和持续审计故障脱敏、Python3.10附注回退；`compileall` 与 `git diff --check` 通过。历史E0读取按预期拒绝，证据为同目录 `compatibility_and_prompt.json`。
 
 ## 7. 输入输出保护上限修订
+
+2026-10-29，单回合真实计时中一次动作请求用尽65536个推理token，最终JSON尚未输出即截断，纠错重试后成功。按用户确认，DeepSeek总生成上限提高到131072，保留thinking/high；动作、周经验和规则维护共用该值。Qwen使用secondary_max_output_tokens保留65536。只调整生成限额，不改变输入模式、官方tokenizer资源、截断检查或重试语义；旧计时和验收文件保持原值，不将新限额视为已完成真实服务验证。
 
 2026-10-16，按用户要求移除次模型单独的4096推理预算，将输入上限改为131072、完整输出上限改为65536。模型自主结束后立即返回，上限只拦截异常膨胀。当时reason≤120字是格式契约；2026-10-28修订后仅作为提示建议，硬字符限制取消，action/reason结构和非空单行要求保留。输出空间同时考虑模型推理，不能只按最终JSON长度设置。
 

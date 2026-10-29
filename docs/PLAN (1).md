@@ -60,6 +60,8 @@ confidence = (support_count + 1) / (support_count + contradiction_count + 2)
 
 复用已有transport、官方tokenizer、重试、usage和审计。不另设辅助小预算，不按token删除周记录、规则或知识；超过服务配置硬上限明确报错，截断响应不接纳部分结果。快照非法主动作进入已有三次请求流程，耗尽后停止回合并回滚训练事务。
 
+2026-10-29限额调整：DeepSeek保持thinking/high，总生成上限max_output_tokens提高到131072，动作、周反馈和规则维护共同使用；Qwen通过secondary_max_output_tokens保留65536。输入上限仍为131072。不限制推理与回答各自的份额，截断检测及纠错重试保持。
+
 取消所有说明文字的硬字符上限，包括ActionProposal内部120字符检查；保留非空单行字符串。reason_max_chars字段和现有解析参数兼容保留，仅作提示长度建议。提示词用原80/120/180字数作大致建议，分别给普通动作、记忆动作、反馈、规则操作的最小JSON示例；applicability是字符串，备选可为空，引用逐字复制已提供编号。
 
 规则输入的自主周增加pre_decision_action，与values.executed_action明确区分。动作条件仍指行动前状态；support/contradict须满足所选全部条件，可按matched_condition_ids核对。reference不能出现在judgments中，包括ignore。

@@ -323,7 +323,7 @@ def test_input_budget_covers_complete_messages_and_is_separate_from_output(setti
         assert len(caught.value.details["messages_sha256"]) == 64
         assert transport.messages == [] and controller.drain_call_audits() == ()
     assert len(counter.counted[0]) == 2
-    assert settings.request_parameters()["max_tokens"] == 65536
+    assert settings.request_parameters()["max_tokens"] == 131072
 
 
 @pytest.mark.parametrize("error", [LLMConfigurationError("auth", "invalid credentials"), RuntimeError("unknown bug")])
@@ -354,7 +354,7 @@ def test_truncated_output_is_retried_even_if_final_json_looks_complete(settings,
     assert controller.drain_call_audits()[0].error_code == "truncated_content"
 
 
-def test_transport_sdk_parameters_and_only_final_content(settings, observation, prompt_config):
+def test_transport_sdk_parameters_and_only_final_content(protocol, settings, observation, prompt_config):
     calls, options = [], []
 
     def create(**kwargs):
@@ -366,18 +366,27 @@ def test_transport_sdk_parameters_and_only_final_content(settings, observation, 
 
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
     client.with_options = lambda **kwargs: (options.append(kwargs) or client)
-    for candidate in (settings, replace(settings, provider="qwen", model="secondary")):
+    qwen = make_llm_settings(protocol, provider="qwen", endpoint=settings.endpoint, api_key_env=settings.api_key_env)
+    for candidate, output_limit in ((settings, 131072), (qwen, 65536)):
         result = LLMTransport(candidate, client=client).complete(build_public_messages(observation, prompt_config))
         assert result.content == response().content and "reasoning_content" not in resolved_snapshot(result)
         output_parameter = "max_tokens" if candidate.provider == "deepseek" else "max_completion_tokens"
         other_parameter = "max_completion_tokens" if candidate.provider == "deepseek" else "max_tokens"
-        assert calls[-1][output_parameter] == 65536 and calls[-1]["stream"] is False
+        assert calls[-1][output_parameter] == output_limit and calls[-1]["stream"] is False
         assert other_parameter not in calls[-1]
         assert "tools" not in calls[-1]
         assert options[-1] == {"max_retries": 0, "timeout": 120}
     assert calls[0]["extra_body"]["thinking"] == {"type": "enabled"}
     assert calls[0]["extra_body"]["reasoning_effort"] == "high"
     assert calls[1]["extra_body"] == {"enable_thinking": True}
+
+
+def test_secondary_output_limit_falls_back_for_existing_protocols(protocol, settings):
+    definition = resolved_snapshot(protocol.definition)
+    del definition["controllers"]["llm"]["secondary_max_output_tokens"]
+    qwen = make_llm_settings(replace(protocol, definition=definition), provider="qwen",
+                             endpoint=settings.endpoint, api_key_env=settings.api_key_env)
+    assert qwen.max_output_tokens == settings.max_output_tokens
 
 
 @pytest.mark.parametrize("status,code,category", [

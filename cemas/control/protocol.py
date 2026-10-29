@@ -437,6 +437,8 @@ def _validate_llm(definition: Mapping[str, Any]) -> None:
         raise ProtocolValidationError("controllers.llm.token_count_method must use the official local chat template")
     for key in ("input_token_budget", "max_output_tokens", "reason_max_chars"):
         _integer(llm.get(key), f"controllers.llm.{key}", 1)
+    if "secondary_max_output_tokens" in llm:
+        _integer(llm["secondary_max_output_tokens"], "controllers.llm.secondary_max_output_tokens", 1)
     _number(llm.get("timeout_seconds"), "controllers.llm.timeout_seconds", positive=True)
     _number(llm.get("temperature"), "controllers.llm.temperature")
     _probability(llm.get("primary_top_p"), "controllers.llm.primary_top_p")

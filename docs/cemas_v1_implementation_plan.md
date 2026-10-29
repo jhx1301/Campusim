@@ -408,7 +408,7 @@ Controller.observe(PublicWeekFeedback)
 - `parse_action_response()`：仅接受 `action/reason`；五个普通整数，reason 非空、单行、≤120 字，拒绝额外字段。
 - `LLMTransport`：独立供应商参数适配及可注入 mock client。
 - 最多三次总尝试、固定 2/4 秒间隔、SDK 内部重试关闭、timeout120秒；仅临时服务及解析失败复用原 prompt 重试。配置/鉴权/余额/硬配额/未知异常立即终止。
-- 输入保护上限131072 token，完整消息使用对应模型的官方本地 tokenizer/消息模板；固定文件hash、库版本、请求模式及模型对应关系。正常运行检查当前资源、输入计数和实际usage，不以供应商验收报告作为启动凭证。输出总量保护上限65536，包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens，不单设thinking_budget。上限用于阻止异常膨胀，结构体积依据及尚待实测的部分见P4契约第7节；P4 不裁剪、不压缩。
+- 输入保护上限131072 token，完整消息使用对应模型的官方本地 tokenizer/消息模板；固定文件hash、库版本、请求模式及模型对应关系。正常运行检查当前资源、输入计数和实际usage，不以供应商验收报告作为启动凭证。2026-10-29起DeepSeek输出总量保护上限131072，Qwen通过secondary_max_output_tokens保持65536，均包含推理和最终回答；DeepSeek使用max_tokens，Qwen使用max_completion_tokens，不单设thinking_budget。上限用于阻止异常膨胀，结构体积依据及尚待实测的部分见P4契约第7节；P4 不裁剪、不压缩。
 - runner-owned `llm_calls.jsonl` 保存各次请求/返回型号、完整消息、三类hash、计数器身份、输入计数、usage、响应、耗时和脱敏错误。fatal 也先落盘，不推进当前周；超限零调用，实际 usage 不符终止。
 - 耗尽返回 `None + llm_retry_exhausted`，runner 交共同 resolver；DecisionRecord 记录调用次数及是否成功。离线只用smoke池；P4原始真实开发范围为prompt_development池，后续P6已接入保留源域A/B及pilot，始终保留真实E0门禁，最终测试池仍未开放。
 

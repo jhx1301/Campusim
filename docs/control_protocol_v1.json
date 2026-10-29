@@ -774,7 +774,8 @@
         "E3_city_A"
       ],
       "temperature": 0,
-      "max_output_tokens": 65536,
+      "max_output_tokens": 131072,
+      "secondary_max_output_tokens": 65536,
       "input_token_budget": 131072,
       "reason_max_chars": 120,
       "thinking": true,
