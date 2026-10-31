@@ -59,7 +59,6 @@ def test_definition_and_nested_values_are_read_only():
     ("max_attempts", 4), ("max_attempts", True), ("retry_delays_seconds", [2, 4, 8]),
     ("primary_sdk_retries", 2), ("input_token_budget", 0), ("max_output_tokens", True),
     ("reason_max_chars", 0), ("max_output_tokens", 0), ("tools_enabled", True),
-    ("secondary_max_output_tokens", 0), ("secondary_max_output_tokens", True),
     ("thinking", "true"), ("json_fields", ["action", "reason", "risk"]),
 ])
 def test_phase4_rejects_inconsistent_call_configuration(tmp_path, definition, key, value):

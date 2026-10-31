@@ -444,6 +444,11 @@ def canonical_json(value):
     return json.dumps(public_to_dict(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+def prompt_json(value):
+    """Render a public request in its deliberately constructed prefix order."""
+    return json.dumps(public_to_dict(value), ensure_ascii=False, sort_keys=False, separators=(",", ":"), allow_nan=False)
+
+
 def public_hash(value):
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 

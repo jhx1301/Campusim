@@ -94,7 +94,7 @@ def _read_memory_acceptance(path, identity, input_token_budget):
 def validate_memory_acceptance(path, controller):
     """Independently revalidate a saved report against current public resources."""
     from cemas.control.llm_memory import build_memory_messages, parse_memory_response
-    from cemas.control.knowledge import CORE_IDS
+    from cemas.control.knowledge import CORE_IDS, knowledge_for_prompt
     from cemas.control.memory import recent_summary
     from cemas.control.memory_types import observation_from_dict, memory_context_from_dict, public_to_dict
 
@@ -105,16 +105,19 @@ def validate_memory_acceptance(path, controller):
             messages, response, count = case["messages"], case["response"], case["input_tokens"]
             payload = strict_json_loads(messages[1]["content"])
             observation = observation_from_dict(payload["observation"])
-            context = memory_context_from_dict(payload["memory"])
+            available_cards = {card.id: card for card in controller.knowledge_bundle.select(observation)}
+            sent_knowledge = payload["memory"]["knowledge"]
+            restored_knowledge = []
+            for projected in sent_knowledge:
+                card = available_cards[projected["id"]]
+                if projected != knowledge_for_prompt(card):
+                    raise ValueError("receipt knowledge does not match the reviewed prompt projection")
+                restored_knowledge.append(public_to_dict(card))
+            context = memory_context_from_dict({**payload["memory"], "knowledge": restored_knowledge})
             _check_probe(case["name"], observation, context, payload["required_uncertainty_codes"])
             if public_hash(observation) != case.get("observation_hash"):
                 raise ValueError("probe observation hash does not bind the sent public observation")
-            available_cards = {card.id: card for card in controller.knowledge_bundle.select(observation)}
             sent_cards = {card.id: card for card in context.knowledge}
-            if set(sent_cards) - set(available_cards) or any(
-                    public_to_dict(card) != public_to_dict(available_cards[card.id])
-                    for card in context.knowledge):
-                raise ValueError("receipt knowledge cards are not from the current reviewed bundle")
             if not set(CORE_IDS).issubset(sent_cards):
                 raise ValueError("receipt omitted a required core simulation rule")
             if context.recent is not None and context.recent != recent_summary(observation):

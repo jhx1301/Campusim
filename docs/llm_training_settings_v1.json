@@ -1,0 +1,9 @@
+{
+  "provider": "deepseek",
+  "endpoint": "https://api.deepseek.com",
+  "api_key_env": "DASHSCOPE_API_KEY",
+  "tokenizer_manifest": "results/llm_timing_pilot_20261028/deepseek_v41_tokenizer/manifest.json",
+  "memory_mode": "both",
+  "feedback_backend": "llm",
+  "rule_memory": "adaptive"
+}

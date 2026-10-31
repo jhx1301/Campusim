@@ -1,13 +1,13 @@
 {
   "document_kind": "design_samples",
-  "updated_on": "2026-10-28",
+  "updated_on": "2026-10-30",
   "notice": "人工设计样例，不是真实运行结果。为便于阅读，周记录values只展示有关公开字段，案例只展示结构摘要；实际序列由共享公开投影生成。",
   "schemas": {
     "learning_store": "cemas-learning-memory-v2",
     "public_case": "cemas-public-case-v2",
-    "feedback_input": "cemas-public-feedback-input-v3",
+    "feedback_input": "cemas-public-feedback-input-v4",
     "feedback_result": "cemas-public-feedback-result-v2",
-    "rule_input": "cemas-public-rule-input-v3",
+    "rule_input_internal": "cemas-public-rule-input-v3",
     "rule_patch": "cemas-public-rule-patch-v3"
   },
   "task": {
@@ -34,71 +34,86 @@
     "explanation": "day14立即形成独立案例，不等待后续周。opaque_group由group_for(case_id)查询，不在每个案例中复制分组注册。"
   },
   "rule_request": {
+    "task_rules": [
+      {
+        "id": "SIM-01",
+        "kind": "simulation_rule",
+        "statement": "Use delivered public observations; hidden infection truth is unavailable.",
+        "preconditions": ["Synthetic public-observation task"],
+        "limitations": ["Public diagnoses do not identify hidden infections"],
+        "public_fields": ["history"],
+        "action_dimensions": ["T", "S", "C", "E", "A"],
+        "trigger": "always",
+        "priority": 0,
+        "conflict_group": "observation",
+        "supersedes": []
+      }
+    ],
+    "current_rule_set": [
+      {
+        "id": 1,
+        "version": 1,
+        "content": {
+          "condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+          "lesson": "解释已交付诊断时应同时核对检测构成。",
+          "limitations": ["相邻周变化不是动作因果效果。"]
+        },
+        "status": "active",
+        "support_count": 2,
+        "contradiction_count": 0,
+        "confidence": 0.75
+      }
+    ],
     "evidence_bundle": {
-      "schema_version": "cemas-public-rule-input-v3",
-      "as_of_day": 35,
-      "public_task_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "condition_catalog": {
+        "COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {"kind": "history", "value": 1}
+      },
       "weeks": [
         {
           "window_id": "W:0000000000000000000000000000000000000000000000000000000000000000",
-          "case_id": 1,
-          "revision": 1,
-          "opaque_group": "opaque-training-group-a",
           "role": "reference",
           "start_day": 0,
           "end_day": 6,
-          "values": {"delivered_diagnoses": 12, "executed_action": [0, 0, 0, 0, 0]},
+          "values": {"delivered_diagnoses": 12, "executed_action": {"values": [0, 0, 0, 0, 0]}},
           "support_window": false
         },
         {
           "window_id": "W:1111111111111111111111111111111111111111111111111111111111111111",
-          "case_id": 1,
-          "revision": 1,
-          "opaque_group": "opaque-training-group-a",
           "role": "autonomous",
           "start_day": 7,
           "end_day": 13,
           "pre_decision_action": [0, 0, 0, 0, 0],
-          "values": {"delivered_diagnoses": 15, "executed_action": [0, 0, 0, 0, 0]},
+          "values": {"delivered_diagnoses": 15, "executed_action": {"values": [0, 0, 0, 0, 0]}},
           "support_window": true,
           "matched_condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
         },
         {
           "window_id": "W:2222222222222222222222222222222222222222222222222222222222222222",
-          "case_id": 2,
-          "revision": 1,
-          "opaque_group": "opaque-training-group-a",
           "role": "autonomous",
           "start_day": 14,
           "end_day": 20,
           "pre_decision_action": [0, 0, 0, 0, 0],
-          "values": {"delivered_diagnoses": 16, "executed_action": [0, 1, 0, 0, 0]},
+          "values": {"delivered_diagnoses": 16, "executed_action": {"values": [0, 1, 0, 0, 0]}},
           "support_window": true,
           "matched_condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
         },
         {
           "window_id": "W:3333333333333333333333333333333333333333333333333333333333333333",
-          "case_id": 3,
-          "revision": 1,
-          "opaque_group": "opaque-training-group-a",
           "role": "autonomous",
           "start_day": 21,
           "end_day": 27,
           "pre_decision_action": [0, 1, 0, 0, 0],
-          "values": {"delivered_diagnoses": 13, "executed_action": [0, 1, 0, 0, 0]},
+          "values": {"delivered_diagnoses": 13, "executed_action": {"values": [0, 1, 0, 0, 0]}},
           "support_window": true,
           "matched_condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
         },
         {
           "window_id": "W:4444444444444444444444444444444444444444444444444444444444444444",
-          "case_id": 4,
-          "revision": 1,
-          "opaque_group": "opaque-training-group-a",
           "role": "autonomous",
           "start_day": 28,
           "end_day": 34,
           "pre_decision_action": [0, 1, 0, 0, 0],
-          "values": {"delivered_diagnoses": 14, "executed_action": [0, 0, 0, 0, 0]},
+          "values": {"delivered_diagnoses": 14, "executed_action": {"values": [0, 0, 0, 0, 0]}},
           "support_window": true,
           "matched_condition_ids": ["COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
         }
@@ -128,13 +143,8 @@
           "metrics": {"delivered_diagnoses": 1},
           "limitations": ["descriptive_not_causal", "action_changed"]
         }
-      ],
-      "condition_catalog": {
-        "COND:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {"kind": "history", "value": 1}
-      },
-      "task_rules": []
-    },
-    "current_rule_set": []
+      ]
+    }
   },
   "add_response": {
     "schema_version": "cemas-public-rule-patch-v3",
@@ -199,7 +209,7 @@
     "expected": {"version": 2, "status": "suspended", "statistics_unchanged": true}
   },
   "weekly_feedback": {
-    "input_summary": {"schema_version": "cemas-public-feedback-input-v3", "as_of_day": 14, "reference_window": [0, 6], "autonomous_window": [7, 13]},
+    "input_summary": {"schema_version": "cemas-public-feedback-input-v4", "as_of_day": 14, "reference_window": [0, 6], "autonomous_window": [7, 13]},
     "response": {
       "schema_version": "cemas-public-feedback-result-v2",
       "items": [
@@ -235,5 +245,210 @@
     "reference_id_example": "通知事实编号须复制W:…:cost.delivered_notifications，不能漏写cost.。",
     "audit": "validation_error保存公开错误；最终决策hash/token取最后一次实际调用，context_hash和合法引用集合不变。",
     "budget": "纠错消息改变后重新官方计数；超现有输入上限时记录预检失败，零额外外部调用。"
+  },
+  "prompt_versions": {
+    "memory": "cemas-public-memory-prompt-v3",
+    "learning": "cemas-public-learning-prompt-v4",
+    "feedback": "cemas-feedback-prompt-v5",
+    "rule_distillation": "cemas-rule_distillation-prompt-v6"
+  },
+  "knowledge_prompt_projection": {
+    "notice": "人工设计投影示例；sent_card是动作和周反馈的基础投影。规则维护复用该投影后额外省略version；source及review_status只留在本地完整bundle。",
+    "sent_card": {
+      "id": "SIM-01",
+      "version": "1",
+      "kind": "simulation_rule",
+      "statement": "Use delivered public observations; hidden infection truth is unavailable.",
+      "preconditions": [
+        "Synthetic public-observation task"
+      ],
+      "limitations": [
+        "Public diagnoses do not identify hidden infections"
+      ],
+      "public_fields": [
+        "history"
+      ],
+      "action_dimensions": [
+        "T",
+        "S",
+        "C",
+        "E",
+        "A"
+      ],
+      "trigger": "always",
+      "priority": 0,
+      "conflict_group": "observation",
+      "supersedes": []
+    },
+    "omitted_local_fields": [
+      "source",
+      "review_status"
+    ],
+    "ordering": "always卡优先，同类按id；条件触发卡随后。"
+  },
+  "feedback_request": {
+    "task_rules": [
+      {
+        "id": "SIM-01",
+        "version": "1",
+        "kind": "simulation_rule",
+        "statement": "Use delivered public observations; hidden infection truth is unavailable.",
+        "preconditions": [
+          "Synthetic public-observation task"
+        ],
+        "limitations": [
+          "Public diagnoses do not identify hidden infections"
+        ],
+        "public_fields": [
+          "history"
+        ],
+        "action_dimensions": [
+          "T",
+          "S",
+          "C",
+          "E",
+          "A"
+        ],
+        "trigger": "always",
+        "priority": 0,
+        "conflict_group": "observation",
+        "supersedes": []
+      }
+    ],
+    "schema_version": "cemas-public-feedback-input-v4",
+    "scope": "local",
+    "public_task_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "weeks": [
+      {
+        "window_id": "W:0000000000000000000000000000000000000000000000000000000000000000",
+        "role": "reference",
+        "start_day": 0,
+        "end_day": 6,
+        "values": {
+          "delivered_diagnoses": 12,
+          "cost": {
+            "delivered_notifications": 20
+          }
+        },
+        "reference_fields": [
+          "delivered_diagnoses",
+          "cost.delivered_notifications"
+        ]
+      },
+      {
+        "window_id": "W:1111111111111111111111111111111111111111111111111111111111111111",
+        "role": "autonomous",
+        "start_day": 7,
+        "end_day": 13,
+        "values": {
+          "delivered_diagnoses": 15,
+          "cost": {
+            "delivered_notifications": 24
+          }
+        },
+        "reference_fields": [
+          "delivered_diagnoses",
+          "cost.delivered_notifications"
+        ]
+      }
+    ],
+    "comparisons": [
+      {
+        "before_window_id": "W:0000000000000000000000000000000000000000000000000000000000000000",
+        "after_window_id": "W:1111111111111111111111111111111111111111111111111111111111111111",
+        "metrics": {
+          "delivered_diagnoses": 3,
+          "delivered_notifications": 4
+        },
+        "limitations": [
+          "descriptive_not_causal"
+        ]
+      }
+    ],
+    "as_of_day": 14
+  },
+  "feedback_reference_contract": {
+    "construction": "window_id + \":\" + reference_field",
+    "allowed_example": "W:1111111111111111111111111111111111111111111111111111111111111111:cost.delivered_notifications",
+    "rejected_example": "W:1111111111111111111111111111111111111111111111111111111111111111:delivered_notifications",
+    "internal_facts": "完整facts由同一weeks公开投影生成，仅供内部解析、笔记依赖和审计，不作为第二份数值发送。",
+    "unknown_or_invalid_values": "未知字段、缺失值及无效growth/proxy不进入reference_fields，引用仍拒绝。"
+  },
+  "wire_order": {
+    "action": [
+      "memory",
+      "learned_rules (enabled)",
+      "observation",
+      "public_rates",
+      "feedback (enabled)",
+      "evidence_registry",
+      "required_uncertainty_codes"
+    ],
+    "memory": [
+      "knowledge",
+      "mode",
+      "recent",
+      "retrieval"
+    ],
+    "feedback": [
+      "task_rules",
+      "schema_version",
+      "scope",
+      "public_task_sha256",
+      "weeks",
+      "comparisons",
+      "as_of_day"
+    ],
+    "rule": [
+      "task_rules",
+      "current_rule_set",
+      "evidence_bundle"
+    ],
+    "rule_bundle": [
+      "condition_catalog",
+      "weeks",
+      "comparisons"
+    ],
+    "hashes": "prompt_json保留发送顺序；canonical_json/public_hash保持原身份规则。实际消息hash/token按最终渲染记录。"
+  },
+  "rule_input_projection": {
+    "notice": "人工设计样例：rule_request展示v6实际发送形状；schemas.rule_input_internal只描述内部完整bundle。以下省略项仍在本地用于校验、审计和持久化。",
+    "bundle_omitted": [
+      "schema_version",
+      "public_task_sha256",
+      "as_of_day",
+      "task_rules (moved to request top level)"
+    ],
+    "week_omitted": [
+      "case_id",
+      "revision",
+      "opaque_group",
+      "values.start_day",
+      "values.end_day"
+    ],
+    "rule_omitted": [
+      "public_task_sha256",
+      "updated_at_day",
+      "updated_in_episode",
+      "conditions",
+      "increment"
+    ],
+    "knowledge_additional_omission": [
+      "version"
+    ],
+    "kept": "window_id、role、外层日期、完整公开数值及growth_valid/proxy_valid、support_window、pre_decision_action和matched_condition_ids保留；条件定义只发送一份，暂停规则发送reason。",
+    "response_unchanged": "输出schema_version和新操作increment仍必填；输入删减不改变patch v3解析、内部packet_hash或学习库。"
+  },
+  "input_protocol_switch": {
+    "checkpoint": 16,
+    "before": "回合1–16使用旧输入协议",
+    "after": "回合17–32使用新版固定前缀、事实去重及知识投影",
+    "libraries": "沿用各自独立学习库及原回合清单，完成表跳过已完成回合",
+    "reasoning": {
+      "11": "high",
+      "22": "high",
+      "33": "low"
+    },
+    "claim_limit": "人工设计样例，不证明缓存命中率或控制效果。"
   }
 }

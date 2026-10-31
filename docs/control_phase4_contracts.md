@@ -32,7 +32,7 @@
 
 ## 2. 消息身份、解析和预算
 
-模板、公共规则快照、最终消息分别使用排序键、紧凑分隔符、UTF-8 JSON 的 SHA-256。消息数组保持顺序；完整协议 hash 仅留在 runner 私有元数据。
+模板、公共规则快照、最终消息分别使用排序键、紧凑分隔符、UTF-8 JSON 的 SHA-256。消息数组保持顺序，消息content字符串的实际字节参与hash；完整协议 hash 仅留在 runner 私有元数据。显式记忆及辅助请求的user内容由保序prompt_json()渲染，固定知识置于动态数据之前；canonical_json()/public_hash()的身份规则不变，普通无记忆动作入口不受影响。
 
 响应只能是恰含 action/reason 的 JSON 对象。拒绝重复键、NaN/Infinity、围栏、额外正文和自动修补。action 是五个普通整数，范围由 ActionVector 检查；reason 是非空单行字符串，提示词建议约reason_max_chars（默认120）字以内但不再硬性计数，不截断或改写。配置字段和解析参数名保留兼容，ActionProposal内部也不再限制字符数。最小格式为`{"action":[0,0,0,0,0],"reason":"根据当前公开观察选择动作。"}`，实际动作须满足当前mask。非快照资源非法提案仍交共同resolver；快照主动作在请求成功前检查合法mask，非法进入响应校验重试。
 
@@ -157,3 +157,19 @@ P5示例按六条案例各带完整P4公共观察/比例及两周公共反馈、
 [DeepSeek官方接口](https://api-docs.deepseek.com/api/create-chat-completion/)允许max_tokens覆盖推理及回答，当前thinking/high默认上限为64K；[Qwen官方接口](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)说明Qwen的max_tokens仅限制回答，max_completion_tokens限制推理及回答总量，支持Qwen3.5-Plus。[所选Qwen快照的模型卡](https://www.alibabacloud.com/help/en/model-studio/qwen3-5-plus)列出65536输出上限。因此Qwen请求改用max_completion_tokens，不传max_tokens或thinking_budget。请求模式变化后原tokenizer验收身份不再匹配，真实provider/tokenizer验收仍须按新参数完成，不以文档能力说明代替账户实测。
 
 指定simulation Python的本轮非online回归为 **572 passed、1 failed**，17.86秒；唯一失败仍为既有合成词表测试缺少tokenizers。证据为 `results/llm_budget_review_20261016/regression.log` 及同名XML。新增覆盖原8000上限以上输入可用、新上限前/等于/后边界、超限零调用；供应商完整输出参数、截断重试及共同回退回归通过。compileall与git diff --check通过。未安装依赖、未执行真实provider/tokenizer验收。
+
+## 8. 2026-10-29：输入投影与审计
+
+显式记忆动作提示v3、学习动作提示v4、辅助提示v5使用同一知识投影，模型输入不再包含source/review_status；内部KnowledgeCard和完整知识库hash不变。K:registry、cited_evidence与发送knowledge hash仅含实际发送字段，context_hash绑定同一次发送上下文。来源信息通过本地完整bundle追溯，不声称模型见过省略字段。
+
+周反馈输入v4的发送内容保留weeks.values、增加每周reference_fields并去掉重复facts对象。内部facts、原编号及解析边界保持，引用用window_id+":"+reference_field，通知示例保留cost.delivered_notifications。内部packet_hash与实际messages_sha256含义不同：前者关联完整证据包，后者关联真正发送的消息文本。官方token计数仍针对最终实际请求；最新纠错改变输入时重新计数，错误编号不会扩大引用资格。
+
+独立验收从当前已验证知识bundle按发送ID恢复内部卡，核对精简投影、选择和核心卡后重建并逐字比对消息；响应只使用重建后的发送registry解析。旧模板receipt明确不匹配，保留历史文件且不重新签认。离线重渲染报告不能替代服务缓存命中或控制效果验证。
+
+## 9. 2026-10-30：规则维护发送投影v6
+
+仅规则维护提示升级为`cemas-rule_distillation-prompt-v6`。system保留固定说明和返回格式；user按`task_rules / current_rule_set / evidence_bundle`发送，固定知识只在顶层出现一次，bundle仅保留`condition_catalog / weeks / comparisons`。全部当前规则排在动态证据之前；相同知识和规则下，改变本轮证据不改变bundle开始前的发送字节。
+
+模型输入省略bundle的schema_version/public_task_sha256/as_of_day；周记录的case_id/revision/opaque_group和values内重复日期；规则的public_task_sha256/updated_at_day/updated_in_episode/conditions/旧increment；知识卡的version。规则条件定义集中在condition_catalog。规则ID、内容版本、内容、状态、聚合统计、暂停reason，以及周编号、角色、外层日期、公开值、有效性标志、support_window、行动前动作和匹配条件均保留。输出仍为patch v3，schema_version和新操作increment仍按原合同返回。
+
+这些删除只作用于发送层。内部完整packet、规则对象、KnowledgeCard、packet_hash、解析和SQLite事务保持；模型实际看到的消息由现有审计记录，官方计数和纠错均基于最终消息。动作与周反馈的格式、版本及独立动作验收不变；历史运行、冻结库、报告不改写，不自动追加付费测试或训练。

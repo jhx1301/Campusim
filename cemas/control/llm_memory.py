@@ -7,7 +7,7 @@ import time
 from uuid import uuid4
 
 from .actions import encode_action
-from .knowledge import KnowledgeBundle, load_knowledge_bundle, observation_flags
+from .knowledge import KnowledgeBundle, knowledge_for_prompts, load_knowledge_bundle, observation_flags
 from .llm import (ActionResponseError, ChatMessage, LLMConfigurationError, LLMController,
                   LLMError, PublicPromptConfig, _immutable,
                   _public_rates, _reject_constant, _render_system, _unique_pairs,
@@ -15,7 +15,7 @@ from .llm import (ActionResponseError, ChatMessage, LLMConfigurationError, LLMCo
 from .logging import public_observation_to_dict, snapshot_sha256
 from .memory import MemoryProfile, PublicEpisodeMemory, load_memory_profile, public_task_hash
 from .memory_types import (RESPONSE_SCHEMA_VERSION, UNCERTAINTY_CODES, PublicMemoryContext,
-                           RetrievalResult, canonical_json, public_hash,
+                           RetrievalResult, prompt_json, public_hash,
                            public_to_dict, strict_json_loads)
 from .types import ActionProposal, ActionVector, PublicObservation, PublicWeekFeedback
 
@@ -46,6 +46,7 @@ class PreparedDecision:
     observation_hash: str
     context_hash: str
     context: PublicMemoryContext
+    sent_context: Mapping
     registry: Mapping
     required_uncertainty_codes: tuple
     dropped_case_ids: tuple
@@ -54,6 +55,7 @@ class PreparedDecision:
 
     def __post_init__(self):
         object.__setattr__(self, "messages", tuple(self.messages))
+        object.__setattr__(self, "sent_context", _immutable(self.sent_context))
         object.__setattr__(self, "registry", _immutable(self.registry))
         object.__setattr__(self, "trim_events", tuple(_immutable(item) for item in self.trim_events))
         for name in ("required_uncertainty_codes", "dropped_case_ids", "initial_knowledge_ids"):
@@ -141,7 +143,7 @@ def parse_memory_response(raw_text, *, registry, required_uncertainty_codes=(),
                                 tuple(parsed_alternatives), tuple(flags))
 
 
-def _registry(observation, context):
+def _registry(observation, context, knowledge):
     observed = public_observation_to_dict(observation)
     paths = ("decision_day", "execution_days", "initial_infections", "population", "resources", "current_action",
              "action_duration_days", "legal_action_mask", "previous_day_known_isolated",
@@ -162,8 +164,8 @@ def _registry(observation, context):
     if context.recent is not None:
         for name, value in public_to_dict(context.recent).items():
             registry["R:/" + name] = value
-    for card in context.knowledge:
-        registry["K:" + card.id] = public_to_dict(card)
+    for card in knowledge:
+        registry["K:" + card["id"]] = card
     for item in context.retrieval.items:
         registry["C:" + str(item.case.case_id)] = public_to_dict(item.case)
     return {key: registry[key] for key in sorted(registry)}
@@ -181,23 +183,32 @@ def _required_flags(observation, context):
     return tuple(code for code in UNCERTAINTY_CODES if code in flags)
 
 
-def build_memory_messages(observation, prompt_config, context, *, feedback=None, learned_rules=None):
-    """Pure two-message construction plus the exact sent reference values."""
+def _render_memory_input(observation, prompt_config, context, *, feedback=None, learned_rules=None):
     if (type(observation) is not PublicObservation or type(prompt_config) is not PublicPromptConfig
             or type(context) is not PublicMemoryContext):
         raise TypeError("memory messages require exact public input/config/context types")
-    registry = _registry(observation, context)
+    knowledge = knowledge_for_prompts(context.knowledge)
+    registry = _registry(observation, context, knowledge)
     required = _required_flags(observation, context)
-    payload = {"observation": public_observation_to_dict(observation), "public_rates": _public_rates(observation),
-               "memory": public_to_dict(context), "evidence_registry": list(registry),
-               "required_uncertainty_codes": list(required)}
-    for name, entries in (("feedback", feedback), ("learned_rules", learned_rules)):
-        if entries is not None:
-            payload[name] = entries
-            registry.update((entry["id"], entry) for entry in entries)
+    payload = {"memory": {"knowledge": knowledge, "mode": context.mode,
+                          "recent": public_to_dict(context.recent), "retrieval": public_to_dict(context.retrieval)}}
+    if learned_rules is not None:
+        payload["learned_rules"] = learned_rules
+        registry.update((entry["id"], entry) for entry in learned_rules)
+    payload.update(observation=public_observation_to_dict(observation), public_rates=_public_rates(observation))
+    if feedback is not None:
+        payload["feedback"] = feedback
+        registry.update((entry["id"], entry) for entry in feedback)
     payload["evidence_registry"] = list(registry)
-    messages = (ChatMessage("system", _render_system(prompt_config)), ChatMessage("user", canonical_json(payload)))
-    return messages, registry, required
+    payload["required_uncertainty_codes"] = list(required)
+    messages = (ChatMessage("system", _render_system(prompt_config)), ChatMessage("user", prompt_json(payload)))
+    return messages, registry, required, payload
+
+
+def build_memory_messages(observation, prompt_config, context, *, feedback=None, learned_rules=None):
+    """Pure two-message construction plus the exact sent reference values."""
+    return _render_memory_input(observation, prompt_config, context,
+                                feedback=feedback, learned_rules=learned_rules)[:3]
 
 
 def memory_prompt_config(prompt_config, profile=None):
@@ -212,7 +223,7 @@ def memory_prompt_config(prompt_config, profile=None):
         template = strict_json_loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         raise LLMConfigurationError("memory_template_missing", "Cannot read the frozen P5 prompt template") from None
-    if type(template) is not dict or template.get("version") != "cemas-public-memory-prompt-v2":
+    if type(template) is not dict or template.get("version") != "cemas-public-memory-prompt-v3":
         raise LLMConfigurationError("memory_template_version", "Unknown P5 prompt template version")
     return PublicPromptConfig(template, prompt_config.public_spec, prompt_config.reason_max_chars)
 
@@ -255,7 +266,7 @@ class MemoryLLMController(LLMController):
         config = memory_prompt_config(prompt_config, self.memory_profile)
         if feedback_backend != "disabled" or rule_memory != "off":
             template = dict(config.template)
-            template["version"] = "cemas-public-learning-prompt-v3"
+            template["version"] = "cemas-public-learning-prompt-v4"
             template["system"] += ("\n本次可含feedback近期经验和learned_rules检索规则。F:和L:仅引用本次实际展示的条目。"
                 "经验和规则未经语义验证，只是建议；按适用状态、当前事实和固定约束判断是否采用。")
             config = PublicPromptConfig(template, config.public_spec, config.reason_max_chars)
@@ -432,7 +443,7 @@ class MemoryLLMController(LLMController):
         context = PublicMemoryContext(self.memory_mode, recent, knowledge, retrieved)
         initial_knowledge_ids = tuple(card.id for card in knowledge)
         dropped_case_ids, trims = [], []
-        messages, registry, required = build_memory_messages(observation, self.prompt_config, context,
+        messages, registry, required, payload = _render_memory_input(observation, self.prompt_config, context,
             feedback=self._sent_feedback, learned_rules=self._sent_rules)
         count = None
         try:
@@ -444,15 +455,13 @@ class MemoryLLMController(LLMController):
                                         "memory_profile_sha256": self.memory_profile.sha256,
                                         "knowledge_sha256": self.knowledge_bundle.sha256})
             raise
-        context_hash = public_hash({"memory": public_to_dict(context), "evidence_registry": list(registry),
-                                    "required_uncertainty_codes": list(required),
-                                    **({"feedback": self._sent_feedback, "learned_rules": self._sent_rules}
-                                       if self._sent_feedback is not None or self._sent_rules is not None else {})})
+        sent_context = {key: value for key, value in payload.items() if key not in ("observation", "public_rates")}
+        context_hash = public_hash(sent_context)
         # Stage only after profile/token/count validation and deterministic context construction.
         # A fatal preflight/query/budget failure must not create a pending case.
         self.memory.stage(observation)
         self._prepared_context = PreparedDecision(messages, snapshot_sha256(messages), count, public_hash(observation),
-                                                  context_hash, context, registry, required, tuple(dropped_case_ids),
+                                                  context_hash, context, sent_context, registry, required, tuple(dropped_case_ids),
                                                   tuple(trims), initial_knowledge_ids)
         return messages, count
 
@@ -474,8 +483,9 @@ class MemoryLLMController(LLMController):
             all_citations.extend(identity for alternative in parsed.alternative_actions for identity in alternative["evidence_ids"])
         all_citations = tuple(dict.fromkeys(all_citations))
         cases = tuple(item.case.case_id for item in prepared.context.retrieval.items)
-        cards = tuple(card.id for card in prepared.context.knowledge)
-        sent_knowledge_hash = public_hash(tuple(public_to_dict(card) for card in prepared.context.knowledge))
+        sent_knowledge = prepared.sent_context["memory"]["knowledge"]
+        cards = tuple(card["id"] for card in sent_knowledge)
+        sent_knowledge_hash = public_hash(sent_knowledge)
         evidence = {"event": "prepared", "schema_version": self.response_schema_version,
                     "status": "success" if proposal is not None else "retry_exhausted",
                     "decision_day": observation.decision_day, "observation_hash": prepared.observation_hash,

@@ -13,6 +13,7 @@
 | [推荐实施协议](llm_recommended_protocol_v1.md)、[控制配置](control_protocol_v1.json) | 共同任务、动作、观察、资源、实验与统计规则 |
 | [记忆配置](control_memory_v1.json) | 当前数值检索和记忆参数；输入不按token裁剪 |
 | [Feedback统一设计](llm_feedback_component_design.md)、[实施合同](PLAN%20(1).md)、[人工样例](llm_feedback_component_examples.json) | 当前快照7天观察＋112天控制、单周案例、聚合规则统计、v2学习库及冻结评估 |
+| [LLM三种子实验准备](llm_training_experiment_v1.md) | 独立库、每种子32＋32回合且历史世界不重复、离线准备、并行命令和冻结评价安排 |
 | [Phase 0 契约](control_phase0_contracts.md) | 公共接口、schema 与公共/私有信息边界 |
 | [Phase 1 契约](control_phase1_contracts.md) | 324 动作编解码、合法 mask 和动作解析 |
 | [Phase 2 契约](control_phase2_contracts.md) | 共同执行器、公共 ledger/观察和私有指标 |

@@ -11,7 +11,7 @@ from cemas.control.llm_feedback import LLMFeedback
 from cemas.control.llm_memory import MemoryLLMController
 from cemas.control.logging import snapshot_sha256
 from cemas.control.runner import run_episode
-from test_control_feedback import library
+from test_control_feedback import add_operation, apply, bundle_for, library, revise, supporting
 from test_control_llm_memory import Counter, Transport, config, day0, successful_response
 
 
@@ -143,10 +143,140 @@ def test_auxiliary_wrong_applicability_corrects_against_original_packet(config, 
     feedback = LLMFeedback(transport, Counter(request_tokens), settings, prompt, events,
                            sleeper=lambda _: None, clock=lambda: 0.)
     assert feedback.generate(packet) == good
+    sent = json.loads(transport.messages[0][1].content)
+    assert "facts" not in sent and packet["facts"]
+    assert all("reference_fields" in week for week in sent["weeks"])
     correction = json.loads(transport.messages[1][-1].content)["validation_error"]
     assert correction["path"] == "/items/0/applicability" and correction["actual"] == "dict"
     assert transport.messages[1][:-1] == transport.messages[0]
     assert len(events) == 3 and events[-1]["status"] == "generated"
+
+
+def test_auxiliary_successful_citation_keeps_internal_facts_and_actual_audit(config, library):
+    _, prompt, settings = config
+    store, _, _ = library
+    packet = project_feedback(store.cases(), 35, store.public_task_sha256, group_for=store.group_for)
+    original_hash = snapshot_sha256(packet)
+
+    def respond(messages):
+        sent = json.loads(messages[1].content)
+        reference = sent["weeks"][0]
+        path = "cost.delivered_notifications"
+        assert path in reference["reference_fields"]
+        identity = reference["window_id"] + ":" + path
+        current = next(week for week in sent["weeks"] if week["role"] == "autonomous")
+        item = {"window_id": current["window_id"], "status": "candidate",
+                "finding": {"text": "Observed public change", "evidence_ids": [identity]},
+                "decision_check": {"text": "Check notifications", "evidence_ids": [identity]},
+                "applicability": "Comparable public state", "limitations": ["Not causal"]}
+        return LLMResponse(json.dumps({"schema_version": "cemas-public-feedback-result-v2", "items": [item]}),
+                           usage={"prompt_tokens": request_tokens(messages)})
+
+    events = []
+    transport = Transport([respond])
+    feedback = LLMFeedback(transport, Counter(request_tokens), settings, prompt, events,
+                           sleeper=lambda _: None, clock=lambda: 0.)
+    result = feedback.generate(packet)
+    reference = result["items"][0]["finding"]["evidence_ids"][0]
+    assert packet["facts"][reference]["value"] == 7
+    assert snapshot_sha256(packet) == original_hash
+    call = next(event for event in events if event["event"] == "provider_call")
+    assert call["packet_hash"] == original_hash
+    assert call["messages_sha256"] == snapshot_sha256(transport.messages[0])
+    assert call["input_tokens"] == request_tokens(transport.messages[0])
+    assert call["template_version"] == "cemas-feedback-prompt-v5"
+
+
+@pytest.mark.parametrize("failures", [1, 3])
+def test_rule_projection_retry_keeps_original_parser_context_and_actual_audit(config, library, failures):
+    from copy import deepcopy
+
+    from cemas.control.rule_memory import prepare_patch
+
+    _, prompt, settings = config
+    store, _, _ = library
+    bundle = bundle_for(store)
+    apply(store, bundle, [add_operation(bundle)])
+    rules = store.current_rules()
+    bundle = bundle_for(store)
+    original_bundle, original_rules = deepcopy(bundle), deepcopy(rules)
+    valid = revise(rules[0], [{"window_id": supporting(bundle)[2], "judgment": "support"}])
+    stale = deepcopy(valid)
+    stale["base_version"] += 1
+    bad = {"schema_version": "cemas-public-rule-patch-v3",
+           "operations": [add_operation(bundle, 1), stale]}
+    good = {**bad, "operations": [add_operation(bundle, 1), valid]}
+    responses = [ordinary_response(bad)] * failures
+    if failures < 3:
+        responses.append(ordinary_response(good))
+    transport = Transport(responses)
+    events, waits = [], []
+    feedback = LLMFeedback(transport, Counter(request_tokens), settings, prompt, events,
+        sleeper=waits.append, clock=lambda: 0.,
+        rule_parser=lambda raw, packet, current: prepare_patch(raw, packet, current, store))
+
+    result = feedback.propose(bundle, rules)
+
+    if failures < 3:
+        assert len(result["rules"]) == 2 and len(result["updates"]) == 3
+    else:
+        assert result is None
+    assert len(transport.messages) == min(failures + 1, 3)
+    initial = transport.messages[0]
+    sent = json.loads(initial[1].content)
+    assert list(sent) == ["task_rules", "current_rule_set", "evidence_bundle"]
+    assert "conditions" not in sent["current_rule_set"][0]
+    assert "case_id" not in sent["evidence_bundle"]["weeks"][1]
+    assert "as_of_day" not in sent["evidence_bundle"]
+    for messages in transport.messages[1:]:
+        assert messages[:-1] == initial
+        error = json.loads(messages[-1].content)["validation_error"]
+        assert error["code"] == "stale_version"
+        assert error["path"] == "/operations/1/base_version"
+    calls = [event for event in events if event["event"] == "provider_call"]
+    assert [call["error_code"] for call in calls] == ["stale_version"] * failures + ([None] if failures < 3 else [])
+    for messages, call in zip(transport.messages, calls):
+        assert call["template_version"] == "cemas-rule_distillation-prompt-v6"
+        assert call["packet_hash"] == snapshot_sha256(original_bundle)
+        assert call["messages_sha256"] == snapshot_sha256(messages)
+        assert call["input_tokens"] == request_tokens(messages) == call["response"]["usage"]["prompt_tokens"]
+    assert events[-1]["status"] == ("generated" if failures < 3 else "unavailable")
+    assert waits == [2, 4][:failures]
+    assert bundle == original_bundle and rules == original_rules
+    assert store.current_rules() == original_rules and len(store.rule_updates()) == 2
+
+
+def test_compact_feedback_still_captures_note_fact_values_and_dependencies(config, library):
+    from cemas.control.feedback import case_key
+
+    _, prompt, settings = config
+    store, _, current = library
+
+    def respond(messages):
+        packet = json.loads(messages[1].content)
+        assert "facts" not in packet
+        reference = packet["weeks"][0]
+        identity = reference["window_id"] + ":cost.delivered_notifications"
+        window = next(week for week in packet["weeks"] if week["role"] == "autonomous")
+        item = {"window_id": window["window_id"], "status": "candidate",
+                "finding": {"text": "Observed notifications", "evidence_ids": [identity]},
+                "decision_check": {"text": "Check the next week", "evidence_ids": [identity]},
+                "applicability": "Comparable public state", "limitations": ["Not causal"]}
+        return LLMResponse(json.dumps({"schema_version": "cemas-public-feedback-result-v2", "items": [item]}))
+
+    controller = MemoryLLMController(Transport([respond]), prompt, settings, Counter(),
+        memory_mode="short", store=store, feedback_backend="llm", sleeper=lambda _: None)
+    cases = {case_key(case): case for case in store.cases()}
+    controller._latest_cases = dict(cases)
+    controller._pending_cases = dict(cases)
+    controller._prepare_feedback(current)
+    note, = controller._sent_feedback
+    identity = note["item"]["finding"]["evidence_ids"][0]
+    assert note["facts"][identity]["value"] == 7
+    assert note["facts"][identity]["name"] == "cost.delivered_notifications"
+    assert note["earliest_day"] == 21 and note["generated_for_decision_day"] == 35
+    assert len(note["dependencies"]) == 2
+    assert not controller._pending_cases
 
 
 @pytest.mark.parametrize("memory", [False, True])

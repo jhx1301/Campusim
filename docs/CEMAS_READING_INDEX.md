@@ -32,6 +32,7 @@
 | 2 | [P6 契约](control_phase6_contracts.md)、[P6 计划](control_phase6_implementation_plan.md) | 已有工程入口、历史验证、正式批次和共同冻结的剩余条件 |
 | 2a | [快照 baseline 新计划](baseline_snapshot_training_plan_v1.md)、[使用说明](baseline_snapshot_training.md) | 新任务设计、快照库生成、训练入口、验证及未完成范围 |
 | 2b | [Feedback统一设计](llm_feedback_component_design.md)、[实施合同](PLAN%20(1).md)、[人工样例](llm_feedback_component_examples.json) | 当前持续案例/规则学习、版本与统计、v2库及冻结评估 |
+| 2c | [LLM三种子实验准备](llm_training_experiment_v1.md) | 独立库、32＋32回合且历史世界不重复、离线准备与启动命令；准备不代表实验已运行 |
 | 3 | [推荐协议](llm_recommended_protocol_v1.md)、[控制配置](control_protocol_v1.json)、[记忆配置](control_memory_v1.json) | 共同任务/数值来源及当前独立 P5 配置 |
 | 4 | [P5历史契约](control_phase5_contracts.md)、[P5历史计划](control_phase5_implementation_plan.md)、[架构依据](llm_architecture_research/02_recommended_architecture.md) | 追溯早期设计；弃用案例配对和规则协议以新版为准 |
 | 5 | [P4 契约](control_phase4_contracts.md)、[P3 契约](control_phase3_contracts.md) | LLM 调用与审计、周生命周期、统一奖励和历史验收 |

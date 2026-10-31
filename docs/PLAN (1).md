@@ -1,6 +1,6 @@
 # 新版 Feedback 实施与验收合同
 
-更新：2026-10-28。机制以[统一设计](llm_feedback_component_design.md)为准；[人工样例](llm_feedback_component_examples.json)只说明协议，不是实验结果。
+更新：2026-10-30。机制以[统一设计](llm_feedback_component_design.md)为准；[人工样例](llm_feedback_component_examples.json)只说明协议，不是实验结果。
 
 ## 1. 任务与时间
 
@@ -24,13 +24,13 @@
 
 例如day63输入day28–34作为参考，再加day35–41、42–48、49–55、56–62。day119输入day84–90加day91–118，不需要额外后续周。参考周不能参与规则统计。
 
-周反馈输入为`cemas-public-feedback-input-v3`，结果为`cemas-public-feedback-result-v2`，按`window_id`关联。临时笔记可引用本次发送的事实ID，但这些事实不复制进持久规则。下一次决策前生成经验，允许弃答，决策最多展示两条近期笔记。
+周反馈输入为`cemas-public-feedback-input-v4`，结果为`cemas-public-feedback-result-v2`，按`window_id`关联。发送时保留weeks.values并提供由内部facts派生的reference_fields，不再发送重复facts对象。引用仍用window_id加冒号和字段名，包含完整cost.路径；临时笔记可引用这些已发送事实，但不复制进持久规则。下一次决策前生成经验，允许弃答，决策最多展示两条近期笔记。
 
 ## 3. 聚合规则与轻量判断记录
 
 规则内容只含`condition_ids/lesson/limitations`；规则记录另有ID、内容版本、条件定义、任务身份、状态、支持次数、相悖次数、置信度和更新时间。删除规则逐条evidence、支持/相悖事实ID、removed_evidence及来源失效机制。
 
-`RuleDistiller.propose(bundle,current_rule_set)`收到平铺周序列、固定知识、条件目录和全部当前规则；不补传历史规则证据正文，不分批。输入为`cemas-public-rule-input-v3`，输出为`cemas-public-rule-patch-v3`。
+`RuleDistiller.propose(bundle,current_rule_set)`内部收到平铺周序列、固定知识、条件目录和全部当前规则；不补传历史规则证据正文，不分批。内部bundle为`cemas-public-rule-input-v3`，实际发送投影见第6节；输出仍为`cemas-public-rule-patch-v3`并保留schema_version。
 
 | 操作 | 字段 |
 |---|---|
@@ -86,3 +86,16 @@ confidence = (support_count + 1) / (support_count + contradiction_count + 2)
 补充验收：超原字符上限的合法说明经过解析、ActionProposal和日志；applicability对象、缺cost.引用、参考周ignore及行动前/本周动作混淆返回准确路径。第二次携带具体错误，第三次替换旧错误；连接重试消息不变；纠错输入超限零调用；实际token/hash和最终证据一致；纠错中的未注册ID仍不能引用。回放小型真实计时中的失败响应，仅做离线验证，不自动调用付费模型或改动快照身份。
 
 使用`D:/programfile/miniconda3/envs/simulation/python.exe`。离线工程通过不代表真实模型控制收益，正式训练及科学评价不由本次改造自动启动。
+
+## 6. 输入优化与16回合切换
+
+- 仅发送层使用保序`prompt_json()`，不修改canonical hash或持久化序列化。动作memory置前且knowledge先于动态内容；周反馈task_rules置前。规则请求顶层依次为task_rules、current_rule_set、evidence_bundle，固定知识移出证据包；bundle仅含condition_catalog、weeks、comparisons。
+- 三类请求复用知识投影，删除source/review_status；仅规则维护再省略知识卡version，其他字段及always优先、同类按ID排序保持。动作和周反馈的投影、提示版本不变，完整卡及来源仍本地保存。
+- 规则发送层省略bundle的schema_version/public_task_sha256/as_of_day；每周省略case_id/revision/opaque_group及values内重复的start_day/end_day；规则省略public_task_sha256/updated_at_day/updated_in_episode/conditions/increment。条件定义集中在condition_catalog，规则保留content.condition_ids；保留规则ID、版本、内容、状态、聚合统计和暂停reason，以及周编号、角色、外层日期、公开值及有效性、support_window、行动前动作和匹配条件。内部完整对象、版本和事务均不变。
+- 内部facts及原引用编号保留；wire周反馈只有一次周数值及reference_fields，不新建字段注册表。未知字段、无效值和未发送引用仍拒绝。临时笔记事实值、依赖及期限不变。
+- 发送知识hash、K:registry、cited_evidence与context_hash对齐发送投影；内部packet_hash保留，实际消息hash/token取最终渲染。独立验收从已验证bundle恢复内部卡，核对投影后重建完整请求，不放宽来源或引用资格。
+- 周反馈输入仍v4、提示仍v5；本次仅规则维护提示升级v6，保持输出patch v3、任务hash、学习库schema、模型强度、输出限额、反馈频率与规则维护不变；同步人工样例和审计说明。
+- 离线验收覆盖稳定前缀、删除字段未发送、条件编号均可解析、周数值无损、投影不突变原对象、引用拒绝边界及纠错计数。知识和规则不变时，动态证据不影响evidence_bundle开始前的字节。以历史公开调用离线比较token和公共前缀，不当作真实命中提升。
+- 三组外层监督进程在前16回合完成前暂停，Python训练子进程继续。隔离目录实施并验证；各组正常完成16且完成表确认后结束旧监督进程、冻结16回合副本，再从新版沿用原库与原清单续训17–32。若失败则保留审计，不把失败视为完成。最终产物标明前16旧协议、后16新协议，11/22仍high、33仍low；不额外启动验证或测试集。
+
+上述16回合切换保留为既有运行约定，后半段使用规则提示v5。本次规则提示v6只供后续新启动的运行使用，不改历史审计、学习库、冻结副本或离线报告，不追加付费调用或训练。

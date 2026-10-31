@@ -389,6 +389,15 @@ def test_secondary_output_limit_falls_back_for_existing_protocols(protocol, sett
     assert qwen.max_output_tokens == settings.max_output_tokens
 
 
+@pytest.mark.parametrize("limit", [0, True, -1])
+def test_secondary_output_limit_is_validated_when_building_settings(protocol, settings, limit):
+    definition = resolved_snapshot(protocol.definition)
+    definition["controllers"]["llm"]["secondary_max_output_tokens"] = limit
+    with pytest.raises(LLMConfigurationError):
+        make_llm_settings(replace(protocol, definition=definition), provider="qwen",
+                          endpoint=settings.endpoint, api_key_env=settings.api_key_env)
+
+
 @pytest.mark.parametrize("status,code,category", [
     (429, "insufficient_quota", LLMConfigurationError),
     (429, "Arrearage", LLMConfigurationError),

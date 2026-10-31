@@ -10,7 +10,7 @@ import pytest
 from cemas.control import (ActionResponseError, LLMConfigurationError, LLMResponse, LLMServiceError,
                            PromptBudgetError, legal_action_mask, load_protocol,
                            make_llm_settings, make_public_prompt_config)
-from cemas.control.knowledge import CORE_IDS
+from cemas.control.knowledge import CORE_IDS, knowledge_for_prompt, knowledge_for_prompts
 from cemas.control.llm import build_public_messages
 from cemas.control.llm_memory import (MEMORY_MODES, MemoryLLMController, build_memory_messages,
                                       memory_prompt_config, parse_memory_response)
@@ -20,7 +20,7 @@ from tools.memory_acceptance import (MEMORY_PROBE_MODES, accept_memory_llm,
                                      validate_memory_acceptance)
 from cemas.control.memory_types import (CASE_SCHEMA_VERSION, PublicCase,
                                         RetrievalItem, RetrievalResult, observation_from_dict,
-                                        public_hash, public_to_dict, weekly_record_from_dict)
+                                        canonical_json, prompt_json, public_hash, public_to_dict, weekly_record_from_dict)
 from cemas.control.types import (ActionVector, PublicCost, PublicObservation, PublicPopulation,
                                  PublicResources, PublicWeekFeedback, PublicWeeklyRecord)
 
@@ -152,6 +152,59 @@ def test_four_modes_share_system_knowledge_rates_and_raw_history(config, observa
         if mode in ("none", "short"):
             assert payload["memory"]["retrieval"]["flags"] == ["disabled"]
     assert results["none"][1]["required_uncertainty_codes"] == ["partial_observability", "testing_changed"]
+
+
+def test_knowledge_projection_keeps_semantics_and_local_provenance(config, observation):
+    policy = controller(config)
+    original = policy.knowledge_bundle.as_dict()
+    full_hash = policy.knowledge_bundle.sha256
+    for card in policy.knowledge_bundle.cards:
+        projected = knowledge_for_prompt(card)
+        assert projected == {key: value for key, value in public_to_dict(card).items()
+                             if key not in ("source", "review_status")}
+        assert knowledge_for_prompt(public_to_dict(card)) == projected
+    policy._prepare_input(observation)
+    payload = json.loads(policy._prepared_context.messages[1].content)
+    cards = payload["memory"]["knowledge"]
+    assert cards == knowledge_for_prompts(policy.knowledge_bundle.select(observation))
+    assert all("source" not in card and "review_status" not in card for card in cards)
+    assert policy.knowledge_bundle.as_dict() == original and policy.knowledge_bundle.sha256 == full_hash
+
+
+def test_request_order_preserves_fixed_knowledge_prefix(config, observation):
+    policy = controller(config, mode="short")
+    policy._prepare_input(observation)
+    prepared = policy._prepared_context
+    first = prepared.messages[1].content
+    changed, _, _ = build_memory_messages(replace(observation, decision_day=35), policy.prompt_config,
+                                          prepared.context, learned_rules=[], feedback=[])
+    first_payload = json.loads(first)
+    assert list(first_payload) == ["memory", "observation", "public_rates", "evidence_registry", "required_uncertainty_codes"]
+    assert list(first_payload["memory"]) == ["knowledge", "mode", "recent", "retrieval"]
+    assert list(json.loads(changed[1].content)) == ["memory", "learned_rules", "observation", "public_rates",
+                                                "feedback", "evidence_registry", "required_uncertainty_codes"]
+    prefix = first.split(',"mode":', 1)[0]
+    assert changed[1].content.startswith(prefix)
+    always = [card for card in first_payload["memory"]["knowledge"] if card["trigger"] == "always"]
+    conditional = [card for card in first_payload["memory"]["knowledge"] if card["trigger"] != "always"]
+    assert first_payload["memory"]["knowledge"] == always + conditional
+    assert [card["id"] for card in always] == sorted(card["id"] for card in always)
+    assert canonical_json({"z": 1, "a": 2}) == '{"a":2,"z":1}'
+    assert prompt_json({"z": 1, "a": 2}) == '{"z":1,"a":2}'
+
+
+def test_knowledge_citations_and_context_hash_bind_exact_sent_projection(config, observation):
+    transport = Transport([lambda messages: successful_response(messages, evidence_ids=["K:SIM-01"])])
+    policy = controller(config, transport=transport)
+    policy.decide(observation)
+    payload = json.loads(transport.messages[0][1].content)
+    evidence, = policy.drain_decision_evidence()
+    sent = next(card for card in payload["memory"]["knowledge"] if card["id"] == "SIM-01")
+    assert public_to_dict(evidence["cited_evidence"]["K:SIM-01"]) == sent
+    assert evidence["knowledge_sha256"] == public_hash(payload["memory"]["knowledge"])
+    assert evidence["context_hash"] == public_hash({key: value for key, value in payload.items()
+                                                   if key not in ("observation", "public_rates")})
+    assert evidence["knowledge_bundle_sha256"] == policy.knowledge_bundle.sha256
 
 
 def test_no_global_modes_never_query_supplied_retriever(config, day0):

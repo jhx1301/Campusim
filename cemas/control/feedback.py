@@ -157,10 +157,20 @@ def _feedback_facts(packet):
 def project_feedback(cases, as_of_day, task_hash, *, control_start=7, group_for=None):
     packet = project_week_sequence(cases, as_of_day, task_hash, control_start=control_start,
                                    count=1, group_for=group_for)
-    packet["schema_version"] = "cemas-public-feedback-input-v3"
+    packet["schema_version"] = "cemas-public-feedback-input-v4"
     packet["scope"] = "local"
     packet["facts"] = _feedback_facts(packet)
     return packet
+
+
+def feedback_for_prompt(packet):
+    """Send each public value once and derive citation paths from the fact map."""
+    fields = {week["window_id"]: [] for week in packet["weeks"]}
+    for fact in packet["facts"].values():
+        fields[fact["window_id"]].append(fact["name"])
+    return {**{name: value for name, value in packet.items() if name != "facts"},
+            "weeks": [{**week, "reference_fields": fields[week["window_id"]]}
+                      for week in packet["weeks"]]}
 
 
 def parse_feedback(raw, packet):

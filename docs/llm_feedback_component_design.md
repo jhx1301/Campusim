@@ -1,6 +1,6 @@
 # LLM反馈与持续规则记忆：统一设计
 
-更新：2026-10-28。本文是新版唯一机制合同；[PLAN](PLAN%20(1).md)给出实施顺序与验收，[人工样例](llm_feedback_component_examples.json)给出设计输入输出。旧的嵌套案例窗口和逐事实规则证据协议已弃用，不提供迁移。
+更新：2026-10-30。本文是新版唯一机制合同；[PLAN](PLAN%20(1).md)给出实施顺序与验收，[人工样例](llm_feedback_component_examples.json)给出设计输入输出。旧的嵌套案例窗口和逐事实规则证据协议已弃用，不提供迁移。
 
 ## 1. 数据流与任务
 
@@ -33,9 +33,9 @@
 
 ## 3. 周经验与控制器生命周期
 
-`FeedbackBackend.generate(packet)`接收`cemas-public-feedback-input-v3`。packet包含as_of_day、公开任务hash、weeks、comparisons、facts和固定知识。facts只为本次临时经验和动作审计提供引用，不进入规则存储。
+`FeedbackBackend.generate(packet)`接收`cemas-public-feedback-input-v4`。内部packet包含as_of_day、公开任务hash、weeks、comparisons、facts和固定知识。发送投影移除整个facts对象，每周增加由同一内部facts映射派生的reference_fields，values保留完整公开数值，避免重复发送。内部facts继续用于解析、临时笔记依赖和动作审计，不进入规则存储。
 
-响应为`cemas-public-feedback-result-v2`，每个自主window_id恰好一项：候选给finding、decision_check、applicability、limitations；只有前两者各含text/evidence_ids，applicability直接是字符串，limitations是1–3个字符串。也可用insufficient_evidence、no_new_insight或redundant_with_packet弃答。提示词给出两种最小JSON示例并要求逐字复制facts中的完整引用；例如通知字段是`W:…:cost.delivered_notifications`，不能省略`cost.`。
+响应为`cemas-public-feedback-result-v2`，每个自主window_id恰好一项：候选给finding、decision_check、applicability、limitations；只有前两者各含text/evidence_ids，applicability直接是字符串，limitations是1–3个字符串。也可用insufficient_evidence、no_new_insight或redundant_with_packet弃答。提示词给出两种最小JSON示例，要求按已提供的window_id与reference_fields拼接引用：`window_id + ":" + reference_field`。例如通知字段是`W:…:cost.delivered_notifications`，不能省略`cost.`。解析仍只接受内部facts中已有的完整编号；缺失值、无效growth/proxy和未知字段不能引用。
 
 完整结构与引用检查通过才使用笔记；笔记只在本回合保存，最多展示两条近期项。未发送事实、经验和规则不能被动作响应引用。周经验是建议，不是原始观察或因果证明。
 
@@ -43,7 +43,7 @@
 
 ## 4. 规则内容、判断与版本
 
-`RuleDistiller.propose(evidence_bundle,current_rule_set)`复用现有请求基础设施。bundle为`cemas-public-rule-input-v3`，包含平铺五周、相邻比较、condition_catalog和固定知识；current_rule_set单独提供全部当前规则。请求不复制历史事实证据，也不维护另一份规则注册表。
+`RuleDistiller.propose(evidence_bundle,current_rule_set)`复用现有请求基础设施。内部bundle仍为`cemas-public-rule-input-v3`，包含平铺五周、相邻比较、condition_catalog和完整固定知识；解析和审计继续使用该完整对象。模型收到的user请求则依次为task_rules、全部current_rule_set、evidence_bundle，最后的bundle仅含condition_catalog、weeks、comparisons。固定知识用于解释约束，当前规则是维护对象，只有合法自主窗口参与判断统计；固定知识不构成支持窗口。请求不复制历史事实证据，也不维护另一份规则注册表。
 
 每个自主周附`pre_decision_action`和`matched_condition_ids`，前者直接投影案例前态的current_action，后者由同一适用条件入口依据该周行动前公开状态生成；不重复发送整份历史观察。动作条件`kind=action`始终指决策前已在执行的动作，本周实际动作另见`values.executed_action`。例如决策前A=2、本周改为A=1，该周匹配的行动前动作条件仍是A=2；不能将本周选择的A=1替代它。所选全部条件都须适用于支持/相悖窗口，模型可对照该窗口的matched_condition_ids核对；不适用用ignore。
 
@@ -101,7 +101,23 @@ llm_calls只计动作调用，feedback_events的provider_call计辅助调用；a
 
 独立服务验收工具沿用同一纠错流程。生成报告的最终检查只核对记录完整性和一致性，不重复解析已通过的响应或复算输入；独立读取报告时仍完整验证，重建原始上下文并计数包含可选纠错消息的实际请求。
 
-## 7. 入口与验收边界
+## 7. 输入渲染与固定前缀
+
+`prompt_json()`只负责请求JSON的紧凑渲染，保留字典构造顺序；继续经过现有公开转换，不改变`canonical_json()`、`public_hash()`及持久化身份。三类请求仍使用system＋user两条基础消息，纠错时只追加最近一条user错误信息。
+
+动作user依次为memory、learned_rules（启用时）、observation、public_rates、feedback（启用时）、evidence_registry、required_uncertainty_codes。memory内部依次为knowledge、mode、recent、retrieval。周反馈依次为task_rules、协议标识、weeks、comparisons和日期；规则请求依次为task_rules、current_rule_set、evidence_bundle，bundle内部依次为condition_catalog、weeks、comparisons。相同知识和规则下，改变本轮周记录、条件目录或比较结果不影响evidence_bundle开始前的发送字节。
+
+动作、周反馈、规则维护复用同一知识发送投影。基础投影保留id、version、kind、statement、preconditions、limitations、public_fields、action_dimensions、trigger、priority、conflict_group、supersedes；不向模型发送source和review_status。仅规则维护在此基础上再省略version。always卡优先，同类按ID排序，条件触发卡随后；实际卡片选择规则不变。原KnowledgeCard、知识JSON、完整bundle hash及来源信息仍在本地保留，不新增精简持久化类型。
+
+规则维护发送投影还省略bundle的schema_version/public_task_sha256/as_of_day、每周的case_id/revision/opaque_group和values内重复日期，以及当前规则的任务hash、updated_at_day/updated_in_episode、conditions和上次increment。条件定义集中在condition_catalog，规则只通过content.condition_ids关联；每条规则仍发送id/version/content/status/support_count/contradiction_count/confidence，暂停规则保留reason。每周保留window_id、角色、外层起止日、完整公开值及有效性、support_window、pre_decision_action和matched_condition_ids。growth_valid/proxy_valid不能省略，未知值不当成零。内部定位、去重、版本检查和事务均使用完整原对象，模型输出仍须包含patch v3的schema_version和本次操作increment。
+
+K:引用值、cited_evidence、发送knowledge hash与context_hash基于实际发送投影；完整knowledge_bundle_sha256用于本地溯源。内部packet_hash仍表示完整公开证据包，实际messages_sha256和token数来自同一次最终渲染。临时笔记中被引用的事实值继续保留，不把未发送的完整知识来源记成模型证据。
+
+独立动作验收按发送知识ID从当前已验证bundle恢复内部对象，先确认发送投影、合法选择与核心卡，再逐字重建请求及校验引用；本次无需修改该工具。旧receipt因模板hash变化不再匹配，不自动改写旧报告。周反馈输入v4、提示v5、记忆动作提示v3和学习动作提示v4保持；规则维护单独升级为cemas-rule_distillation-prompt-v6。内部packet_hash不因发送字段省略而改变，实际消息hash、token计数和纠错审计按最终发送消息记录；响应、引用编号、学习库schema和公开任务hash保持不变。
+
+固定前缀优化不承诺服务缓存命中率。离线重渲染仅报告输入token和公共前缀长度；真实命中、重试和费用沿用后续已授权训练的审计记录，不为此自动增加付费试验。
+
+## 8. 入口与验收边界
 
 使用`python -m examples.control_v1.learn_memory`的train/freeze/evaluate。train接收显式episodes、settings、library、output和校准artifact；freeze输出数据库及manifest；evaluate只读冻结库并支持val/test。指定解释器为`D:/programfile/miniconda3/envs/simulation/python.exe`。
 

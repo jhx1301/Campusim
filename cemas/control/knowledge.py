@@ -23,6 +23,18 @@ _PUBLIC_FIELDS = {"history", "week_valid", "feedback.week", "resources", "histor
                   "action_duration_days", "legal_action_mask"}
 
 
+def knowledge_for_prompt(card):
+    """Keep interpretation fields in requests and retain provenance locally."""
+    value = public_to_dict(card)
+    return {name: value[name] for name in ("id", "version", "kind", "statement", "preconditions",
+        "limitations", "public_fields", "action_dimensions", "trigger", "priority", "conflict_group", "supersedes")}
+
+
+def knowledge_for_prompts(cards):
+    projected = [knowledge_for_prompt(card) for card in cards]
+    return sorted(projected, key=lambda card: (card["trigger"] != "always", card["id"]))
+
+
 def _invalid(description):
     raise LLMConfigurationError("invalid_knowledge_bundle", description)
 

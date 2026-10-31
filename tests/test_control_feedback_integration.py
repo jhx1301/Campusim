@@ -197,15 +197,23 @@ def test_full_snapshot_feedback_schedule_and_frozen_evaluation(small_world, tmp_
     assert store.current_rules()[0]["status"] == "active"
     rule_inputs = [json.loads(messages[1].content) for messages in transport.messages
                    if "evidence_bundle" in json.loads(messages[1].content)]
-    assert [payload["evidence_bundle"]["as_of_day"] for payload in rule_inputs] == [35, 63, 91, 119]
+    assert [payload["evidence_bundle"]["weeks"][-1]["end_day"] + 1 for payload in rule_inputs] == [35, 63, 91, 119]
     for payload in rule_inputs:
+        assert list(payload) == ["task_rules", "current_rule_set", "evidence_bundle"]
+        assert all("version" not in card for card in payload["task_rules"])
         bundle = payload["evidence_bundle"]
-        day = bundle["as_of_day"]
+        assert list(bundle) == ["condition_catalog", "weeks", "comparisons"]
+        day = bundle["weeks"][-1]["end_day"] + 1
         assert [(item["start_day"], item["end_day"]) for item in bundle["weeks"]] == [
             (start, start + 6) for start in range(day - 35, day, 7)]
         assert len({item["window_id"] for item in bundle["weeks"]}) == 5
+        for item in bundle["weeks"]:
+            assert not {"case_id", "revision", "opaque_group"} & item.keys()
+            assert not {"start_day", "end_day"} & item["values"].keys()
         assert "facts" not in bundle and "cases" not in bundle
-        assert all("evidence" not in rule for rule in payload["current_rule_set"])
+        for rule in payload["current_rule_set"]:
+            assert set(rule) == {"id", "version", "content", "status", "support_count", "contradiction_count", "confidence"}
+            assert set(rule["content"]["condition_ids"]) <= bundle["condition_catalog"].keys()
     action_inputs = [json.loads(m[1].content) for m in transport.messages
                      if "observation" in json.loads(m[1].content)]
     assert any(payload["learned_rules"] for payload in action_inputs)
@@ -213,6 +221,10 @@ def test_full_snapshot_feedback_schedule_and_frozen_evaluation(small_world, tmp_
     events = [json.loads(line) for line in (result.output_dir / "feedback_events.jsonl").read_text(encoding="utf-8").splitlines()]
     calls = [e for e in events if e["event"] == "provider_call"]
     assert [e["decision_day"] for e in calls if e["purpose"] == "rule_distillation"] == [35, 63, 91, 119]
+    assert all(e["template_version"] == "cemas-rule_distillation-prompt-v6"
+               for e in calls if e["purpose"] == "rule_distillation")
+    assert all(e["template_version"] == "cemas-feedback-prompt-v5"
+               for e in calls if e["purpose"] == "feedback")
     assert [e["decision_day"] for e in calls if e["purpose"] == "feedback"] == list(range(14, 119, 7))
     decisions = [json.loads(line) for line in (result.output_dir / "decisions.jsonl").read_text(encoding="utf-8").splitlines()]
     assert sum(d["llm_attempt_count"] for d in decisions) == 16
@@ -282,7 +294,8 @@ def test_notes_enter_prompt_and_expire_without_followup_revision(small_world):
             if "weeks" in packet and packet["as_of_day"] == 14:
                 self.messages.append(messages)
                 current_week = next(item for item in packet["weeks"] if item["role"] == "autonomous")
-                ref = next(iter(packet["facts"]))
+                reference_week = packet["weeks"][0]
+                ref = reference_week["window_id"] + ":" + reference_week["reference_fields"][0]
                 item = {"window_id": current_week["window_id"], "status": "candidate",
                         "finding": {"text": "Observed testing and burden", "evidence_ids": [ref]},
                         "decision_check": {"text": "Check testing composition", "evidence_ids": [ref]},
@@ -302,6 +315,8 @@ def test_notes_enter_prompt_and_expire_without_followup_revision(small_world):
     policy.decide(current)
     payload = json.loads(transport.messages[-1][1].content)
     assert len(payload["feedback"]) == 1
+    cited = payload["feedback"][0]["item"]["finding"]["evidence_ids"][0]
+    assert payload["feedback"][0]["facts"][cited]["value"] is not None
     old_id = payload["feedback"][0]["id"]
     assert old_id in payload["evidence_registry"]
     policy.decide(current)

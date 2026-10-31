@@ -7,7 +7,7 @@ import sqlite3
 
 import pytest
 
-from cemas.control.feedback import FeedbackResponseError, parse_feedback, project_feedback
+from cemas.control.feedback import FeedbackResponseError, feedback_for_prompt, parse_feedback, project_feedback
 from cemas.control.learning_store import LearningMemoryStore
 from cemas.control.memory import PublicEpisodeMemory, load_memory_profile
 from cemas.control.memory_store import CaseStoreError
@@ -312,3 +312,131 @@ def test_feedback_is_flat_and_abstention_covers_sent_windows(library):
     result["items"].pop()
     with pytest.raises(FeedbackResponseError):
         parse_feedback(json.dumps(result), packet)
+
+
+def test_feedback_wire_has_one_value_copy_and_exact_reference_fields(library):
+    store, _, _ = library
+    packet = project_feedback(store.cases(), 35, store.public_task_sha256, group_for=store.group_for)
+    original = deepcopy(packet)
+    sent = feedback_for_prompt(packet)
+    assert packet == original and "facts" not in sent
+    assert sent["schema_version"] == "cemas-public-feedback-input-v4"
+    references = {}
+    for source, week in zip(packet["weeks"], sent["weeks"]):
+        assert week["values"] == source["values"]
+        for name in week["reference_fields"]:
+            identity = f"{week['window_id']}:{name}"
+            value = week["values"]
+            for field in name.split("."):
+                value = value[field]
+            references[identity] = value
+        assert "growth" not in week["reference_fields"]
+        assert "cost.delivered_notifications" in week["reference_fields"]
+    assert references == {identity: fact["value"] for identity, fact in packet["facts"].items()}
+
+
+def test_auxiliary_payload_keeps_stable_knowledge_before_dynamic_data(library):
+    from cemas.control.knowledge import knowledge_for_prompts, load_knowledge_bundle
+    from cemas.control.llm_feedback import auxiliary_payload
+    from cemas.control.memory_types import prompt_json
+
+    store, _, _ = library
+    cards = load_knowledge_bundle().cards
+    packet = project_feedback(store.cases(), 35, store.public_task_sha256, group_for=store.group_for)
+    packet["task_rules"] = public_to_dict(cards)
+    original = deepcopy(packet)
+    sent = auxiliary_payload(packet)
+    assert list(sent) == ["task_rules", "schema_version", "scope", "public_task_sha256", "weeks", "comparisons", "as_of_day"]
+    assert sent["task_rules"] == knowledge_for_prompts(cards)
+    assert all("source" not in card and "review_status" not in card for card in sent["task_rules"])
+    later = deepcopy(packet)
+    later["as_of_day"] += 7
+    assert prompt_json(sent).split(',"weeks":', 1)[0] == prompt_json(auxiliary_payload(later)).split(',"weeks":', 1)[0]
+    assert packet == original
+
+
+def test_rule_wire_omits_bookkeeping_without_losing_conditions_or_public_values(library):
+    from cemas.control.knowledge import knowledge_for_prompts, load_knowledge_bundle
+    from cemas.control.llm_feedback import auxiliary_payload
+
+    store, _, _ = library
+    bundle = bundle_for(store)
+    apply(store, bundle, [add_operation(bundle, index) for index in range(2)])
+    apply(store, bundle, [{"op": "SUSPEND", "target_id": 2, "base_version": 1,
+                          "reason": "Contradictory observations need review"}])
+    rules = deepcopy(store.current_rules())
+    old_condition = {"kind": "history", "value": 99}
+    identity = "COND:" + public_hash(old_condition)
+    rules[0]["conditions"][identity] = old_condition
+    rules[0]["content"]["condition_ids"].append(identity)
+    cards = load_knowledge_bundle().cards
+    bundle = rule_bundle(store.cases(), rules, store, 35, 7, public_to_dict(cards))
+    original_bundle, original_rules = deepcopy(bundle), deepcopy(rules)
+
+    sent = auxiliary_payload(bundle, rules)
+
+    assert list(sent) == ["task_rules", "current_rule_set", "evidence_bundle"]
+    assert sent["task_rules"] == [{name: value for name, value in card.items() if name != "version"}
+                                  for card in knowledge_for_prompts(cards)]
+    evidence = sent["evidence_bundle"]
+    assert list(evidence) == ["condition_catalog", "weeks", "comparisons"]
+    assert evidence["condition_catalog"] == bundle["condition_catalog"]
+    assert evidence["comparisons"] == bundle["comparisons"]
+    rule_fields = {"id", "version", "content", "status", "support_count", "contradiction_count", "confidence"}
+    for source, rule in zip(rules, sent["current_rule_set"]):
+        expected_fields = rule_fields | ({"reason"} if source["status"] == "suspended" else set())
+        assert set(rule) == expected_fields
+        assert rule == {name: source[name] for name in expected_fields}
+        assert all(evidence["condition_catalog"][key] == source["conditions"][key]
+                   for key in rule["content"]["condition_ids"])
+    for source, week in zip(bundle["weeks"], evidence["weeks"]):
+        expected = {name: value for name, value in source.items()
+                    if name not in ("case_id", "revision", "opaque_group", "values")}
+        expected["values"] = {name: value for name, value in source["values"].items()
+                              if name not in ("start_day", "end_day")}
+        assert week == expected
+    assert not evidence["weeks"][0]["values"]["growth_valid"]
+    assert bundle == original_bundle and rules == original_rules
+
+
+def test_rule_wire_keeps_knowledge_and_rules_before_changing_evidence(library):
+    from cemas.control.knowledge import load_knowledge_bundle
+    from cemas.control.llm_feedback import auxiliary_payload
+    from cemas.control.memory_types import prompt_json
+
+    store, _, _ = library
+    bundle = bundle_for(store)
+    apply(store, bundle, [add_operation(bundle)])
+    rules = store.current_rules()
+    bundle = rule_bundle(store.cases(), rules, store, 35, 7,
+                         public_to_dict(load_knowledge_bundle().cards))
+    original = prompt_json(auxiliary_payload(bundle, rules))
+    later = deepcopy(bundle)
+    later["as_of_day"] += 28
+    later["weeks"][-1]["values"]["delivered_diagnoses"] += 1
+    later["comparisons"][-1]["metrics"]["delivered_diagnoses"] += 1
+    later["condition_catalog"]["COND:new"] = {"kind": "history", "value": 5}
+    changed = prompt_json(auxiliary_payload(later, rules))
+    assert original != changed
+    assert original.split(',"evidence_bundle":', 1)[0] == changed.split(',"evidence_bundle":', 1)[0]
+    different_rules = deepcopy(rules)
+    different_rules[0]["support_count"] += 1
+    changed_rules = prompt_json(auxiliary_payload(bundle, different_rules))
+    assert original != changed_rules
+    assert original.split(',"current_rule_set":', 1)[0] == changed_rules.split(',"current_rule_set":', 1)[0]
+    assert auxiliary_payload(bundle, ())["current_rule_set"] == []
+
+
+@pytest.mark.parametrize("bad_field", ["growth", "unknown", "delivered_notifications"])
+def test_compact_feedback_does_not_authorize_unlisted_field_paths(library, bad_field):
+    store, _, _ = library
+    packet = project_feedback(store.cases(), 35, store.public_task_sha256, group_for=store.group_for)
+    window = next(week for week in packet["weeks"] if week["role"] == "autonomous")
+    identity = f"{window['window_id']}:{bad_field}"
+    item = {"window_id": window["window_id"], "status": "candidate",
+            "finding": {"text": "Observed public change", "evidence_ids": [identity]},
+            "decision_check": {"text": "Check the next week", "evidence_ids": [identity]},
+            "applicability": "Comparable public state", "limitations": ["Not causal"]}
+    with pytest.raises(FeedbackResponseError) as caught:
+        parse_feedback(json.dumps({"schema_version": "cemas-public-feedback-result-v2", "items": [item]}), packet)
+    assert caught.value.code == "invalid_reference"
